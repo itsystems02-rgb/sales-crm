@@ -198,9 +198,10 @@ export default function UnitsPage() {
                   <td>{u.supported_price.toLocaleString()}</td>
                   <td>{u.status}</td>
                   <td>
-                    {u.projects ? `${u.projects.name} (${u.projects.code})` : '-'}
+                    {u.projects.length > 0
+                      ? `${u.projects[0].name} (${u.projects[0].code})`
+                      : '-'}
                   </td>
-                  <td>
                     <Button
                       variant="danger"
                       disabled={deletingId === u.id}

@@ -160,8 +160,8 @@ export default function ClientsPage() {
               {editingId ? 'تعديل' : 'حفظ'}
             </Button>
             {editingId && (
-              <Button className="btn-danger" onClick={resetForm}>
-                إلغاء
+              <Button onClick={resetForm}>
+               إلغاء
               </Button>
             )}
           </div>
@@ -189,9 +189,9 @@ export default function ClientsPage() {
             c.job_sector || '-',
             <div key={c.id} style={{ display: 'flex', gap: 6 }}>
               <Button onClick={() => startEdit(c)}>تعديل</Button>
-              <Button className="btn-danger" onClick={() => deleteClient(c.id)}>
-                حذف
-              </Button>
+             <button className="btn-danger" onClick={() => deleteClient(c.id)}>
+              حذف
+             </button>
             </div>,
           ])}
         />

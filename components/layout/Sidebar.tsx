@@ -18,7 +18,7 @@ export default function Sidebar() {
         الوحدات
       </Link>
       <Link href="/dashboard/clients" className={pathname === '/dashboard/clients' ? 'active' : ''}>
-        الوحدات
+        العملاء
       </Link>
     </aside>
   );

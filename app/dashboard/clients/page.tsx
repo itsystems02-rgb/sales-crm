@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
 
@@ -70,7 +69,6 @@ export default function ClientsPage() {
     setLoading(true);
 
     if (editingId) {
-      // update
       const { error } = await supabase
         .from('clients')
         .update({
@@ -85,7 +83,6 @@ export default function ClientsPage() {
 
       if (error) alert(error.message);
     } else {
-      // insert
       const { error } = await supabase.from('clients').insert({
         name,
         mobile,
@@ -132,16 +129,13 @@ export default function ClientsPage() {
           <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
           <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-         <select
-           value={identityType}
-           onChange={(e) => setIdentityType(e.target.value)}
-         >
-           {IDENTITY_TYPES.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-             {opt.label}
-            </option>
-          ))}
-        </select>
+          <select value={identityType} onChange={(e) => setIdentityType(e.target.value)}>
+            {IDENTITY_TYPES.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
 
           <Input
             placeholder="رقم الهوية"
@@ -159,9 +153,10 @@ export default function ClientsPage() {
             <Button onClick={handleSubmit} disabled={loading}>
               {editingId ? 'تعديل' : 'حفظ'}
             </Button>
+
             {editingId && (
               <Button onClick={resetForm}>
-               إلغاء
+                إلغاء
               </Button>
             )}
           </div>
@@ -170,31 +165,42 @@ export default function ClientsPage() {
 
       {/* List */}
       <Card title="قائمة العملاء">
-        <Table
-          columns={[
-            'الاسم',
-            'الجوال',
-            'الإيميل',
-            'نوع الهوية',
-            'رقم الهوية',
-            'القطاع',
-            'إجراء',
-          ]}
-          data={clients.map((c) => [
-            c.name,
-            c.mobile,
-            c.email || '-',
-            c.identity_type || '-',
-            c.identity_no || '-',
-            c.job_sector || '-',
-            <div key={c.id} style={{ display: 'flex', gap: 6 }}>
-              <Button onClick={() => startEdit(c)}>تعديل</Button>
-             <button className="btn-danger" onClick={() => deleteClient(c.id)}>
-              حذف
-             </button>
-            </div>,
-          ])}
-        />
+        <Table>
+          <thead>
+            <tr>
+              <th>الاسم</th>
+              <th>الجوال</th>
+              <th>الإيميل</th>
+              <th>نوع الهوية</th>
+              <th>رقم الهوية</th>
+              <th>القطاع</th>
+              <th>إجراء</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clients.map((c) => (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>{c.mobile}</td>
+                <td>{c.email || '-'}</td>
+                <td>{c.identity_type || '-'}</td>
+                <td>{c.identity_no || '-'}</td>
+                <td>{c.job_sector || '-'}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Button onClick={() => startEdit(c)}>تعديل</Button>
+                    <button
+                      className="btn-danger"
+                      onClick={() => deleteClient(c.id)}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       </Card>
     </div>
   );

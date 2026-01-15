@@ -10,11 +10,11 @@ export default function Sidebar() {
     <aside className="sidebar">
       <h2>Sales CRM</h2>
 
-      <Link href="/projects" className={pathname === '/projects' ? 'active' : ''}>
+      <Link href="/projects" className={pathname === '/dashboard/projects' ? 'active' : ''}>
         المشاريع
       </Link>
 
-      <Link href="/units" className={pathname === '/units' ? 'active' : ''}>
+      <Link href="/units" className={pathname === '/dashboard/units' ? 'active' : ''}>
         الوحدات
       </Link>
 

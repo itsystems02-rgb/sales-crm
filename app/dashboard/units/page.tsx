@@ -3,17 +3,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-import RequireAuth from '@/components/auth/RequireAuth';
-import Card from '@/components/ui/Card';
-import Input from '@/components/ui/Input';
-import Button from '@/components/ui/Button';
-import Table from '@/components/ui/Table';
-
-type Project = {
-  id: string;
-  name: string;
-  code: string;
-};
+/* =====================
+   Types
+===================== */
 
 type Unit = {
   id: string;
@@ -29,34 +21,40 @@ type Unit = {
   }[];
 };
 
+/* =====================
+   Page
+===================== */
+
 export default function UnitsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // form state
-  const [projectId, setProjectId] = useState('');
   const [unitCode, setUnitCode] = useState('');
   const [blockNo, setBlockNo] = useState('');
   const [unitNo, setUnitNo] = useState('');
   const [unitType, setUnitType] = useState('');
-  const [price, setPrice] = useState('');
+  const [status, setStatus] = useState('available');
+  const [price, setPrice] = useState<number>(0);
+  const [projectId, setProjectId] = useState('');
 
-  async function loadProjects() {
-    const { data } = await supabase
-      .from('projects')
-      .select('id, name, code')
-      .order('created_at', { ascending: false });
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
 
-    setProjects(data || []);
-  }
+  /* =====================
+     Load Data
+  ===================== */
+
+  useEffect(() => {
+    loadUnits();
+    loadProjects();
+  }, []);
 
   async function loadUnits() {
+    setLoading(true);
+
     const { data, error } = await supabase
       .from('units')
-      .select(
-        `
+      .select(`
         id,
         unit_code,
         block_no,
@@ -64,39 +62,53 @@ export default function UnitsPage() {
         unit_type,
         status,
         supported_price,
-        projects:project_id ( name, code )
-      `
-      )
+        projects:project_id (
+          name,
+          code
+        )
+      `)
       .order('created_at', { ascending: false });
 
     if (error) {
       console.error(error);
+      setUnits([]);
+    } else {
+      setUnits((data as Unit[]) || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadProjects() {
+    const { data } = await supabase
+      .from('projects')
+      .select('id, name')
+      .order('name');
+
+    setProjects(data || []);
+  }
+
+  /* =====================
+     Add Unit
+  ===================== */
+
+  async function addUnit() {
+    if (!unitCode || !projectId) {
+      alert('كود الوحدة والمشروع مطلوبين');
       return;
     }
 
-    setUnits(data || []);
-  }
-
-  async function addUnit() {
-    if (!projectId) return alert('اختار مشروع');
-    if (!unitCode.trim()) return alert('اكتب رمز الوحدة');
-    if (!price || Number(price) <= 0) return alert('اكتب سعر الوحدة');
-
-    setLoading(true);
-
     const { error } = await supabase.from('units').insert([
       {
-        project_id: projectId,
-        unit_code: unitCode.trim(),
+        unit_code: unitCode,
         block_no: blockNo || null,
         unit_no: unitNo || null,
         unit_type: unitType || null,
-        supported_price: Number(price),
-        status: 'available',
+        status,
+        supported_price: price,
+        project_id: projectId,
       },
     ]);
-
-    setLoading(false);
 
     if (error) {
       alert(error.message);
@@ -108,85 +120,96 @@ export default function UnitsPage() {
     setBlockNo('');
     setUnitNo('');
     setUnitType('');
-    setPrice('');
+    setStatus('available');
+    setPrice(0);
+    setProjectId('');
 
-    loadUnits();
+    await loadUnits();
   }
 
-  async function deleteUnit(id: string) {
-    const ok = confirm('هل تريد حذف الوحدة؟');
-    if (!ok) return;
-
-    setDeletingId(id);
-    const { error } = await supabase.from('units').delete().eq('id', id);
-    setDeletingId(null);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    loadUnits();
-  }
-
-  useEffect(() => {
-    loadProjects();
-    loadUnits();
-  }, []);
+  /* =====================
+     UI
+  ===================== */
 
   return (
-    <RequireAuth>
-      <div className="page">
-        {/* إضافة وحدة */}
-        <Card title="إضافة وحدة">
-          <div className="form-row">
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">اختر المشروع</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.code})
-                </option>
-              ))}
-            </select>
+    <div className="card">
+      <h2 className="card-title">Units Management</h2>
 
-            <Input
-              value={unitCode}
-              onChange={(e) => setUnitCode(e.target.value)}
-              placeholder="رمز الوحدة"
-            />
-            <Input
-              value={blockNo}
-              onChange={(e) => setBlockNo(e.target.value)}
-              placeholder="رقم البلوك"
-            />
-            <Input
-              value={unitNo}
-              onChange={(e) => setUnitNo(e.target.value)}
-              placeholder="رقم الوحدة"
-            />
-            <Input
-              value={unitType}
-              onChange={(e) => setUnitType(e.target.value)}
-              placeholder="نوع الوحدة"
-            />
-            <Input
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="سعر الوحدة"
-            />
+      {/* ===== Add Unit ===== */}
+      <div className="form-grid">
+        <input
+          placeholder="Unit Code"
+          value={unitCode}
+          onChange={(e) => setUnitCode(e.target.value)}
+        />
 
-            <Button onClick={addUnit} disabled={loading}>
-              {loading ? 'جاري الحفظ...' : 'حفظ'}
-            </Button>
-          </div>
-        </Card>
+        <input
+          placeholder="Block No"
+          value={blockNo}
+          onChange={(e) => setBlockNo(e.target.value)}
+        />
 
-        {/* قائمة الوحدات */}
-        <Card title="قائمة الوحدات">
-          <Table headers={['رمز الوحدة', 'البلوك', 'الوحدة', 'النوع', 'السعر', 'الحالة', 'المشروع', 'إجراء']}>
+        <input
+          placeholder="Unit No"
+          value={unitNo}
+          onChange={(e) => setUnitNo(e.target.value)}
+        />
+
+        <input
+          placeholder="Unit Type"
+          value={unitType}
+          onChange={(e) => setUnitType(e.target.value)}
+        />
+
+        <input
+          type="number"
+          placeholder="Supported Price"
+          value={price || ''}
+          onChange={(e) => setPrice(Number(e.target.value))}
+        />
+
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="available">Available</option>
+          <option value="reserved">Reserved</option>
+          <option value="sold">Sold</option>
+        </select>
+
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <option value="">Select Project</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+
+        <button className="primary-btn" onClick={addUnit}>
+          Add Unit
+        </button>
+      </div>
+
+      {/* ===== Table ===== */}
+      {loading ? (
+        <p className="muted">Loading...</p>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Unit Code</th>
+              <th>Block</th>
+              <th>Unit No</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Project</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody>
             {units.length === 0 ? (
               <tr>
-                <td colSpan={8}>لا توجد وحدات</td>
+                <td colSpan={7} style={{ textAlign: 'center' }}>
+                  No units found
+                </td>
               </tr>
             ) : (
               units.map((u) => (
@@ -195,27 +218,19 @@ export default function UnitsPage() {
                   <td>{u.block_no || '-'}</td>
                   <td>{u.unit_no || '-'}</td>
                   <td>{u.unit_type || '-'}</td>
-                  <td>{u.supported_price.toLocaleString()}</td>
                   <td>{u.status}</td>
                   <td>
                     {u.projects.length > 0
                       ? `${u.projects[0].name} (${u.projects[0].code})`
                       : '-'}
                   </td>
-                    <Button
-                      variant="danger"
-                      disabled={deletingId === u.id}
-                      onClick={() => deleteUnit(u.id)}
-                    >
-                      {deletingId === u.id ? '...' : 'حذف'}
-                    </Button>
-                  </td>
+                  <td>{u.supported_price.toLocaleString()}</td>
                 </tr>
               ))
             )}
-          </Table>
-        </Card>
-      </div>
-    </RequireAuth>
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

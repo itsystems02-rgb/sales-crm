@@ -165,41 +165,38 @@ export default function ClientsPage() {
 
       {/* List */}
       <Card title="قائمة العملاء">
-        <Table>
-          <thead>
-            <tr>
-              <th>الاسم</th>
-              <th>الجوال</th>
-              <th>الإيميل</th>
-              <th>نوع الهوية</th>
-              <th>رقم الهوية</th>
-              <th>القطاع</th>
-              <th>إجراء</th>
+        <Table
+          headers={[
+            'الاسم',
+            'الجوال',
+            'الإيميل',
+            'نوع الهوية',
+            'رقم الهوية',
+            'القطاع',
+            'إجراء',
+          ]}
+        >
+          {clients.map((c) => (
+            <tr key={c.id}>
+              <td>{c.name}</td>
+              <td>{c.mobile}</td>
+              <td>{c.email || '-'}</td>
+              <td>{c.identity_type || '-'}</td>
+              <td>{c.identity_no || '-'}</td>
+              <td>{c.job_sector || '-'}</td>
+              <td>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Button onClick={() => startEdit(c)}>تعديل</Button>
+                  <button
+                    className="btn-danger"
+                    onClick={() => deleteClient(c.id)}
+                  >
+                    حذف
+                  </button>
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {clients.map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.mobile}</td>
-                <td>{c.email || '-'}</td>
-                <td>{c.identity_type || '-'}</td>
-                <td>{c.identity_no || '-'}</td>
-                <td>{c.job_sector || '-'}</td>
-                <td>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <Button onClick={() => startEdit(c)}>تعديل</Button>
-                    <button
-                      className="btn-danger"
-                      onClick={() => deleteClient(c.id)}
-                    >
-                      حذف
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          ))}
         </Table>
       </Card>
     </div>

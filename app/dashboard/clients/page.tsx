@@ -2,235 +2,195 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import Card from '@/components/ui/Card';
+import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
+import Button from '@/components/ui/Button';
+import Table from '@/components/ui/Table';
 
-/* =====================
-   Types
-===================== */
-
-type Unit = {
+type Client = {
   id: string;
-  unit_code: string;
-  block_no: string | null;
-  unit_no: string | null;
-  unit_type: string | null;
-  status: string;
-  supported_price: number;
-  projects: {
-    name: string;
-    code: string;
-  }[];
+  name: string;
+  mobile: string;
+  email: string | null;
+  identity_type: string | null;
+  identity_no: string | null;
+  job_sector: string | null;
 };
 
-/* =====================
-   Page
-===================== */
+const IDENTITY_TYPES = [
+  { value: '', label: 'اختر نوع الهوية' },
+  { value: 'national_id', label: 'بطاقة شخصية' },
+  { value: 'passport', label: 'جواز سفر' },
+  { value: 'residence', label: 'إقامة' },
+];
 
-export default function UnitsPage() {
-  const [units, setUnits] = useState<Unit[]>([]);
+export default function ClientsPage() {
+  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(false);
 
   // form state
-  const [unitCode, setUnitCode] = useState('');
-  const [blockNo, setBlockNo] = useState('');
-  const [unitNo, setUnitNo] = useState('');
-  const [unitType, setUnitType] = useState('');
-  const [status, setStatus] = useState('available');
-  const [price, setPrice] = useState<number>(0);
-  const [projectId, setProjectId] = useState('');
-
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-
-  /* =====================
-     Load Data
-  ===================== */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [email, setEmail] = useState('');
+  const [identityType, setIdentityType] = useState('');
+  const [identityNo, setIdentityNo] = useState('');
+  const [jobSector, setJobSector] = useState('');
 
   useEffect(() => {
-    loadUnits();
-    loadProjects();
+    fetchClients();
   }, []);
 
-  async function loadUnits() {
-    setLoading(true);
-
+  async function fetchClients() {
     const { data, error } = await supabase
-      .from('units')
-      .select(`
-        id,
-        unit_code,
-        block_no,
-        unit_no,
-        unit_type,
-        status,
-        supported_price,
-        projects:project_id (
-          name,
-          code
-        )
-      `)
+      .from('clients')
+      .select('id,name,mobile,email,identity_type,identity_no,job_sector')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error(error);
-      setUnits([]);
+    if (!error) setClients(data || []);
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setName('');
+    setMobile('');
+    setEmail('');
+    setIdentityType('');
+    setIdentityNo('');
+    setJobSector('');
+  }
+
+  async function handleSubmit() {
+    if (!name || !mobile) {
+      alert('الاسم ورقم الجوال مطلوبين');
+      return;
+    }
+
+    setLoading(true);
+
+    if (editingId) {
+      // update
+      const { error } = await supabase
+        .from('clients')
+        .update({
+          name,
+          mobile,
+          email: email || null,
+          identity_type: identityType || null,
+          identity_no: identityNo || null,
+          job_sector: jobSector || null,
+        })
+        .eq('id', editingId);
+
+      if (error) alert(error.message);
     } else {
-      setUnits((data as Unit[]) || []);
+      // insert
+      const { error } = await supabase.from('clients').insert({
+        name,
+        mobile,
+        email: email || null,
+        identity_type: identityType || null,
+        identity_no: identityNo || null,
+        job_sector: jobSector || null,
+        status: 'lead',
+      });
+
+      if (error) alert(error.message);
     }
 
     setLoading(false);
+    resetForm();
+    fetchClients();
   }
 
-  async function loadProjects() {
-    const { data } = await supabase
-      .from('projects')
-      .select('id, name')
-      .order('name');
-
-    setProjects(data || []);
+  function startEdit(c: Client) {
+    setEditingId(c.id);
+    setName(c.name);
+    setMobile(c.mobile);
+    setEmail(c.email || '');
+    setIdentityType(c.identity_type || '');
+    setIdentityNo(c.identity_no || '');
+    setJobSector(c.job_sector || '');
   }
 
-  /* =====================
-     Add Unit
-  ===================== */
+  async function deleteClient(id: string) {
+    if (!confirm('هل أنت متأكد من الحذف؟')) return;
 
-  async function addUnit() {
-    if (!unitCode || !projectId) {
-      alert('كود الوحدة والمشروع مطلوبين');
-      return;
-    }
+    const { error } = await supabase.from('clients').delete().eq('id', id);
+    if (error) alert(error.message);
 
-    const { error } = await supabase.from('units').insert([
-      {
-        unit_code: unitCode,
-        block_no: blockNo || null,
-        unit_no: unitNo || null,
-        unit_type: unitType || null,
-        status,
-        supported_price: price,
-        project_id: projectId,
-      },
-    ]);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    // reset
-    setUnitCode('');
-    setBlockNo('');
-    setUnitNo('');
-    setUnitType('');
-    setStatus('available');
-    setPrice(0);
-    setProjectId('');
-
-    await loadUnits();
+    fetchClients();
   }
-
-  /* =====================
-     UI
-  ===================== */
 
   return (
-    <div className="card">
-      <h2 className="card-title">Units Management</h2>
+    <div className="page">
+      {/* Add / Edit */}
+      <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
+        <div className="form-col">
+          <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-      {/* ===== Add Unit ===== */}
-      <div className="form-grid">
-        <input
-          placeholder="Unit Code"
-          value={unitCode}
-          onChange={(e) => setUnitCode(e.target.value)}
-        />
+          <Select
+            value={identityType}
+            onChange={(e) => setIdentityType(e.target.value)}
+            options={IDENTITY_TYPES}
+          />
 
-        <input
-          placeholder="Block No"
-          value={blockNo}
-          onChange={(e) => setBlockNo(e.target.value)}
-        />
+          <Input
+            placeholder="رقم الهوية"
+            value={identityNo}
+            onChange={(e) => setIdentityNo(e.target.value)}
+          />
 
-        <input
-          placeholder="Unit No"
-          value={unitNo}
-          onChange={(e) => setUnitNo(e.target.value)}
-        />
+          <Input
+            placeholder="القطاع الوظيفي"
+            value={jobSector}
+            onChange={(e) => setJobSector(e.target.value)}
+          />
 
-        <input
-          placeholder="Unit Type"
-          value={unitType}
-          onChange={(e) => setUnitType(e.target.value)}
-        />
-
-        <input
-          type="number"
-          placeholder="Supported Price"
-          value={price || ''}
-          onChange={(e) => setPrice(Number(e.target.value))}
-        />
-
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="available">Available</option>
-          <option value="reserved">Reserved</option>
-          <option value="sold">Sold</option>
-        </select>
-
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">Select Project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <button className="primary-btn" onClick={addUnit}>
-          Add Unit
-        </button>
-      </div>
-
-      {/* ===== Table ===== */}
-      {loading ? (
-        <p className="muted">Loading...</p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Unit Code</th>
-              <th>Block</th>
-              <th>Unit No</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Project</th>
-              <th>Price</th>
-            </tr>
-          </thead>
-          <tbody>
-            {units.length === 0 ? (
-              <tr>
-                <td colSpan={7} style={{ textAlign: 'center' }}>
-                  No units found
-                </td>
-              </tr>
-            ) : (
-              units.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.unit_code}</td>
-                  <td>{u.block_no || '-'}</td>
-                  <td>{u.unit_no || '-'}</td>
-                  <td>{u.unit_type || '-'}</td>
-                  <td>{u.status}</td>
-                  <td>
-                    {u.projects.length > 0
-                      ? `${u.projects[0].name} (${u.projects[0].code})`
-                      : '-'}
-                  </td>
-                  <td>{u.supported_price.toLocaleString()}</td>
-                </tr>
-              ))
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button onClick={handleSubmit} disabled={loading}>
+              {editingId ? 'تعديل' : 'حفظ'}
+            </Button>
+            {editingId && (
+              <Button className="btn-danger" onClick={resetForm}>
+                إلغاء
+              </Button>
             )}
-          </tbody>
-        </table>
-      )}
+          </div>
+        </div>
+      </Card>
+
+      {/* List */}
+      <Card title="قائمة العملاء">
+        <Table
+          columns={[
+            'الاسم',
+            'الجوال',
+            'الإيميل',
+            'نوع الهوية',
+            'رقم الهوية',
+            'القطاع',
+            'إجراء',
+          ]}
+          data={clients.map((c) => [
+            c.name,
+            c.mobile,
+            c.email || '-',
+            c.identity_type || '-',
+            c.identity_no || '-',
+            c.job_sector || '-',
+            <div key={c.id} style={{ display: 'flex', gap: 6 }}>
+              <Button onClick={() => startEdit(c)}>تعديل</Button>
+              <Button className="btn-danger" onClick={() => deleteClient(c.id)}>
+                حذف
+              </Button>
+            </div>,
+          ])}
+        />
+      </Card>
     </div>
   );
 }

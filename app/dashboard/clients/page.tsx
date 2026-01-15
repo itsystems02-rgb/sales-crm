@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -25,6 +26,8 @@ const IDENTITY_TYPES = [
 ];
 
 export default function ClientsPage() {
+  const router = useRouter();
+
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -186,7 +189,12 @@ export default function ClientsPage() {
               <td>{c.job_sector || '-'}</td>
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
+                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>
+                    فتح
+                  </Button>
+
                   <Button onClick={() => startEdit(c)}>تعديل</Button>
+
                   <button
                     className="btn-danger"
                     onClick={() => deleteClient(c.id)}

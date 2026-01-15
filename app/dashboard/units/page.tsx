@@ -23,7 +23,10 @@ type Unit = {
   unit_type: string | null;
   status: string;
   supported_price: number;
-  projects?: { name: string; code: string } | null;
+  projects: {
+    name: string;
+    code: string;
+  }[];
 };
 
 export default function UnitsPage() {

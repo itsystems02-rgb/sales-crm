@@ -1,0 +1,15 @@
+@import './variables.css';
+@import './layout.css';
+@import './forms.css';
+@import './tables.css';
+
+* {
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}

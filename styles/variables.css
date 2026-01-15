@@ -1,0 +1,17 @@
+:root {
+  --bg: #f4f6f8;
+  --card: #ffffff;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+
+  --radius: 10px;
+  --shadow: 0 8px 24px rgba(0,0,0,0.06);
+}

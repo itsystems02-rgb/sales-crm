@@ -33,20 +33,16 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   }, [clientId]);
 
   async function fetchFollowUps() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('client_followups')
       .select('*')
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
-    if (!error) {
-      setItems((data as FollowUp[]) || []);
-    }
+    setItems((data as FollowUp[]) || []);
   }
 
   async function addFollowUp() {
-    if (!clientId) return;
-
     setLoading(true);
 
     const { error } = await supabase.from('client_followups').insert({
@@ -62,7 +58,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       return;
     }
 
-    // تغيير حالة العميل تلقائي
+    // تحديث حالة العميل تلقائي
     const status = type === 'visit' ? 'visited' : 'interested';
 
     await supabase
@@ -78,13 +74,9 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
   return (
     <>
-      {/* Add follow-up */}
       <Card title="إضافة متابعة">
         <div className="form-col">
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value as any)}
-          >
+          <select value={type} onChange={(e) => setType(e.target.value as any)}>
             {TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
@@ -111,16 +103,8 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         </div>
       </Card>
 
-      {/* List follow-ups */}
       <Card title="سجل المتابعات">
-        <Table
-          headers={[
-            'النوع',
-            'الملاحظات',
-            'المتابعة القادمة',
-            'التاريخ',
-          ]}
-        >
+        <Table headers={['النوع', 'الملاحظات', 'المتابعة القادمة', 'التاريخ']}>
           {items.map((f) => (
             <tr key={f.id}>
               <td>{f.type}</td>

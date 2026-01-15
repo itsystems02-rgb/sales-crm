@@ -132,11 +132,16 @@ export default function ClientsPage() {
           <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
           <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
 
-          <Select
-            value={identityType}
-            onChange={(e) => setIdentityType(e.target.value)}
-            options={IDENTITY_TYPES}
-          />
+         <select
+           value={identityType}
+           onChange={(e) => setIdentityType(e.target.value)}
+         >
+           {IDENTITY_TYPES.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+             {opt.label}
+            </option>
+          ))}
+        </select>
 
           <Input
             placeholder="رقم الهوية"

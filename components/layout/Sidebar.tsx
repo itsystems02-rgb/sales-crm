@@ -17,9 +17,9 @@ export default function Sidebar() {
       <Link href="/dashboard/units" className={pathname === '/dashboard/units' ? 'active' : ''}>
         الوحدات
       </Link>
-
-      {/* جاهزين نزوّد */}
-      {/* <Link href="/clients">العملاء</Link> */}
+      <Link href="/dashboard/clients" className={pathname === '/dashboard/clients' ? 'active' : ''}>
+        الوحدات
+      </Link>
     </aside>
   );
 }

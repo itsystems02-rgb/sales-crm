@@ -1,5 +1,5 @@
 :root {
-  --bg: #f4f6f8;
+  --bg: #f8fafc;
   --card: #ffffff;
 
   --primary: #2563eb;
@@ -9,9 +9,12 @@
   --danger-hover: #dc2626;
 
   --border: #e5e7eb;
-  --text: #111827;
-  --muted: #6b7280;
+  --text: #0f172a;
+  --muted: #64748b;
 
-  --radius: 10px;
-  --shadow: 0 8px 24px rgba(0,0,0,0.06);
+  --radius: 14px;
+  --radius-sm: 8px;
+
+  --shadow-sm: 0 4px 12px rgba(0,0,0,0.04);
+  --shadow: 0 12px 30px rgba(0,0,0,0.06);
 }

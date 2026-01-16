@@ -8,15 +8,48 @@ th {
   text-align: left;
   color: var(--muted);
   font-weight: 600;
-  border-bottom: 2px solid var(--border);
-  padding: 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 12px;
 }
 
 td {
-  padding: 10px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--border);
 }
 
-tr:hover td {
-  background: #f9fafb;
+tbody tr {
+  transition: background 0.15s ease;
+}
+
+tbody tr:hover {
+  background: #f1f5f9;
+}
+
+/* ===== Status Badges ===== */
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.badge.available {
+  background: #ecfeff;
+  color: #0369a1;
+}
+
+.badge.reserved {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.badge.sold {
+  background: #fef2f2;
+  color: #b91c1c;
 }

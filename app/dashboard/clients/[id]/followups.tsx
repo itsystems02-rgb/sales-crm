@@ -11,6 +11,7 @@ type FollowUp = {
   type: 'call' | 'whatsapp' | 'visit';
   notes: string | null;
   next_follow_up_date: string | null;
+  visit_location: string | null;
   created_at: string;
 };
 
@@ -25,12 +26,37 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   const [type, setType] = useState<'call' | 'whatsapp' | 'visit'>('call');
   const [notes, setNotes] = useState('');
   const [nextDate, setNextDate] = useState('');
+  const [visitLocation, setVisitLocation] = useState('');
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  /* =========================
+     LOAD DATA
+  ========================= */
 
   useEffect(() => {
     fetchFollowUps();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
+
+  useEffect(() => {
+    getEmployee();
+  }, []);
+
+  async function getEmployee() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.email) return;
+
+    const { data } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('email', user.email)
+      .single();
+
+    if (data) setEmployeeId(data.id);
+  }
 
   async function fetchFollowUps() {
     const { data } = await supabase
@@ -42,14 +68,30 @@ export default function FollowUps({ clientId }: { clientId: string }) {
     setItems((data as FollowUp[]) || []);
   }
 
+  /* =========================
+     ADD FOLLOW UP
+  ========================= */
+
   async function addFollowUp() {
+    if (!employeeId) {
+      alert('لم يتم تحديد الموظف');
+      return;
+    }
+
+    if (type === 'visit' && !visitLocation) {
+      alert('من فضلك أدخل مكان الزيارة');
+      return;
+    }
+
     setLoading(true);
 
     const { error } = await supabase.from('client_followups').insert({
       client_id: clientId,
+      employee_id: employeeId,
       type,
       notes: notes || null,
       next_follow_up_date: nextDate || null,
+      visit_location: type === 'visit' ? visitLocation : null,
     });
 
     if (error) {
@@ -61,16 +103,21 @@ export default function FollowUps({ clientId }: { clientId: string }) {
     // تحديث حالة العميل تلقائي
     const status = type === 'visit' ? 'visited' : 'interested';
 
-    await supabase
-      .from('clients')
-      .update({ status })
-      .eq('id', clientId);
+    await supabase.from('clients').update({ status }).eq('id', clientId);
 
+    // reset
     setNotes('');
     setNextDate('');
+    setVisitLocation('');
+    setType('call');
     setLoading(false);
+
     fetchFollowUps();
   }
+
+  /* =========================
+     UI
+  ========================= */
 
   return (
     <>
@@ -83,6 +130,14 @@ export default function FollowUps({ clientId }: { clientId: string }) {
               </option>
             ))}
           </select>
+
+          {type === 'visit' && (
+            <input
+              placeholder="مكان الزيارة"
+              value={visitLocation}
+              onChange={(e) => setVisitLocation(e.target.value)}
+            />
+          )}
 
           <textarea
             placeholder="ملاحظات"
@@ -104,11 +159,20 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       </Card>
 
       <Card title="سجل المتابعات">
-        <Table headers={['النوع', 'الملاحظات', 'المتابعة القادمة', 'التاريخ']}>
+        <Table
+          headers={[
+            'النوع',
+            'الملاحظات',
+            'مكان الزيارة',
+            'المتابعة القادمة',
+            'التاريخ',
+          ]}
+        >
           {items.map((f) => (
             <tr key={f.id}>
               <td>{f.type}</td>
               <td>{f.notes || '-'}</td>
+              <td>{f.visit_location || '-'}</td>
               <td>{f.next_follow_up_date || '-'}</td>
               <td>{new Date(f.created_at).toLocaleDateString()}</td>
             </tr>

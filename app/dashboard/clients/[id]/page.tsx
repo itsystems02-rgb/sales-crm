@@ -16,10 +16,6 @@ type BankRef = {
   name: string;
 };
 
-type JobSectorRef = {
-  name: string;
-};
-
 type Client = {
   id: string;
   name: string;
@@ -33,9 +29,9 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  salary_bank: BankRef | null;
-  finance_bank: BankRef | null;
-  job_sector: JobSectorRef | null;
+  salary_bank: BankRef[] | null;
+  finance_bank: BankRef[] | null;
+  job_sector: BankRef[] | null;
 
   status: string;
   created_at: string;
@@ -51,6 +47,7 @@ export default function ClientPage() {
 
   const [client, setClient] = useState<Client | null>(null);
   const [tab, setTab] = useState<'details' | 'followups'>('details');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchClient();
@@ -58,6 +55,8 @@ export default function ClientPage() {
   }, [clientId]);
 
   async function fetchClient() {
+    setLoading(true);
+
     const { data, error } = await supabase
       .from('clients')
       .select(`
@@ -81,14 +80,20 @@ export default function ClientPage() {
 
     if (error) {
       console.error(error);
-      return;
+      setClient(null);
+    } else {
+      setClient(data);
     }
 
-    setClient(data);
+    setLoading(false);
+  }
+
+  if (loading) {
+    return <div className="page">جاري التحميل...</div>;
   }
 
   if (!client) {
-    return <div className="page">جاري التحميل...</div>;
+    return <div className="page">العميل غير موجود</div>;
   }
 
   return (
@@ -141,15 +146,15 @@ export default function ClientPage() {
             <div className="details-grid">
               <p>
                 <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.name || '-'}
+                {client.job_sector?.[0]?.name || '-'}
               </p>
               <p>
                 <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.name || '-'}
+                {client.salary_bank?.[0]?.name || '-'}
               </p>
               <p>
                 <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.name || '-'}
+                {client.finance_bank?.[0]?.name || '-'}
               </p>
             </div>
           </Card>

@@ -56,18 +56,21 @@ export default function ClientsPage() {
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 👈 مهم
+  // 🔴 مهم للتعديل
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // form
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
+
   const [identityType, setIdentityType] = useState('');
   const [identityNo, setIdentityNo] = useState('');
+
   const [eligible, setEligible] = useState(true);
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
+
   const [salaryBankId, setSalaryBankId] = useState('');
   const [financeBankId, setFinanceBankId] = useState('');
   const [jobSectorId, setJobSectorId] = useState('');
@@ -83,14 +86,21 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'saudi') setResidencyType('');
+    if (nationality !== 'saudi') {
+      setResidencyType('');
+    }
   }, [nationality]);
 
   async function fetchClients() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('clients')
       .select('id,name,eligible,status,created_at')
       .order('created_at', { ascending: false });
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
 
     setClients(data || []);
   }
@@ -162,15 +172,18 @@ export default function ClientsPage() {
     fetchClients();
   }
 
-  // 👈 زرار تعديل
+  // 🟢 تحميل بيانات العميل للتعديل
   async function startEdit(id: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('clients')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (!data) return;
+    if (error || !data) {
+      alert('فشل تحميل بيانات العميل');
+      return;
+    }
 
     setEditingId(data.id);
     setName(data.name);
@@ -232,28 +245,57 @@ export default function ClientsPage() {
               </select>
             )}
 
-            <Button onClick={handleSubmit} disabled={loading}>
-              {editingId ? 'تعديل' : 'حفظ'}
-            </Button>
+            <select value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)}>
+              <option value="">بنك الراتب</option>
+              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
 
-            {editingId && <Button onClick={resetForm}>إلغاء</Button>}
+            <select value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)}>
+              <option value="">بنك التمويل</option>
+              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+
+            <select value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)}>
+              <option value="">القطاع الوظيفي</option>
+              {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
+            </select>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button onClick={handleSubmit} disabled={loading}>
+                {editingId ? 'تعديل' : 'حفظ'}
+              </Button>
+
+              {editingId && (
+                <Button onClick={resetForm}>
+                  إلغاء
+                </Button>
+              )}
+            </div>
           </div>
         </Card>
 
         <Card title="قائمة العملاء">
           <Table headers={['الاسم', 'مستحق', 'الحالة', 'إجراء']}>
-            {clients.map(c => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                <td>{c.status}</td>
-                <td>
-                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                  <Button onClick={() => startEdit(c.id)}>تعديل</Button>
-                  <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
-                </td>
+            {clients.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td>
               </tr>
-            ))}
+            ) : (
+              clients.map(c => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                  <td>{c.status}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                      <Button onClick={() => startEdit(c.id)}>تعديل</Button>
+                      <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </Table>
         </Card>
       </div>

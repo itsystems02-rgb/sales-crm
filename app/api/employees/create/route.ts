@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error('Supabase env variables are missing');
+}
+
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  supabaseUrl,
+  serviceRoleKey
 );
 
 export async function POST(req: Request) {
@@ -25,7 +32,10 @@ export async function POST(req: Request) {
     });
 
   if (authError) {
-    return NextResponse.json({ error: authError.message }, { status: 400 });
+    return NextResponse.json(
+      { error: authError.message },
+      { status: 400 }
+    );
   }
 
   const { error: dbError } = await supabaseAdmin
@@ -42,7 +52,10 @@ export async function POST(req: Request) {
     });
 
   if (dbError) {
-    return NextResponse.json({ error: dbError.message }, { status: 400 });
+    return NextResponse.json(
+      { error: dbError.message },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json({ success: true });

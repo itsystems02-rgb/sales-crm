@@ -14,33 +14,17 @@ import Table from '@/components/ui/Table';
    Types
 ===================== */
 
-type Client = {
-  id: string;
-  name: string;
-  mobile: string;
-  email: string | null;
-
-  identity_type: string | null;
-  identity_no: string | null;
-
-  eligible: boolean;
-  nationality: 'saudi' | 'non_saudi';
-  residency_type: string | null;
-
-  salary_bank_id: string | null;
-  finance_bank_id: string | null;
-  job_sector_id: string | null;
-
-  status: string;
-  created_at: string;
-};
-
 type ClientListItem = {
   id: string;
   name: string;
   eligible: boolean;
   status: string;
   created_at: string;
+};
+
+type Option = {
+  id: string;
+  name: string;
 };
 
 /* =====================
@@ -58,14 +42,6 @@ const RESIDENCY_TYPES = [
   { value: 'residence', label: 'إقامة' },
   { value: 'golden', label: 'إقامة ذهبية' },
   { value: 'premium', label: 'إقامة مميزة' },
-  { value: 'passport', label: 'جواز سفر' },
-];
-
-const STATUS_OPTIONS = [
-  { value: 'lead', label: 'جديد' },
-  { value: 'interested', label: 'مهتم' },
-  { value: 'booked', label: 'محجوز' },
-  { value: 'lost', label: 'مفقود' },
 ];
 
 /* =====================
@@ -76,11 +52,11 @@ export default function ClientsPage() {
   const router = useRouter();
 
   const [clients, setClients] = useState<ClientListItem[]>([]);
+  const [banks, setBanks] = useState<Option[]>([]);
+  const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
 
   // form
-  const [editingId, setEditingId] = useState<string | null>(null);
-
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
@@ -92,7 +68,9 @@ export default function ClientsPage() {
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
 
-  const [status, setStatus] = useState('lead');
+  const [salaryBankId, setSalaryBankId] = useState('');
+  const [financeBankId, setFinanceBankId] = useState('');
+  const [jobSectorId, setJobSectorId] = useState('');
 
   /* =====================
      LOAD
@@ -100,10 +78,14 @@ export default function ClientsPage() {
 
   useEffect(() => {
     fetchClients();
+    fetchBanks();
+    fetchJobSectors();
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'saudi') setResidencyType('');
+    if (nationality !== 'saudi') {
+      setResidencyType('');
+    }
   }, [nationality]);
 
   async function fetchClients() {
@@ -120,12 +102,21 @@ export default function ClientsPage() {
     setClients(data || []);
   }
 
+  async function fetchBanks() {
+    const { data } = await supabase.from('banks').select('id,name').order('name');
+    setBanks(data || []);
+  }
+
+  async function fetchJobSectors() {
+    const { data } = await supabase.from('job_sectors').select('id,name').order('name');
+    setJobSectors(data || []);
+  }
+
   /* =====================
      FORM
   ===================== */
 
   function resetForm() {
-    setEditingId(null);
     setName('');
     setMobile('');
     setEmail('');
@@ -134,7 +125,9 @@ export default function ClientsPage() {
     setEligible(true);
     setNationality('saudi');
     setResidencyType('');
-    setStatus('lead');
+    setSalaryBankId('');
+    setFinanceBankId('');
+    setJobSectorId('');
   }
 
   async function handleSubmit() {
@@ -154,15 +147,16 @@ export default function ClientsPage() {
       eligible,
       nationality,
       residency_type: nationality === 'saudi' ? residencyType || null : null,
-      status,
+      salary_bank_id: salaryBankId || null,
+      finance_bank_id: financeBankId || null,
+      job_sector_id: jobSectorId || null,
+      status: 'lead', // تلقائي
     };
 
-    const res = editingId
-      ? await supabase.from('clients').update(payload).eq('id', editingId)
-      : await supabase.from('clients').insert(payload);
+    const { error } = await supabase.from('clients').insert(payload);
 
-    if (res.error) {
-      alert(res.error.message);
+    if (error) {
+      alert(error.message);
       setLoading(false);
       return;
     }
@@ -170,10 +164,6 @@ export default function ClientsPage() {
     setLoading(false);
     resetForm();
     fetchClients();
-  }
-
-  function startEdit(c: ClientListItem) {
-    router.push(`/dashboard/clients/${c.id}`);
   }
 
   async function deleteClient(id: string) {
@@ -189,7 +179,7 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
+        <Card title="إضافة عميل">
           <div className="form-col">
             <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
             <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
@@ -222,10 +212,19 @@ export default function ClientsPage() {
               </select>
             )}
 
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUS_OPTIONS.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
+            <select value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)}>
+              <option value="">بنك الراتب</option>
+              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+
+            <select value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)}>
+              <option value="">بنك التمويل</option>
+              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+
+            <select value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)}>
+              <option value="">القطاع الوظيفي</option>
+              {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
             </select>
 
             <Button onClick={handleSubmit} disabled={loading}>
@@ -245,7 +244,7 @@ export default function ClientsPage() {
                 <tr key={c.id}>
                   <td>{c.name}</td>
                   <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{STATUS_OPTIONS.find(s => s.value === c.status)?.label}</td>
+                  <td>{c.status}</td>
                   <td>
                     <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
                     <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>

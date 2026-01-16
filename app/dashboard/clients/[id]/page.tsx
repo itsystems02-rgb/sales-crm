@@ -12,7 +12,11 @@ import FollowUps from './followups';
    Types
 ===================== */
 
-type RelationItem = {
+type BankRef = {
+  name: string;
+};
+
+type JobSectorRef = {
   name: string;
 };
 
@@ -29,10 +33,9 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  // ✅ Supabase يرجع Arrays
-  salary_bank: RelationItem[] | null;
-  finance_bank: RelationItem[] | null;
-  job_sector: RelationItem[] | null;
+  salary_bank: BankRef | null;
+  finance_bank: BankRef | null;
+  job_sector: JobSectorRef | null;
 
   status: string;
   created_at: string;
@@ -51,6 +54,7 @@ export default function ClientPage() {
 
   useEffect(() => {
     fetchClient();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
   async function fetchClient() {
@@ -70,7 +74,7 @@ export default function ClientPage() {
         created_at,
         salary_bank:banks!clients_salary_bank_id_fkey(name),
         finance_bank:banks!clients_finance_bank_id_fkey(name),
-        job_sector:job_sectors(name)
+        job_sector:job_sectors!clients_job_sector_id_fkey(name)
       `)
       .eq('id', clientId)
       .single();
@@ -80,7 +84,7 @@ export default function ClientPage() {
       return;
     }
 
-    setClient(data as Client);
+    setClient(data);
   }
 
   if (!client) {
@@ -104,7 +108,7 @@ export default function ClientPage() {
       ===================== */}
       {tab === 'details' && (
         <>
-          {/* البيانات الأساسية */}
+          {/* Basic Info */}
           <Card title="البيانات الأساسية">
             <div className="details-grid">
               <p><strong>الاسم:</strong> {client.name}</p>
@@ -118,7 +122,7 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* الهوية والاستحقاق */}
+          {/* Identity */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
@@ -132,20 +136,20 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* العمل والبنوك */}
+          {/* Work & Banks */}
           <Card title="العمل والبنوك">
             <div className="details-grid">
               <p>
                 <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.[0]?.name || '-'}
+                {client.job_sector?.name || '-'}
               </p>
               <p>
                 <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.[0]?.name || '-'}
+                {client.salary_bank?.name || '-'}
               </p>
               <p>
                 <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.[0]?.name || '-'}
+                {client.finance_bank?.name || '-'}
               </p>
             </div>
           </Card>

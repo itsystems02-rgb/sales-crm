@@ -26,6 +26,7 @@ export default function EmployeesPage() {
   const [jobTitle, setJobTitle] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
 
   useEffect(() => {
@@ -47,18 +48,20 @@ export default function EmployeesPage() {
     setJobTitle('');
     setMobile('');
     setEmail('');
+    setPassword('');
     setStatus('active');
   }
 
   async function handleSubmit() {
-    if (!name || !email) {
-      alert('الاسم والإيميل مطلوبين');
+    if (!name || !email || (!editingId && !password)) {
+      alert('الاسم، الإيميل، والباسورد مطلوبين');
       return;
     }
 
     setLoading(true);
 
     if (editingId) {
+      // تعديل موظف (بدون تغيير باسورد)
       const { error } = await supabase
         .from('employees')
         .update({
@@ -72,16 +75,21 @@ export default function EmployeesPage() {
 
       if (error) alert(error.message);
     } else {
-      const { error } = await supabase.from('employees').insert({
-        name,
-        job_title: jobTitle || null,
-        mobile: mobile || null,
-        email,
-        status,
-        password_hash: 'temp', // للتجربة فقط
+      // إنشاء موظف + Auth User
+      const res = await fetch('/api/employees/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          job_title: jobTitle,
+          mobile,
+        }),
       });
 
-      if (error) alert(error.message);
+      const result = await res.json();
+      if (!res.ok) alert(result.error);
     }
 
     setLoading(false);
@@ -96,6 +104,7 @@ export default function EmployeesPage() {
     setMobile(e.mobile || '');
     setEmail(e.email);
     setStatus(e.status);
+    setPassword('');
   }
 
   async function deleteEmployee(id: string) {
@@ -115,7 +124,16 @@ export default function EmployeesPage() {
           <Input placeholder="اسم الموظف" value={name} onChange={(e) => setName(e.target.value)} />
           <Input placeholder="المسمى الوظيفي" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
           <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          <Input placeholder="الإيميل (لازم يطابق auth)" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
+
+          {!editingId && (
+            <Input
+              type="password"
+              placeholder="كلمة المرور"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          )}
 
           <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
             <option value="active">نشط</option>

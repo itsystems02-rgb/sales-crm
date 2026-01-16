@@ -73,6 +73,10 @@ export default function ClientsPage() {
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
 
+  const [salaryBankId, setSalaryBankId] = useState('');
+  const [financeBankId, setFinanceBankId] = useState('');
+  const [jobSectorId, setJobSectorId] = useState('');
+
   /* =====================
      LOAD
   ===================== */
@@ -115,6 +119,9 @@ export default function ClientsPage() {
     setEligible(true);
     setNationality('saudi');
     setResidencyType('');
+    setSalaryBankId('');
+    setFinanceBankId('');
+    setJobSectorId('');
   }
 
   async function handleSubmit() {
@@ -134,7 +141,10 @@ export default function ClientsPage() {
       eligible,
       nationality,
       residency_type: nationality === 'saudi' ? residencyType || null : null,
-      status: 'lead', // ✅ مهم جدًا
+      salary_bank_id: salaryBankId || null,
+      finance_bank_id: financeBankId || null,
+      job_sector_id: jobSectorId || null,
+      status: 'lead', // مهم
     };
 
     const res = editingId
@@ -162,6 +172,9 @@ export default function ClientsPage() {
     setEligible(c.eligible);
     setNationality(c.nationality);
     setResidencyType(c.residency_type || '');
+    setSalaryBankId(c.salary_bank_id || '');
+    setFinanceBankId(c.finance_bank_id || '');
+    setJobSectorId(c.job_sector_id || '');
   }
 
   async function deleteClient(id: string) {
@@ -177,6 +190,7 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
+        {/* FORM */}
         <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
           <div className="form-col">
             <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
@@ -210,6 +224,10 @@ export default function ClientsPage() {
               </select>
             )}
 
+            <Input placeholder="بنك الراتب (ID)" value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)} />
+            <Input placeholder="بنك التمويل (ID)" value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)} />
+            <Input placeholder="القطاع الوظيفي (ID)" value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)} />
+
             <div style={{ display: 'flex', gap: 8 }}>
               <Button onClick={handleSubmit} disabled={loading}>
                 {editingId ? 'تعديل' : 'حفظ'}
@@ -219,22 +237,23 @@ export default function ClientsPage() {
           </div>
         </Card>
 
+        {/* LIST */}
         <Card title="قائمة العملاء">
-          <Table headers={['الاسم','الجوال','مستحق','الجنسية','نوع الإقامة','تاريخ الإضافة','إجراء']}>
+          <Table headers={['الاسم','مستحق','الحالة','إجراء']}>
             {clients.length === 0 ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center' }}>لا يوجد عملاء</td></tr>
+              <tr><td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td></tr>
             ) : (
               clients.map((c) => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
-                  <td>{c.mobile}</td>
                   <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{c.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</td>
-                  <td>{c.residency_type || '-'}</td>
-                  <td>{new Date(c.created_at).toLocaleDateString()}</td>
+                  <td>{c.status}</td>
                   <td>
-                    <Button onClick={() => startEdit(c)}>تعديل</Button>
-                    <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                      <Button onClick={() => startEdit(c)}>تعديل</Button>
+                      <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
+                    </div>
                   </td>
                 </tr>
               ))

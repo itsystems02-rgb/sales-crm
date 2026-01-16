@@ -53,6 +53,17 @@ const RESIDENCY_TYPES = [
   { value: 'passport', label: 'جواز سفر' },
 ];
 
+const STATUS_OPTIONS = [
+  { value: 'lead', label: 'جديد' },
+  { value: 'interested', label: 'مهتم' },
+  { value: 'booked', label: 'محجوز' },
+  { value: 'lost', label: 'مفقود' },
+];
+
+/* =====================
+   Page
+===================== */
+
 export default function ClientsPage() {
   const router = useRouter();
 
@@ -73,9 +84,7 @@ export default function ClientsPage() {
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
 
-  const [salaryBankId, setSalaryBankId] = useState('');
-  const [financeBankId, setFinanceBankId] = useState('');
-  const [jobSectorId, setJobSectorId] = useState('');
+  const [status, setStatus] = useState('lead');
 
   /* =====================
      LOAD
@@ -94,7 +103,14 @@ export default function ClientsPage() {
   async function fetchClients() {
     const { data, error } = await supabase
       .from('clients')
-      .select('*')
+      .select(`
+        id,
+        name,
+        mobile,
+        eligible,
+        status,
+        created_at
+      `)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -102,7 +118,7 @@ export default function ClientsPage() {
       return;
     }
 
-    setClients(data ?? []);
+    setClients(data || []);
   }
 
   /* =====================
@@ -119,9 +135,7 @@ export default function ClientsPage() {
     setEligible(true);
     setNationality('saudi');
     setResidencyType('');
-    setSalaryBankId('');
-    setFinanceBankId('');
-    setJobSectorId('');
+    setStatus('lead');
   }
 
   async function handleSubmit() {
@@ -141,10 +155,7 @@ export default function ClientsPage() {
       eligible,
       nationality,
       residency_type: nationality === 'saudi' ? residencyType || null : null,
-      salary_bank_id: salaryBankId || null,
-      finance_bank_id: financeBankId || null,
-      job_sector_id: jobSectorId || null,
-      status: 'lead', // مهم
+      status,
     };
 
     const res = editingId
@@ -167,14 +178,8 @@ export default function ClientsPage() {
     setName(c.name);
     setMobile(c.mobile);
     setEmail(c.email || '');
-    setIdentityType(c.identity_type || '');
-    setIdentityNo(c.identity_no || '');
     setEligible(c.eligible);
-    setNationality(c.nationality);
-    setResidencyType(c.residency_type || '');
-    setSalaryBankId(c.salary_bank_id || '');
-    setFinanceBankId(c.finance_bank_id || '');
-    setJobSectorId(c.job_sector_id || '');
+    setStatus(c.status);
   }
 
   async function deleteClient(id: string) {
@@ -190,7 +195,7 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* FORM */}
+        {/* Add / Edit */}
         <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
           <div className="form-col">
             <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
@@ -224,9 +229,11 @@ export default function ClientsPage() {
               </select>
             )}
 
-            <Input placeholder="بنك الراتب (ID)" value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)} />
-            <Input placeholder="بنك التمويل (ID)" value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)} />
-            <Input placeholder="القطاع الوظيفي (ID)" value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)} />
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
 
             <div style={{ display: 'flex', gap: 8 }}>
               <Button onClick={handleSubmit} disabled={loading}>
@@ -237,17 +244,19 @@ export default function ClientsPage() {
           </div>
         </Card>
 
-        {/* LIST */}
+        {/* List */}
         <Card title="قائمة العملاء">
           <Table headers={['الاسم','مستحق','الحالة','إجراء']}>
             {clients.length === 0 ? (
-              <tr><td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td></tr>
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td>
+              </tr>
             ) : (
               clients.map((c) => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
                   <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{c.status}</td>
+                  <td>{STATUS_OPTIONS.find(s => s.value === c.status)?.label || c.status}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>

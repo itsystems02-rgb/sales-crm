@@ -128,54 +128,65 @@ export default function UnitsPage() {
   }
 
   /* =====================
+     Helpers
+  ===================== */
+
+  function renderStatus(status: string) {
+    if (status === 'available') return 'متاحة';
+    if (status === 'reserved') return 'محجوزة';
+    if (status === 'sold') return 'مباعة';
+    return status;
+  }
+
+  /* =====================
      UI
   ===================== */
 
   return (
     <div className="card">
-      <h2 className="card-title">Units Management</h2>
+      <h2 className="card-title">إدارة الوحدات</h2>
 
       {/* ===== Add Unit ===== */}
       <div className="form-grid">
         <input
-          placeholder="Unit Code"
+          placeholder="كود الوحدة"
           value={unitCode}
           onChange={(e) => setUnitCode(e.target.value)}
         />
 
         <input
-          placeholder="Block No"
+          placeholder="رقم البلوك"
           value={blockNo}
           onChange={(e) => setBlockNo(e.target.value)}
         />
 
         <input
-          placeholder="Unit No"
+          placeholder="رقم الوحدة"
           value={unitNo}
           onChange={(e) => setUnitNo(e.target.value)}
         />
 
         <input
-          placeholder="Unit Type"
+          placeholder="نوع الوحدة"
           value={unitType}
           onChange={(e) => setUnitType(e.target.value)}
         />
 
         <input
           type="number"
-          placeholder="Supported Price"
+          placeholder="السعر المعتمد"
           value={price || ''}
           onChange={(e) => setPrice(Number(e.target.value))}
         />
 
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="available">Available</option>
-          <option value="reserved">Reserved</option>
-          <option value="sold">Sold</option>
+          <option value="available">متاحة</option>
+          <option value="reserved">محجوزة</option>
+          <option value="sold">مباعة</option>
         </select>
 
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">Select Project</option>
+          <option value="">اختر المشروع</option>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
@@ -184,31 +195,31 @@ export default function UnitsPage() {
         </select>
 
         <button className="primary-btn" onClick={addUnit}>
-          Add Unit
+          إضافة وحدة
         </button>
       </div>
 
       {/* ===== Table ===== */}
       {loading ? (
-        <p className="muted">Loading...</p>
+        <p className="muted">جاري التحميل...</p>
       ) : (
         <table className="data-table">
           <thead>
             <tr>
-              <th>Unit Code</th>
-              <th>Block</th>
-              <th>Unit No</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Project</th>
-              <th>Price</th>
+              <th>كود الوحدة</th>
+              <th>البلوك</th>
+              <th>رقم الوحدة</th>
+              <th>النوع</th>
+              <th>الحالة</th>
+              <th>المشروع</th>
+              <th>السعر</th>
             </tr>
           </thead>
           <tbody>
             {units.length === 0 ? (
               <tr>
                 <td colSpan={7} style={{ textAlign: 'center' }}>
-                  No units found
+                  لا توجد وحدات
                 </td>
               </tr>
             ) : (
@@ -218,7 +229,7 @@ export default function UnitsPage() {
                   <td>{u.block_no || '-'}</td>
                   <td>{u.unit_no || '-'}</td>
                   <td>{u.unit_type || '-'}</td>
-                  <td>{u.status}</td>
+                  <td>{renderStatus(u.status)}</td>
                   <td>
                     {u.projects.length > 0
                       ? `${u.projects[0].name} (${u.projects[0].code})`

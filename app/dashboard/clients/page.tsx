@@ -35,6 +35,14 @@ type Client = {
   created_at: string;
 };
 
+type ClientListItem = {
+  id: string;
+  name: string;
+  eligible: boolean;
+  status: string;
+  created_at: string;
+};
+
 /* =====================
    Constants
 ===================== */
@@ -67,7 +75,7 @@ const STATUS_OPTIONS = [
 export default function ClientsPage() {
   const router = useRouter();
 
-  const [clients, setClients] = useState<Client[]>([]);
+  const [clients, setClients] = useState<ClientListItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   // form
@@ -95,22 +103,13 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'saudi') {
-      setResidencyType('');
-    }
+    if (nationality !== 'saudi') setResidencyType('');
   }, [nationality]);
 
   async function fetchClients() {
     const { data, error } = await supabase
       .from('clients')
-      .select(`
-        id,
-        name,
-        mobile,
-        eligible,
-        status,
-        created_at
-      `)
+      .select('id,name,eligible,status,created_at')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -173,13 +172,8 @@ export default function ClientsPage() {
     fetchClients();
   }
 
-  function startEdit(c: Client) {
-    setEditingId(c.id);
-    setName(c.name);
-    setMobile(c.mobile);
-    setEmail(c.email || '');
-    setEligible(c.eligible);
-    setStatus(c.status);
+  function startEdit(c: ClientListItem) {
+    router.push(`/dashboard/clients/${c.id}`);
   }
 
   async function deleteClient(id: string) {
@@ -195,7 +189,6 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* Add / Edit */}
         <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
           <div className="form-col">
             <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
@@ -203,7 +196,7 @@ export default function ClientsPage() {
             <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
 
             <select value={identityType} onChange={(e) => setIdentityType(e.target.value)}>
-              {IDENTITY_TYPES.map((i) => (
+              {IDENTITY_TYPES.map(i => (
                 <option key={i.value} value={i.value}>{i.label}</option>
               ))}
             </select>
@@ -223,46 +216,39 @@ export default function ClientsPage() {
             {nationality === 'saudi' && (
               <select value={residencyType} onChange={(e) => setResidencyType(e.target.value)}>
                 <option value="">نوع الإقامة</option>
-                {RESIDENCY_TYPES.map((r) => (
+                {RESIDENCY_TYPES.map(r => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
             )}
 
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUS_OPTIONS.map((s) => (
+              {STATUS_OPTIONS.map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button onClick={handleSubmit} disabled={loading}>
-                {editingId ? 'تعديل' : 'حفظ'}
-              </Button>
-              {editingId && <Button onClick={resetForm}>إلغاء</Button>}
-            </div>
+            <Button onClick={handleSubmit} disabled={loading}>
+              حفظ
+            </Button>
           </div>
         </Card>
 
-        {/* List */}
         <Card title="قائمة العملاء">
-          <Table headers={['الاسم','مستحق','الحالة','إجراء']}>
+          <Table headers={['الاسم', 'مستحق', 'الحالة', 'إجراء']}>
             {clients.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td>
               </tr>
             ) : (
-              clients.map((c) => (
+              clients.map(c => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
                   <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{STATUS_OPTIONS.find(s => s.value === c.status)?.label || c.status}</td>
+                  <td>{STATUS_OPTIONS.find(s => s.value === c.status)?.label}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                      <Button onClick={() => startEdit(c)}>تعديل</Button>
-                      <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
-                    </div>
+                    <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                    <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
                   </td>
                 </tr>
               ))

@@ -20,7 +20,7 @@ export default function Sidebar() {
       <Link href="/dashboard/clients" className={pathname === '/dashboard/clients' ? 'active' : ''}>
         العملاء
       </Link>
-      <Link href="/api/employess" className={pathname === '/api/employess' ? 'active' : ''}>
+      <Link href="/api/employees" className={pathname === '/api/employees' ? 'active' : ''}>
         الموظفين
       </Link>
     </aside>

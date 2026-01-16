@@ -8,6 +8,10 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import FollowUps from './followups';
 
+/* =====================
+   Types
+===================== */
+
 type Client = {
   id: string;
   name: string;
@@ -29,6 +33,10 @@ type Client = {
   created_at: string;
 };
 
+/* =====================
+   Page
+===================== */
+
 export default function ClientPage() {
   const params = useParams();
   const clientId = params.id as string;
@@ -49,6 +57,7 @@ export default function ClientPage() {
   async function fetchAll() {
     setLoading(true);
 
+    // client
     const { data: c } = await supabase
       .from('clients')
       .select('*')
@@ -63,19 +72,43 @@ export default function ClientPage() {
 
     setClient(c);
 
+    // salary bank
     if (c.salary_bank_id) {
-      const { data } = await supabase.from('banks').select('name').eq('id', c.salary_bank_id).maybeSingle();
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', c.salary_bank_id)
+        .maybeSingle();
+
       setSalaryBankName(data?.name ?? null);
+    } else {
+      setSalaryBankName(null);
     }
 
+    // finance bank
     if (c.finance_bank_id) {
-      const { data } = await supabase.from('banks').select('name').eq('id', c.finance_bank_id).maybeSingle();
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', c.finance_bank_id)
+        .maybeSingle();
+
       setFinanceBankName(data?.name ?? null);
+    } else {
+      setFinanceBankName(null);
     }
 
+    // job sector
     if (c.job_sector_id) {
-      const { data } = await supabase.from('job_sectors').select('name').eq('id', c.job_sector_id).maybeSingle();
+      const { data } = await supabase
+        .from('job_sectors')
+        .select('name')
+        .eq('id', c.job_sector_id)
+        .maybeSingle();
+
       setJobSectorName(data?.name ?? null);
+    } else {
+      setJobSectorName(null);
     }
 
     setLoading(false);
@@ -88,14 +121,22 @@ export default function ClientPage() {
     <div className="page">
       {/* Tabs */}
       <div className="tabs">
-        <Button variant={tab === 'details' ? 'primary' : 'ghost'} onClick={() => setTab('details')}>
+        <Button
+          variant={tab === 'details' ? 'primary' : undefined}
+          onClick={() => setTab('details')}
+        >
           البيانات
         </Button>
-        <Button variant={tab === 'followups' ? 'primary' : 'ghost'} onClick={() => setTab('followups')}>
+
+        <Button
+          variant={tab === 'followups' ? 'primary' : undefined}
+          onClick={() => setTab('followups')}
+        >
           المتابعات
         </Button>
       </div>
 
+      {/* ================= DETAILS ================= */}
       {tab === 'details' && (
         <div className="details-layout">
           {/* Basic */}
@@ -116,7 +157,10 @@ export default function ClientPage() {
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <Detail label="مستحق" value={client.eligible ? 'نعم' : 'لا'} badge />
-              <Detail label="الجنسية" value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'} />
+              <Detail
+                label="الجنسية"
+                value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
+              />
               <Detail label="نوع الهوية" value={client.identity_type || '-'} />
               <Detail label="رقم الهوية" value={client.identity_no || '-'} />
               <Detail label="نوع الإقامة" value={client.residency_type || '-'} />
@@ -134,6 +178,7 @@ export default function ClientPage() {
         </div>
       )}
 
+      {/* ================= FOLLOW UPS ================= */}
       {tab === 'followups' && <FollowUps clientId={client.id} />}
     </div>
   );
@@ -143,7 +188,15 @@ export default function ClientPage() {
    Small UI Component
 ===================== */
 
-function Detail({ label, value, badge }: { label: string; value: string; badge?: boolean }) {
+function Detail({
+  label,
+  value,
+  badge,
+}: {
+  label: string;
+  value: string;
+  badge?: boolean;
+}) {
   return (
     <div className="detail-row">
       <span className="label">{label}</span>

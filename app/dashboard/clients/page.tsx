@@ -56,18 +56,18 @@ export default function ClientsPage() {
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 👈 مهم
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // form
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
-
   const [identityType, setIdentityType] = useState('');
   const [identityNo, setIdentityNo] = useState('');
-
   const [eligible, setEligible] = useState(true);
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
-
   const [salaryBankId, setSalaryBankId] = useState('');
   const [financeBankId, setFinanceBankId] = useState('');
   const [jobSectorId, setJobSectorId] = useState('');
@@ -83,21 +83,14 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'saudi') {
-      setResidencyType('');
-    }
+    if (nationality !== 'saudi') setResidencyType('');
   }, [nationality]);
 
   async function fetchClients() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('clients')
       .select('id,name,eligible,status,created_at')
       .order('created_at', { ascending: false });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
 
     setClients(data || []);
   }
@@ -117,6 +110,7 @@ export default function ClientsPage() {
   ===================== */
 
   function resetForm() {
+    setEditingId(null);
     setName('');
     setMobile('');
     setEmail('');
@@ -150,13 +144,15 @@ export default function ClientsPage() {
       salary_bank_id: salaryBankId || null,
       finance_bank_id: financeBankId || null,
       job_sector_id: jobSectorId || null,
-      status: 'lead', // تلقائي
+      status: 'lead',
     };
 
-    const { error } = await supabase.from('clients').insert(payload);
+    const res = editingId
+      ? await supabase.from('clients').update(payload).eq('id', editingId)
+      : await supabase.from('clients').insert(payload);
 
-    if (error) {
-      alert(error.message);
+    if (res.error) {
+      alert(res.error.message);
       setLoading(false);
       return;
     }
@@ -164,6 +160,30 @@ export default function ClientsPage() {
     setLoading(false);
     resetForm();
     fetchClients();
+  }
+
+  // 👈 زرار تعديل
+  async function startEdit(id: string) {
+    const { data } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (!data) return;
+
+    setEditingId(data.id);
+    setName(data.name);
+    setMobile(data.mobile);
+    setEmail(data.email || '');
+    setIdentityType(data.identity_type || '');
+    setIdentityNo(data.identity_no || '');
+    setEligible(data.eligible);
+    setNationality(data.nationality);
+    setResidencyType(data.residency_type || '');
+    setSalaryBankId(data.salary_bank_id || '');
+    setFinanceBankId(data.finance_bank_id || '');
+    setJobSectorId(data.job_sector_id || '');
   }
 
   async function deleteClient(id: string) {
@@ -179,7 +199,7 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        <Card title="إضافة عميل">
+        <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
           <div className="form-col">
             <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
             <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
@@ -212,46 +232,28 @@ export default function ClientsPage() {
               </select>
             )}
 
-            <select value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)}>
-              <option value="">بنك الراتب</option>
-              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-
-            <select value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)}>
-              <option value="">بنك التمويل</option>
-              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-
-            <select value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)}>
-              <option value="">القطاع الوظيفي</option>
-              {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
-            </select>
-
             <Button onClick={handleSubmit} disabled={loading}>
-              حفظ
+              {editingId ? 'تعديل' : 'حفظ'}
             </Button>
+
+            {editingId && <Button onClick={resetForm}>إلغاء</Button>}
           </div>
         </Card>
 
         <Card title="قائمة العملاء">
           <Table headers={['الاسم', 'مستحق', 'الحالة', 'إجراء']}>
-            {clients.length === 0 ? (
-              <tr>
-                <td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td>
+            {clients.map(c => (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                <td>{c.status}</td>
+                <td>
+                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                  <Button onClick={() => startEdit(c.id)}>تعديل</Button>
+                  <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
+                </td>
               </tr>
-            ) : (
-              clients.map(c => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{c.status}</td>
-                  <td>
-                    <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                    <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
-                  </td>
-                </tr>
-              ))
-            )}
+            ))}
           </Table>
         </Card>
       </div>

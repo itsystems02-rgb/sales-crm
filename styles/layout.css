@@ -86,3 +86,43 @@
   font-weight: 700;
   margin-bottom: 18px;
 }
+/* =====================
+   Responsive Layout
+===================== */
+
+@media (max-width: 1024px) {
+  .app-layout {
+    grid-template-columns: 220px 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .header {
+    padding: 14px 16px;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  .page {
+    padding: 16px;
+  }
+}
+@media (max-width: 768px) {
+  .card {
+    padding: 16px;
+  }
+
+  .card-title {
+    font-size: 16px;
+  }
+}

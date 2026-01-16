@@ -28,8 +28,7 @@ tbody tr:hover {
   background: #f1f5f9;
 }
 
-/* ===== Status Badges ===== */
-
+/* ===== Status Badge ===== */
 .badge {
   padding: 4px 10px;
   border-radius: 999px;
@@ -37,8 +36,10 @@ tbody tr:hover {
   font-weight: 600;
   display: inline-block;
   white-space: nowrap;
+  line-height: 1;
 }
 
+/* حالات */
 .badge.available {
   background: #ecfeff;
   color: #0369a1;
@@ -52,4 +53,43 @@ tbody tr:hover {
 .badge.sold {
   background: #fef2f2;
   color: #b91c1c;
+}
+/* =====================
+   Responsive Tables
+===================== */
+
+@media (max-width: 768px) {
+  table {
+    border: none;
+  }
+
+  thead {
+    display: none;
+  }
+
+  tbody tr {
+    display: block;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: #fff;
+  }
+
+  tbody td {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+
+  tbody td:last-child {
+    border-bottom: none;
+  }
+
+  tbody td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+  }
 }

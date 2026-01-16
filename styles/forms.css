@@ -67,3 +67,24 @@ button:disabled {
 .btn-danger:hover {
   background: var(--danger-hover);
 }
+
+/* =====================
+   Responsive Forms
+===================== */
+
+@media (max-width: 768px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .form-col {
+    gap: 12px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    width: 100%;
+  }
+}

@@ -25,9 +25,10 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  salary_bank: { name: string }[] | null;
-  finance_bank: { name: string }[] | null;
-  job_sector: { name: string }[] | null;
+  // ✅ علاقات one-to-many = object مش array
+  salary_bank: { name: string } | null;
+  finance_bank: { name: string } | null;
+  job_sector: { name: string } | null;
 
   status: string;
   created_at: string;
@@ -70,12 +71,17 @@ export default function ClientPage() {
       .eq('id', clientId)
       .single();
 
-    if (!error) {
-      setClient(data as Client);
+    if (error) {
+      console.error(error);
+      return;
     }
+
+    setClient(data as Client);
   }
 
-  if (!client) return <div className="page">جاري التحميل...</div>;
+  if (!client) {
+    return <div className="page">جاري التحميل...</div>;
+  }
 
   return (
     <div className="page">
@@ -94,7 +100,7 @@ export default function ClientPage() {
       ===================== */}
       {tab === 'details' && (
         <>
-          {/* Basic Info */}
+          {/* البيانات الأساسية */}
           <Card title="البيانات الأساسية">
             <div className="details-grid">
               <p><strong>الاسم:</strong> {client.name}</p>
@@ -108,7 +114,7 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* Identity */}
+          {/* الهوية والاستحقاق */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
@@ -122,20 +128,20 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* Work & Banks */}
+          {/* العمل والبنوك */}
           <Card title="العمل والبنوك">
             <div className="details-grid">
               <p>
                 <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.[0]?.name || '-'}
+                {client.job_sector?.name || '-'}
               </p>
               <p>
                 <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.[0]?.name || '-'}
+                {client.salary_bank?.name || '-'}
               </p>
               <p>
                 <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.[0]?.name || '-'}
+                {client.finance_bank?.name || '-'}
               </p>
             </div>
           </Card>

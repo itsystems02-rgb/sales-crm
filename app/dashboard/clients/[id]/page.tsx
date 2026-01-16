@@ -12,10 +12,6 @@ import FollowUps from './followups';
    Types
 ===================== */
 
-type Ref = {
-  name: string;
-};
-
 type Client = {
   id: string;
   name: string;
@@ -29,13 +25,15 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  salary_bank: Ref[] | null;
-  finance_bank: Ref[] | null;
-  job_sector: Ref[] | null;
+  salary_bank_id: string | null;
+  finance_bank_id: string | null;
+  job_sector_id: string | null;
 
   status: string;
   created_at: string;
 };
+
+type RefName = string | null;
 
 /* =====================
    Page
@@ -46,6 +44,10 @@ export default function ClientPage() {
   const clientId = params.id as string;
 
   const [client, setClient] = useState<Client | null>(null);
+  const [salaryBank, setSalaryBank] = useState<RefName>(null);
+  const [financeBank, setFinanceBank] = useState<RefName>(null);
+  const [jobSector, setJobSector] = useState<RefName>(null);
+
   const [tab, setTab] = useState<'details' | 'followups'>('details');
   const [loading, setLoading] = useState(true);
 
@@ -56,44 +58,56 @@ export default function ClientPage() {
   async function fetchClient() {
     setLoading(true);
 
-    const { data, error } = await supabase
+    // 1️⃣ العميل نفسه
+    const { data: clientData, error } = await supabase
       .from('clients')
-      .select(`
-        id,
-        name,
-        mobile,
-        email,
-        identity_type,
-        identity_no,
-        eligible,
-        nationality,
-        residency_type,
-        status,
-        created_at,
-        salary_bank:banks(name),
-        finance_bank:banks(name),
-        job_sector:job_sectors(name)
-      `)
+      .select('*')
       .eq('id', clientId)
-      .maybeSingle(); // 👈 مهم جدًا
+      .maybeSingle();
 
-    if (error) {
-      console.error(error);
+    if (error || !clientData) {
       setClient(null);
-    } else {
-      setClient(data);
+      setLoading(false);
+      return;
+    }
+
+    setClient(clientData);
+
+    // 2️⃣ بنك الراتب
+    if (clientData.salary_bank_id) {
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', clientData.salary_bank_id)
+        .single();
+      setSalaryBank(data?.name ?? null);
+    }
+
+    // 3️⃣ بنك التمويل
+    if (clientData.finance_bank_id) {
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', clientData.finance_bank_id)
+        .single();
+      setFinanceBank(data?.name ?? null);
+    }
+
+    // 4️⃣ القطاع الوظيفي
+    if (clientData.job_sector_id) {
+      const { data } = await supabase
+        .from('job_sectors')
+        .select('name')
+        .eq('id', clientData.job_sector_id)
+        .single();
+      setJobSector(data?.name ?? null);
     }
 
     setLoading(false);
   }
 
-  if (loading) {
-    return <div className="page">جاري التحميل...</div>;
-  }
-
-  if (!client) {
-    return <div className="page">العميل غير موجود</div>;
-  }
+  if (loading) return <div className="page">جاري التحميل...</div>;
+  if (!client) return <div className="page">العميل غير موجود</div>;
 
   return (
     <div className="page">
@@ -129,9 +143,9 @@ export default function ClientPage() {
           </Card>
 
           <Card title="العمل والبنوك">
-            <p><strong>القطاع الوظيفي:</strong> {client.job_sector?.[0]?.name || '-'}</p>
-            <p><strong>بنك الراتب:</strong> {client.salary_bank?.[0]?.name || '-'}</p>
-            <p><strong>بنك التمويل:</strong> {client.finance_bank?.[0]?.name || '-'}</p>
+            <p><strong>القطاع الوظيفي:</strong> {jobSector || '-'}</p>
+            <p><strong>بنك الراتب:</strong> {salaryBank || '-'}</p>
+            <p><strong>بنك التمويل:</strong> {financeBank || '-'}</p>
           </Card>
         </>
       )}

@@ -22,10 +22,8 @@ type Client = {
   identity_type: string | null;
   identity_no: string | null;
 
-  status: string;
   eligible: boolean;
-
-  nationality: string | null;
+  nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
   created_at: string;
@@ -61,10 +59,9 @@ export default function ClientsPage() {
   const router = useRouter();
 
   const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(false);
-
   const [banks, setBanks] = useState<{ id: string; name: string }[]>([]);
   const [jobSectors, setJobSectors] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -76,8 +73,7 @@ export default function ClientsPage() {
   const [identityType, setIdentityType] = useState('');
   const [identityNo, setIdentityNo] = useState('');
 
-  const [eligible, setEligible] = useState<boolean>(true);
-
+  const [eligible, setEligible] = useState(true);
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
 
@@ -86,7 +82,7 @@ export default function ClientsPage() {
   const [jobSectorId, setJobSectorId] = useState('');
 
   /* =====================
-     LOAD DATA
+     LOAD
   ===================== */
 
   useEffect(() => {
@@ -105,7 +101,6 @@ export default function ClientsPage() {
         email,
         identity_type,
         identity_no,
-        status,
         eligible,
         nationality,
         residency_type,
@@ -164,7 +159,7 @@ export default function ClientsPage() {
       identity_no: identityNo || null,
       eligible,
       nationality,
-      residency_type: nationality === 'non_saudi' ? residencyType || null : null,
+      residency_type: nationality === 'saudi' ? residencyType || null : null,
       salary_bank_id: salaryBankId || null,
       finance_bank_id: financeBankId || null,
       job_sector_id: jobSectorId || null,
@@ -173,10 +168,7 @@ export default function ClientsPage() {
     if (editingId) {
       await supabase.from('clients').update(payload).eq('id', editingId);
     } else {
-      await supabase.from('clients').insert({
-        ...payload,
-        status: 'lead',
-      });
+      await supabase.from('clients').insert(payload);
     }
 
     setLoading(false);
@@ -192,7 +184,7 @@ export default function ClientsPage() {
     setIdentityType(c.identity_type || '');
     setIdentityNo(c.identity_no || '');
     setEligible(c.eligible);
-    setNationality((c.nationality as any) || 'saudi');
+    setNationality(c.nationality);
     setResidencyType(c.residency_type || '');
   }
 
@@ -223,11 +215,7 @@ export default function ClientsPage() {
           <Input placeholder="رقم الهوية" value={identityNo} onChange={(e) => setIdentityNo(e.target.value)} />
 
           <label>
-            <input
-              type="checkbox"
-              checked={eligible}
-              onChange={(e) => setEligible(e.target.checked)}
-            /> مستحق
+            <input type="checkbox" checked={eligible} onChange={(e) => setEligible(e.target.checked)} /> مستحق
           </label>
 
           <select value={nationality} onChange={(e) => setNationality(e.target.value as any)}>
@@ -235,9 +223,9 @@ export default function ClientsPage() {
             <option value="non_saudi">غير سعودي</option>
           </select>
 
-          {nationality === 'non_saudi' && (
+          {nationality === 'saudi' && (
             <select value={residencyType} onChange={(e) => setResidencyType(e.target.value)}>
-              <option value="">اختر نوع الإقامة</option>
+              <option value="">نوع الإقامة</option>
               {RESIDENCY_TYPES.map((r) => (
                 <option key={r.value} value={r.value}>{r.label}</option>
               ))}
@@ -275,13 +263,29 @@ export default function ClientsPage() {
       </Card>
 
       <Card title="قائمة العملاء">
-        <Table headers={['الاسم','الجوال','المستحق','بنك الراتب','إجراء']}>
+        <Table headers={[
+          'الاسم',
+          'الجوال',
+          'مستحق',
+          'الجنسية',
+          'نوع الإقامة',
+          'بنك الراتب',
+          'بنك التمويل',
+          'القطاع',
+          'تاريخ الإضافة',
+          'إجراء'
+        ]}>
           {clients.map((c) => (
             <tr key={c.id}>
               <td>{c.name}</td>
               <td>{c.mobile}</td>
               <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+              <td>{c.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</td>
+              <td>{c.residency_type || '-'}</td>
               <td>{c.salary_bank?.[0]?.name || '-'}</td>
+              <td>{c.finance_bank?.[0]?.name || '-'}</td>
+              <td>{c.job_sector?.[0]?.name || '-'}</td>
+              <td>{new Date(c.created_at).toLocaleDateString()}</td>
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>

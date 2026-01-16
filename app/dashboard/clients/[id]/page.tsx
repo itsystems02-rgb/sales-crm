@@ -12,7 +12,7 @@ import FollowUps from './followups';
    Types
 ===================== */
 
-type BankRef = {
+type Ref = {
   name: string;
 };
 
@@ -29,9 +29,9 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  salary_bank: BankRef[] | null;
-  finance_bank: BankRef[] | null;
-  job_sector: BankRef[] | null;
+  salary_bank: Ref[] | null;
+  finance_bank: Ref[] | null;
+  job_sector: Ref[] | null;
 
   status: string;
   created_at: string;
@@ -51,7 +51,6 @@ export default function ClientPage() {
 
   useEffect(() => {
     fetchClient();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
   async function fetchClient() {
@@ -71,12 +70,12 @@ export default function ClientPage() {
         residency_type,
         status,
         created_at,
-        salary_bank:banks!clients_salary_bank_id_fkey(name),
-        finance_bank:banks!clients_finance_bank_id_fkey(name),
-        job_sector:job_sectors!clients_job_sector_id_fkey(name)
+        salary_bank:banks(name),
+        finance_bank:banks(name),
+        job_sector:job_sectors(name)
       `)
       .eq('id', clientId)
-      .single();
+      .maybeSingle(); // 👈 مهم جدًا
 
     if (error) {
       console.error(error);
@@ -108,65 +107,36 @@ export default function ClientPage() {
         </Button>
       </div>
 
-      {/* =====================
-         DETAILS
-      ===================== */}
       {tab === 'details' && (
         <>
-          {/* Basic Info */}
           <Card title="البيانات الأساسية">
-            <div className="details-grid">
-              <p><strong>الاسم:</strong> {client.name}</p>
-              <p><strong>الجوال:</strong> {client.mobile}</p>
-              <p><strong>الإيميل:</strong> {client.email || '-'}</p>
-              <p><strong>الحالة:</strong> {client.status}</p>
-              <p>
-                <strong>تاريخ التسجيل:</strong>{' '}
-                {new Date(client.created_at).toLocaleDateString()}
-              </p>
-            </div>
+            <p><strong>الاسم:</strong> {client.name}</p>
+            <p><strong>الجوال:</strong> {client.mobile}</p>
+            <p><strong>الإيميل:</strong> {client.email || '-'}</p>
+            <p><strong>الحالة:</strong> {client.status}</p>
+            <p>
+              <strong>تاريخ التسجيل:</strong>{' '}
+              {new Date(client.created_at).toLocaleDateString()}
+            </p>
           </Card>
 
-          {/* Identity */}
           <Card title="الهوية والاستحقاق">
-            <div className="details-grid">
-              <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
-              <p>
-                <strong>الجنسية:</strong>{' '}
-                {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
-              </p>
-              <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
-              <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
-              <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
-            </div>
+            <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
+            <p><strong>الجنسية:</strong> {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</p>
+            <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
+            <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
+            <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
           </Card>
 
-          {/* Work & Banks */}
           <Card title="العمل والبنوك">
-            <div className="details-grid">
-              <p>
-                <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.[0]?.name || '-'}
-              </p>
-              <p>
-                <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.[0]?.name || '-'}
-              </p>
-              <p>
-                <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.[0]?.name || '-'}
-              </p>
-            </div>
+            <p><strong>القطاع الوظيفي:</strong> {client.job_sector?.[0]?.name || '-'}</p>
+            <p><strong>بنك الراتب:</strong> {client.salary_bank?.[0]?.name || '-'}</p>
+            <p><strong>بنك التمويل:</strong> {client.finance_bank?.[0]?.name || '-'}</p>
           </Card>
         </>
       )}
 
-      {/* =====================
-         FOLLOW UPS
-      ===================== */}
-      {tab === 'followups' && (
-        <FollowUps clientId={client.id} />
-      )}
+      {tab === 'followups' && <FollowUps clientId={client.id} />}
     </div>
   );
 }

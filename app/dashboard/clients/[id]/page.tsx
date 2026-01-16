@@ -25,9 +25,9 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  salary_bank: { name: string } | null;
-  finance_bank: { name: string } | null;
-  job_sector: { name: string } | null;
+  salary_bank: { name: string }[] | null;
+  finance_bank: { name: string }[] | null;
+  job_sector: { name: string }[] | null;
 
   status: string;
   created_at: string;
@@ -70,7 +70,9 @@ export default function ClientPage() {
       .eq('id', clientId)
       .single();
 
-    if (!error) setClient(data);
+    if (!error) {
+      setClient(data as Client);
+    }
   }
 
   if (!client) return <div className="page">جاري التحميل...</div>;
@@ -99,37 +101,24 @@ export default function ClientPage() {
               <p><strong>الجوال:</strong> {client.mobile}</p>
               <p><strong>الإيميل:</strong> {client.email || '-'}</p>
               <p><strong>الحالة:</strong> {client.status}</p>
-              <p><strong>تاريخ التسجيل:</strong> {new Date(client.created_at).toLocaleDateString()}</p>
+              <p>
+                <strong>تاريخ التسجيل:</strong>{' '}
+                {new Date(client.created_at).toLocaleDateString()}
+              </p>
             </div>
           </Card>
 
           {/* Identity */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
-              <p>
-                <strong>مستحق:</strong>{' '}
-                {client.eligible ? 'نعم' : 'لا'}
-              </p>
-
+              <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
               <p>
                 <strong>الجنسية:</strong>{' '}
                 {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
               </p>
-
-              <p>
-                <strong>نوع الهوية:</strong>{' '}
-                {client.identity_type || '-'}
-              </p>
-
-              <p>
-                <strong>رقم الهوية:</strong>{' '}
-                {client.identity_no || '-'}
-              </p>
-
-              <p>
-                <strong>نوع الإقامة:</strong>{' '}
-                {client.residency_type || '-'}
-              </p>
+              <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
+              <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
+              <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
             </div>
           </Card>
 
@@ -138,17 +127,15 @@ export default function ClientPage() {
             <div className="details-grid">
               <p>
                 <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.name || '-'}
+                {client.job_sector?.[0]?.name || '-'}
               </p>
-
               <p>
                 <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.name || '-'}
+                {client.salary_bank?.[0]?.name || '-'}
               </p>
-
               <p>
                 <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.name || '-'}
+                {client.finance_bank?.[0]?.name || '-'}
               </p>
             </div>
           </Card>

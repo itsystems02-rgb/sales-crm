@@ -12,6 +12,10 @@ import FollowUps from './followups';
    Types
 ===================== */
 
+type RelationItem = {
+  name: string;
+};
+
 type Client = {
   id: string;
   name: string;
@@ -25,10 +29,10 @@ type Client = {
   nationality: 'saudi' | 'non_saudi';
   residency_type: string | null;
 
-  // ✅ علاقات one-to-many = object مش array
-  salary_bank: { name: string } | null;
-  finance_bank: { name: string } | null;
-  job_sector: { name: string } | null;
+  // ✅ Supabase يرجع Arrays
+  salary_bank: RelationItem[] | null;
+  finance_bank: RelationItem[] | null;
+  job_sector: RelationItem[] | null;
 
   status: string;
   created_at: string;
@@ -133,15 +137,15 @@ export default function ClientPage() {
             <div className="details-grid">
               <p>
                 <strong>القطاع الوظيفي:</strong>{' '}
-                {client.job_sector?.name || '-'}
+                {client.job_sector?.[0]?.name || '-'}
               </p>
               <p>
                 <strong>بنك الراتب:</strong>{' '}
-                {client.salary_bank?.name || '-'}
+                {client.salary_bank?.[0]?.name || '-'}
               </p>
               <p>
                 <strong>بنك التمويل:</strong>{' '}
-                {client.finance_bank?.name || '-'}
+                {client.finance_bank?.[0]?.name || '-'}
               </p>
             </div>
           </Card>

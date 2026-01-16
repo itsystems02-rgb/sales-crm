@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
+
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -16,15 +17,18 @@ type Employee = {
   mobile: string | null;
   email: string;
   status: 'active' | 'inactive';
-  role?: 'admin' | 'sales';
+  role: 'admin' | 'sales';
 };
 
 export default function EmployeesPage() {
   const router = useRouter();
 
+  /* =========================
+     STATE
+  ========================= */
+  const [checkingAccess, setCheckingAccess] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
-  const [checkingAccess, setCheckingAccess] = useState(true);
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -34,15 +38,16 @@ export default function EmployeesPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
+  const [role, setRole] = useState<'admin' | 'sales'>('sales');
 
   /* =========================
-     ACCESS CONTROL (ADMIN)
+     ACCESS CONTROL
   ========================= */
   useEffect(() => {
-    checkAccess();
+    init();
   }, []);
 
-  async function checkAccess() {
+  async function init() {
     const emp = await getCurrentEmployee();
 
     if (!emp) {
@@ -51,13 +56,13 @@ export default function EmployeesPage() {
     }
 
     if (emp.role !== 'admin') {
-      alert('غير مسموح لك بالدخول إلى صفحة الموظفين');
+      alert('غير مسموح لك بالدخول');
       router.push('/dashboard');
       return;
     }
 
+    await fetchEmployees();
     setCheckingAccess(false);
-    fetchEmployees();
   }
 
   /* =========================
@@ -80,6 +85,7 @@ export default function EmployeesPage() {
     setEmail('');
     setPassword('');
     setStatus('active');
+    setRole('sales');
   }
 
   /* =========================
@@ -87,14 +93,14 @@ export default function EmployeesPage() {
   ========================= */
   async function handleSubmit() {
     if (!name || !email || (!editingId && !password)) {
-      alert('الاسم، الإيميل، والباسورد مطلوبين');
+      alert('الاسم والإيميل وكلمة المرور مطلوبة');
       return;
     }
 
     setLoading(true);
 
     if (editingId) {
-      // تعديل موظف (بدون تغيير باسورد)
+      // تعديل موظف
       const { error } = await supabase
         .from('employees')
         .update({
@@ -103,12 +109,13 @@ export default function EmployeesPage() {
           mobile: mobile || null,
           email,
           status,
+          role,
         })
         .eq('id', editingId);
 
       if (error) alert(error.message);
     } else {
-      // إنشاء موظف + Auth
+      // إنشاء موظف + auth
       const res = await fetch('/api/employees/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -118,11 +125,16 @@ export default function EmployeesPage() {
           password,
           job_title: jobTitle,
           mobile,
+          role,
         }),
       });
 
       const result = await res.json();
-      if (!res.ok) alert(result.error);
+      if (!res.ok) {
+        alert(result.error);
+        setLoading(false);
+        return;
+      }
     }
 
     setLoading(false);
@@ -137,18 +149,25 @@ export default function EmployeesPage() {
     setMobile(e.mobile || '');
     setEmail(e.email);
     setStatus(e.status);
+    setRole(e.role);
     setPassword('');
   }
 
   async function deleteEmployee(id: string) {
     if (!confirm('هل أنت متأكد من الحذف؟')) return;
 
-    const { error } = await supabase.from('employees').delete().eq('id', id);
-    if (error) alert(error.message);
+    const { error } = await supabase
+      .from('employees')
+      .delete()
+      .eq('id', id);
 
+    if (error) alert(error.message);
     fetchEmployees();
   }
 
+  /* =========================
+     LOADING
+  ========================= */
   if (checkingAccess) {
     return <div className="page">جاري التحقق من الصلاحيات...</div>;
   }
@@ -158,32 +177,12 @@ export default function EmployeesPage() {
   ========================= */
   return (
     <div className="page">
-      {/* Add / Edit */}
       <Card title={editingId ? 'تعديل موظف' : 'إضافة موظف'}>
         <div className="form-col">
-          <Input
-            placeholder="اسم الموظف"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-
-          <Input
-            placeholder="المسمى الوظيفي"
-            value={jobTitle}
-            onChange={(e) => setJobTitle(e.target.value)}
-          />
-
-          <Input
-            placeholder="رقم الجوال"
-            value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
-          />
-
-          <Input
-            placeholder="الإيميل"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
+          <Input placeholder="اسم الموظف" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input placeholder="المسمى الوظيفي" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+          <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
 
           {!editingId && (
             <Input
@@ -194,6 +193,11 @@ export default function EmployeesPage() {
             />
           )}
 
+          <select value={role} onChange={(e) => setRole(e.target.value as any)}>
+            <option value="sales">مبيعات</option>
+            <option value="admin">مدير</option>
+          </select>
+
           <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
             <option value="active">نشط</option>
             <option value="inactive">غير نشط</option>
@@ -203,33 +207,25 @@ export default function EmployeesPage() {
             <Button onClick={handleSubmit} disabled={loading}>
               {editingId ? 'تعديل' : 'حفظ'}
             </Button>
-
-            {editingId && (
-              <Button onClick={resetForm}>
-                إلغاء
-              </Button>
-            )}
+            {editingId && <Button onClick={resetForm}>إلغاء</Button>}
           </div>
         </div>
       </Card>
 
-      {/* List */}
       <Card title="قائمة الموظفين">
-        <Table headers={['الاسم', 'الوظيفة', 'الجوال', 'الإيميل', 'الحالة', 'إجراء']}>
+        <Table headers={['الاسم', 'الوظيفة', 'الجوال', 'الإيميل', 'الدور', 'الحالة', 'إجراء']}>
           {employees.map((e) => (
             <tr key={e.id}>
               <td>{e.name}</td>
               <td>{e.job_title || '-'}</td>
               <td>{e.mobile || '-'}</td>
               <td>{e.email}</td>
+              <td>{e.role === 'admin' ? 'مدير' : 'مبيعات'}</td>
               <td>{e.status === 'active' ? 'نشط' : 'غير نشط'}</td>
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Button onClick={() => startEdit(e)}>تعديل</Button>
-                  <button
-                    className="btn-danger"
-                    onClick={() => deleteEmployee(e.id)}
-                  >
+                  <button className="btn-danger" onClick={() => deleteEmployee(e.id)}>
                     حذف
                   </button>
                 </div>

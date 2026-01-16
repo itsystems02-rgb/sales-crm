@@ -49,19 +49,11 @@ export default function ClientPage() {
   async function fetchAll() {
     setLoading(true);
 
-    // 1) fetch client
-    const { data: c, error: clientErr } = await supabase
+    const { data: c } = await supabase
       .from('clients')
       .select('*')
       .eq('id', clientId)
       .maybeSingle();
-
-    if (clientErr) {
-      console.error('CLIENT ERROR:', clientErr);
-      setClient(null);
-      setLoading(false);
-      return;
-    }
 
     if (!c) {
       setClient(null);
@@ -71,46 +63,19 @@ export default function ClientPage() {
 
     setClient(c);
 
-    // 2) fetch salary bank name
     if (c.salary_bank_id) {
-      const { data, error } = await supabase
-        .from('banks')
-        .select('name')
-        .eq('id', c.salary_bank_id)
-        .maybeSingle();
-
-      if (error) console.error('SALARY BANK ERROR:', error);
+      const { data } = await supabase.from('banks').select('name').eq('id', c.salary_bank_id).maybeSingle();
       setSalaryBankName(data?.name ?? null);
-    } else {
-      setSalaryBankName(null);
     }
 
-    // 3) fetch finance bank name
     if (c.finance_bank_id) {
-      const { data, error } = await supabase
-        .from('banks')
-        .select('name')
-        .eq('id', c.finance_bank_id)
-        .maybeSingle();
-
-      if (error) console.error('FINANCE BANK ERROR:', error);
+      const { data } = await supabase.from('banks').select('name').eq('id', c.finance_bank_id).maybeSingle();
       setFinanceBankName(data?.name ?? null);
-    } else {
-      setFinanceBankName(null);
     }
 
-    // 4) fetch job sector name
     if (c.job_sector_id) {
-      const { data, error } = await supabase
-        .from('job_sectors')
-        .select('name')
-        .eq('id', c.job_sector_id)
-        .maybeSingle();
-
-      if (error) console.error('JOB SECTOR ERROR:', error);
+      const { data } = await supabase.from('job_sectors').select('name').eq('id', c.job_sector_id).maybeSingle();
       setJobSectorName(data?.name ?? null);
-    } else {
-      setJobSectorName(null);
     }
 
     setLoading(false);
@@ -121,48 +86,68 @@ export default function ClientPage() {
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <Button onClick={() => setTab('details')} disabled={tab === 'details'}>
+      {/* Tabs */}
+      <div className="tabs">
+        <Button variant={tab === 'details' ? 'primary' : 'ghost'} onClick={() => setTab('details')}>
           البيانات
         </Button>
-        <Button onClick={() => setTab('followups')} disabled={tab === 'followups'}>
+        <Button variant={tab === 'followups' ? 'primary' : 'ghost'} onClick={() => setTab('followups')}>
           المتابعات
         </Button>
       </div>
 
       {tab === 'details' && (
-        <>
+        <div className="details-layout">
+          {/* Basic */}
           <Card title="البيانات الأساسية">
             <div className="details-grid">
-              <p><strong>الاسم:</strong> {client.name}</p>
-              <p><strong>الجوال:</strong> {client.mobile}</p>
-              <p><strong>الإيميل:</strong> {client.email || '-'}</p>
-              <p><strong>الحالة:</strong> {client.status}</p>
-              <p><strong>تاريخ التسجيل:</strong> {new Date(client.created_at).toLocaleDateString()}</p>
+              <Detail label="الاسم" value={client.name} />
+              <Detail label="الجوال" value={client.mobile} />
+              <Detail label="الإيميل" value={client.email || '-'} />
+              <Detail label="الحالة" value={client.status} badge />
+              <Detail
+                label="تاريخ التسجيل"
+                value={new Date(client.created_at).toLocaleDateString()}
+              />
             </div>
           </Card>
 
+          {/* Identity */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
-              <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
-              <p><strong>الجنسية:</strong> {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</p>
-              <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
-              <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
-              <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
+              <Detail label="مستحق" value={client.eligible ? 'نعم' : 'لا'} badge />
+              <Detail label="الجنسية" value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'} />
+              <Detail label="نوع الهوية" value={client.identity_type || '-'} />
+              <Detail label="رقم الهوية" value={client.identity_no || '-'} />
+              <Detail label="نوع الإقامة" value={client.residency_type || '-'} />
             </div>
           </Card>
 
+          {/* Work */}
           <Card title="العمل والبنوك">
             <div className="details-grid">
-              <p><strong>القطاع الوظيفي:</strong> {jobSectorName || '-'}</p>
-              <p><strong>بنك الراتب:</strong> {salaryBankName || '-'}</p>
-              <p><strong>بنك التمويل:</strong> {financeBankName || '-'}</p>
+              <Detail label="القطاع الوظيفي" value={jobSectorName || '-'} />
+              <Detail label="بنك الراتب" value={salaryBankName || '-'} />
+              <Detail label="بنك التمويل" value={financeBankName || '-'} />
             </div>
           </Card>
-        </>
+        </div>
       )}
 
       {tab === 'followups' && <FollowUps clientId={client.id} />}
+    </div>
+  );
+}
+
+/* =====================
+   Small UI Component
+===================== */
+
+function Detail({ label, value, badge }: { label: string; value: string; badge?: boolean }) {
+  return (
+    <div className="detail-row">
+      <span className="label">{label}</span>
+      <span className={badge ? 'value badge' : 'value'}>{value}</span>
     </div>
   );
 }

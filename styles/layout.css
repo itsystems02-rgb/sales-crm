@@ -1,3 +1,7 @@
+/* =====================
+   Page & Layout
+===================== */
+
 .page {
   padding: 32px;
 }
@@ -6,14 +10,18 @@
   display: grid;
   grid-template-columns: 260px 1fr;
   min-height: 100vh;
+  background: var(--bg);
 }
 
-/* ===== Sidebar ===== */
+/* =====================
+   Sidebar
+===================== */
 
 .sidebar {
   background: linear-gradient(180deg, #0f172a, #020617);
   color: #e5e7eb;
   padding: 24px 18px;
+  transition: transform 0.3s ease;
 }
 
 .sidebar h2 {
@@ -21,6 +29,11 @@
   font-size: 20px;
   font-weight: 700;
   color: #fff;
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar a {
@@ -33,7 +46,7 @@
   border-radius: var(--radius-sm);
   margin-bottom: 6px;
   font-size: 14px;
-  transition: 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
 .sidebar a:hover {
@@ -42,12 +55,14 @@
 }
 
 .sidebar a.active {
-  background: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.14);
   color: #fff;
   font-weight: 600;
 }
 
-/* ===== Header ===== */
+/* =====================
+   Header
+===================== */
 
 .header {
   background: #fff;
@@ -58,14 +73,38 @@
   align-items: center;
 }
 
-/* ===== Content ===== */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.menu-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+/* =====================
+   Content
+===================== */
 
 .content {
   background: var(--bg);
   padding: 28px;
 }
 
-/* ===== Card ===== */
+/* =====================
+   Card
+===================== */
 
 .card {
   background: var(--card);
@@ -74,7 +113,7 @@
   margin-bottom: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
-  transition: 0.25s ease;
+  transition: box-shadow 0.25s ease;
 }
 
 .card:hover {
@@ -86,8 +125,9 @@
   font-weight: 700;
   margin-bottom: 18px;
 }
+
 /* =====================
-   Responsive Layout
+   Responsive
 ===================== */
 
 @media (max-width: 1024px) {
@@ -105,6 +145,10 @@
     display: none;
   }
 
+  .menu-btn {
+    display: block;
+  }
+
   .header {
     padding: 14px 16px;
   }
@@ -116,13 +160,16 @@
   .page {
     padding: 16px;
   }
-}
-@media (max-width: 768px) {
+
   .card {
     padding: 16px;
   }
 
   .card-title {
     font-size: 16px;
+  }
+
+  .card:hover {
+    box-shadow: var(--shadow-sm);
   }
 }

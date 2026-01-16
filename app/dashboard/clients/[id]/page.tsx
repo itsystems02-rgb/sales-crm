@@ -8,10 +8,6 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import FollowUps from './followups';
 
-/* =====================
-   Types
-===================== */
-
 type Client = {
   id: string;
   name: string;
@@ -33,74 +29,88 @@ type Client = {
   created_at: string;
 };
 
-type RefName = string | null;
-
-/* =====================
-   Page
-===================== */
-
 export default function ClientPage() {
   const params = useParams();
   const clientId = params.id as string;
 
   const [client, setClient] = useState<Client | null>(null);
-  const [salaryBank, setSalaryBank] = useState<RefName>(null);
-  const [financeBank, setFinanceBank] = useState<RefName>(null);
-  const [jobSector, setJobSector] = useState<RefName>(null);
-
   const [tab, setTab] = useState<'details' | 'followups'>('details');
   const [loading, setLoading] = useState(true);
 
+  const [salaryBankName, setSalaryBankName] = useState<string | null>(null);
+  const [financeBankName, setFinanceBankName] = useState<string | null>(null);
+  const [jobSectorName, setJobSectorName] = useState<string | null>(null);
+
   useEffect(() => {
-    fetchClient();
+    fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
-  async function fetchClient() {
+  async function fetchAll() {
     setLoading(true);
 
-    // 1️⃣ العميل نفسه
-    const { data: clientData, error } = await supabase
+    // 1) fetch client
+    const { data: c, error: clientErr } = await supabase
       .from('clients')
       .select('*')
       .eq('id', clientId)
       .maybeSingle();
 
-    if (error || !clientData) {
+    if (clientErr) {
+      console.error('CLIENT ERROR:', clientErr);
       setClient(null);
       setLoading(false);
       return;
     }
 
-    setClient(clientData);
-
-    // 2️⃣ بنك الراتب
-    if (clientData.salary_bank_id) {
-      const { data } = await supabase
-        .from('banks')
-        .select('name')
-        .eq('id', clientData.salary_bank_id)
-        .single();
-      setSalaryBank(data?.name ?? null);
+    if (!c) {
+      setClient(null);
+      setLoading(false);
+      return;
     }
 
-    // 3️⃣ بنك التمويل
-    if (clientData.finance_bank_id) {
-      const { data } = await supabase
+    setClient(c);
+
+    // 2) fetch salary bank name
+    if (c.salary_bank_id) {
+      const { data, error } = await supabase
         .from('banks')
         .select('name')
-        .eq('id', clientData.finance_bank_id)
-        .single();
-      setFinanceBank(data?.name ?? null);
+        .eq('id', c.salary_bank_id)
+        .maybeSingle();
+
+      if (error) console.error('SALARY BANK ERROR:', error);
+      setSalaryBankName(data?.name ?? null);
+    } else {
+      setSalaryBankName(null);
     }
 
-    // 4️⃣ القطاع الوظيفي
-    if (clientData.job_sector_id) {
-      const { data } = await supabase
+    // 3) fetch finance bank name
+    if (c.finance_bank_id) {
+      const { data, error } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', c.finance_bank_id)
+        .maybeSingle();
+
+      if (error) console.error('FINANCE BANK ERROR:', error);
+      setFinanceBankName(data?.name ?? null);
+    } else {
+      setFinanceBankName(null);
+    }
+
+    // 4) fetch job sector name
+    if (c.job_sector_id) {
+      const { data, error } = await supabase
         .from('job_sectors')
         .select('name')
-        .eq('id', clientData.job_sector_id)
-        .single();
-      setJobSector(data?.name ?? null);
+        .eq('id', c.job_sector_id)
+        .maybeSingle();
+
+      if (error) console.error('JOB SECTOR ERROR:', error);
+      setJobSectorName(data?.name ?? null);
+    } else {
+      setJobSectorName(null);
     }
 
     setLoading(false);
@@ -111,7 +121,6 @@ export default function ClientPage() {
 
   return (
     <div className="page">
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <Button onClick={() => setTab('details')} disabled={tab === 'details'}>
           البيانات
@@ -124,28 +133,31 @@ export default function ClientPage() {
       {tab === 'details' && (
         <>
           <Card title="البيانات الأساسية">
-            <p><strong>الاسم:</strong> {client.name}</p>
-            <p><strong>الجوال:</strong> {client.mobile}</p>
-            <p><strong>الإيميل:</strong> {client.email || '-'}</p>
-            <p><strong>الحالة:</strong> {client.status}</p>
-            <p>
-              <strong>تاريخ التسجيل:</strong>{' '}
-              {new Date(client.created_at).toLocaleDateString()}
-            </p>
+            <div className="details-grid">
+              <p><strong>الاسم:</strong> {client.name}</p>
+              <p><strong>الجوال:</strong> {client.mobile}</p>
+              <p><strong>الإيميل:</strong> {client.email || '-'}</p>
+              <p><strong>الحالة:</strong> {client.status}</p>
+              <p><strong>تاريخ التسجيل:</strong> {new Date(client.created_at).toLocaleDateString()}</p>
+            </div>
           </Card>
 
           <Card title="الهوية والاستحقاق">
-            <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
-            <p><strong>الجنسية:</strong> {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</p>
-            <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
-            <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
-            <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
+            <div className="details-grid">
+              <p><strong>مستحق:</strong> {client.eligible ? 'نعم' : 'لا'}</p>
+              <p><strong>الجنسية:</strong> {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</p>
+              <p><strong>نوع الهوية:</strong> {client.identity_type || '-'}</p>
+              <p><strong>رقم الهوية:</strong> {client.identity_no || '-'}</p>
+              <p><strong>نوع الإقامة:</strong> {client.residency_type || '-'}</p>
+            </div>
           </Card>
 
           <Card title="العمل والبنوك">
-            <p><strong>القطاع الوظيفي:</strong> {jobSector || '-'}</p>
-            <p><strong>بنك الراتب:</strong> {salaryBank || '-'}</p>
-            <p><strong>بنك التمويل:</strong> {financeBank || '-'}</p>
+            <div className="details-grid">
+              <p><strong>القطاع الوظيفي:</strong> {jobSectorName || '-'}</p>
+              <p><strong>بنك الراتب:</strong> {salaryBankName || '-'}</p>
+              <p><strong>بنك التمويل:</strong> {financeBankName || '-'}</p>
+            </div>
           </Card>
         </>
       )}

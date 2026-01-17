@@ -310,8 +310,12 @@ export default function UnitsPage() {
                 <td>{u.land_area ?? '-'}</td>
                 <td>{u.build_area ?? '-'}</td>
                 <td>{u.supported_price.toLocaleString()}</td>
-                <td>{u.project ? `${u.project.name}${u.project.code ? ` (${u.project.code})` : ''}` : '-'}</td>
-                <td>{u.model?.name || '-'}</td>
+               <td>
+  {u.project?.[0]
+    ? `${u.project[0].name}${u.project[0].code ? ` (${u.project[0].code})` : ''}`
+    : '-'}
+</td>
+                <td>{u.model?.[0]?.name || '-'}</td>
                 <td>
                   <Button onClick={() => startEdit(u)}>تعديل</Button>
                   <Button variant="danger" onClick={() => deleteUnit(u)}>حذف</Button>

@@ -33,11 +33,11 @@ type Unit = {
   project: {
     name: string;
     code: string | null;
-  } | null;
+  }[] | null;
 
   model: {
     name: string;
-  } | null;
+  }[] | null;
 };
 
 type ProjectOption = { id: string; name: string; code: string | null };

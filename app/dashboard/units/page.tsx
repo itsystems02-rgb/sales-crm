@@ -29,9 +29,14 @@ type Unit = {
   land_area: number | null;
   build_area: number | null;
 
-  // ✅ Supabase relations بتطلع Array حتى لو علاقة 1-1
-  project: { name: string; code: string | null }[] | null;
-  model: { name: string }[] | null;
+  projects: {
+    name: string;
+    code: string | null;
+  }[] | null;
+
+  project_models: {
+    name: string;
+  }[] | null;
 };
 
 type ProjectOption = { id: string; name: string; code: string | null };
@@ -95,8 +100,13 @@ export default function UnitsPage() {
         supported_price,
         land_area,
         build_area,
-        project:project_id ( name, code ),
-        model:model_id ( name )
+        projects:project_id (
+      name,
+      code
+    ),
+          project_models:model_id (
+      name
+    )
       `)
       .order('created_at', { ascending: false });
 
@@ -184,13 +194,13 @@ export default function UnitsPage() {
   }
 
   function projectLabel(u: Unit) {
-    const p = u.project?.[0];
+    const p = u.projects?.[0];
     if (!p) return '-';
     return `${p.name}${p.code ? ` (${p.code})` : ''}`;
   }
 
   function modelLabel(u: Unit) {
-    return u.model?.[0]?.name || '-';
+    return u.project_models?.[0]?.name || '-';
   }
 
   /* =====================

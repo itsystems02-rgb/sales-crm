@@ -27,6 +27,9 @@ type FollowUp = {
   notes: string | null;
 };
 
+// ✅ الحالات المسموحة في DB
+type ReservationStatus = 'active' | 'cancelled' | 'converted';
+
 /* =====================
    Page
 ===================== */
@@ -48,9 +51,7 @@ export default function ReservationPage() {
   const [bankName, setBankName] = useState('');
   const [bankEmployeeName, setBankEmployeeName] = useState('');
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
-
-  // ✅ قيم status المتوافقة مع DB
-  const [status, setStatus] = useState<'submitted' | 'review' | 'approved' | 'rejected' | ''>('');
+  const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
 
   // بعد الحفظ
@@ -85,7 +86,7 @@ export default function ReservationPage() {
   ===================== */
 
   async function fetchData() {
-    // الوحدات المتاحة
+    // الوحدات المتاحة فقط
     const { data: u } = await supabase
       .from('units')
       .select('id, unit_code')
@@ -143,8 +144,8 @@ export default function ReservationPage() {
         bank_employee_name: bankEmployeeName || null,
         bank_employee_mobile: bankEmployeeMobile || null,
 
-        // ✅ قيمة صحيحة 100%
-        status: status || 'submitted',
+        // ✅ قيمة صحيحة حسب DB
+        status: status || 'active',
 
         notes: notes || null,
 
@@ -207,7 +208,9 @@ export default function ReservationPage() {
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
                 <option value="">اختر الوحدة</option>
                 {units.map(u => (
-                  <option key={u.id} value={u.id}>{u.unit_code}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.unit_code}
+                  </option>
                 ))}
               </select>
             </div>
@@ -226,36 +229,49 @@ export default function ReservationPage() {
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
                 {banks.map(b => (
-                  <option key={b.id} value={b.name}>{b.name}</option>
+                  <option key={b.id} value={b.name}>
+                    {b.name}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              <input value={bankEmployeeName} onChange={e => setBankEmployeeName(e.target.value)} />
+              <input
+                value={bankEmployeeName}
+                onChange={e => setBankEmployeeName(e.target.value)}
+              />
             </div>
 
             <div className="form-field">
               <label>رقم موظف البنك</label>
-              <input value={bankEmployeeMobile} onChange={e => setBankEmployeeMobile(e.target.value)} />
+              <input
+                value={bankEmployeeMobile}
+                onChange={e => setBankEmployeeMobile(e.target.value)}
+              />
             </div>
 
             {/* ✅ الحالات المتوافقة مع DB */}
             <div className="form-field">
-              <label>حالة الطلب</label>
-              <select value={status} onChange={e => setStatus(e.target.value as any)}>
+              <label>حالة الحجز</label>
+              <select
+                value={status}
+                onChange={e => setStatus(e.target.value as ReservationStatus)}
+              >
                 <option value="">اختر الحالة</option>
-                <option value="submitted">تم رفع الطلب</option>
-                <option value="review">قيد المراجعة</option>
-                <option value="approved">تم القبول</option>
-                <option value="rejected">مرفوض</option>
+                <option value="active">حجز نشط</option>
+                <option value="converted">تم التحويل (بيع)</option>
+                <option value="cancelled">تم الإلغاء</option>
               </select>
             </div>
 
             <div className="form-field" style={{ gridColumn: '1 / -1' }}>
               <label>ملاحظات</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} />
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
             </div>
 
           </div>

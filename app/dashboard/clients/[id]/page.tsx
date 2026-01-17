@@ -138,7 +138,7 @@ export default function ClientPage() {
 
         {/* 🔥 زرار الحجز */}
         <Button
-          variant="success"
+          variant="primary"
           onClick={() =>
             router.push(`/dashboard/clients/${clientId}/reservation`)
           }

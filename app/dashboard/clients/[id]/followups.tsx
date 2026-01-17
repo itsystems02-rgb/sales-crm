@@ -6,6 +6,10 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
 
+/* =====================
+   Types
+===================== */
+
 type FollowUp = {
   id: string;
   type: 'call' | 'whatsapp' | 'visit';
@@ -13,7 +17,14 @@ type FollowUp = {
   next_follow_up_date: string | null;
   visit_location: string | null;
   created_at: string;
+  employee: {
+    name: string;
+  } | null;
 };
+
+/* =====================
+   Constants
+===================== */
 
 const TYPES = [
   { value: 'call', label: 'مكالمة' },
@@ -21,18 +32,34 @@ const TYPES = [
   { value: 'visit', label: 'زيارة' },
 ];
 
+const DETAILS_OPTIONS = [
+  'لم يتم الرد',
+  'مهتم',
+  'غير مهتم',
+  'طلب متابعة لاحقًا',
+  'تم إرسال التفاصيل',
+  'تم تحديد موعد',
+  'تمت الزيارة',
+  'العميل غير متواجد',
+];
+
+/* =====================
+   Component
+===================== */
+
 export default function FollowUps({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<FollowUp[]>([]);
   const [type, setType] = useState<'call' | 'whatsapp' | 'visit'>('call');
+  const [details, setDetails] = useState('');
   const [notes, setNotes] = useState('');
   const [nextDate, setNextDate] = useState('');
   const [visitLocation, setVisitLocation] = useState('');
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /* =========================
-     LOAD DATA
-  ========================= */
+  /* =====================
+     LOAD
+  ===================== */
 
   useEffect(() => {
     fetchFollowUps();
@@ -43,10 +70,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   }, []);
 
   async function getEmployee() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
 
     const { data } = await supabase
@@ -61,16 +85,24 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   async function fetchFollowUps() {
     const { data } = await supabase
       .from('client_followups')
-      .select('*')
+      .select(`
+        id,
+        type,
+        notes,
+        next_follow_up_date,
+        visit_location,
+        created_at,
+        employee:employees(name)
+      `)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
     setItems((data as FollowUp[]) || []);
   }
 
-  /* =========================
-     ADD FOLLOW UP
-  ========================= */
+  /* =====================
+     ADD
+  ===================== */
 
   async function addFollowUp() {
     if (!employeeId) {
@@ -85,11 +117,16 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
     setLoading(true);
 
+    const finalNotes =
+      details && notes
+        ? `${details} - ${notes}`
+        : details || notes || null;
+
     const { error } = await supabase.from('client_followups').insert({
       client_id: clientId,
       employee_id: employeeId,
       type,
-      notes: notes || null,
+      notes: finalNotes,
       next_follow_up_date: nextDate || null,
       visit_location: type === 'visit' ? visitLocation : null,
     });
@@ -102,10 +139,10 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
     // تحديث حالة العميل تلقائي
     const status = type === 'visit' ? 'visited' : 'interested';
-
     await supabase.from('clients').update({ status }).eq('id', clientId);
 
     // reset
+    setDetails('');
     setNotes('');
     setNextDate('');
     setVisitLocation('');
@@ -115,19 +152,32 @@ export default function FollowUps({ clientId }: { clientId: string }) {
     fetchFollowUps();
   }
 
-  /* =========================
+  function typeLabel(t: string) {
+    return TYPES.find(x => x.value === t)?.label || t;
+  }
+
+  /* =====================
      UI
-  ========================= */
+  ===================== */
 
   return (
     <>
+      {/* Add */}
       <Card title="إضافة متابعة">
         <div className="form-col">
           <select value={type} onChange={(e) => setType(e.target.value as any)}>
-            {TYPES.map((t) => (
+            {TYPES.map(t => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
+            ))}
+          </select>
+
+          {/* تفاصيل جاهزة */}
+          <select value={details} onChange={(e) => setDetails(e.target.value)}>
+            <option value="">تفاصيل المتابعة</option>
+            {DETAILS_OPTIONS.map(d => (
+              <option key={d} value={d}>{d}</option>
             ))}
           </select>
 
@@ -140,10 +190,10 @@ export default function FollowUps({ clientId }: { clientId: string }) {
           )}
 
           <textarea
-            placeholder="ملاحظات"
+            placeholder="ملاحظات إضافية"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            style={{ minHeight: 80 }}
+            style={{ minHeight: 90 }}
           />
 
           <input
@@ -158,25 +208,36 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         </div>
       </Card>
 
+      {/* List */}
       <Card title="سجل المتابعات">
         <Table
           headers={[
             'النوع',
-            'الملاحظات',
+            'التفاصيل / الملاحظات',
             'مكان الزيارة',
             'المتابعة القادمة',
+            'الموظف',
             'التاريخ',
           ]}
         >
-          {items.map((f) => (
-            <tr key={f.id}>
-              <td>{f.type}</td>
-              <td>{f.notes || '-'}</td>
-              <td>{f.visit_location || '-'}</td>
-              <td>{f.next_follow_up_date || '-'}</td>
-              <td>{new Date(f.created_at).toLocaleDateString()}</td>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={6} style={{ textAlign: 'center' }}>
+                لا توجد متابعات
+              </td>
             </tr>
-          ))}
+          ) : (
+            items.map(f => (
+              <tr key={f.id}>
+                <td>{typeLabel(f.type)}</td>
+                <td>{f.notes || '-'}</td>
+                <td>{f.visit_location || '-'}</td>
+                <td>{f.next_follow_up_date || '-'}</td>
+                <td>{f.employee?.name || '-'}</td>
+                <td>{new Date(f.created_at).toLocaleDateString()}</td>
+              </tr>
+            ))
+          )}
         </Table>
       </Card>
     </>

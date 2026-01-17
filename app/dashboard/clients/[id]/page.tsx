@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 import Card from '@/components/ui/Card';
@@ -39,6 +39,7 @@ type Client = {
 
 export default function ClientPage() {
   const params = useParams();
+  const router = useRouter();
   const clientId = params.id as string;
 
   const [client, setClient] = useState<Client | null>(null);
@@ -119,8 +120,8 @@ export default function ClientPage() {
 
   return (
     <div className="page">
-      {/* Tabs */}
-      <div className="tabs">
+      {/* Tabs + Actions */}
+      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button
           variant={tab === 'details' ? 'primary' : undefined}
           onClick={() => setTab('details')}
@@ -133,6 +134,16 @@ export default function ClientPage() {
           onClick={() => setTab('followups')}
         >
           المتابعات
+        </Button>
+
+        {/* 🔥 زرار الحجز */}
+        <Button
+          variant="success"
+          onClick={() =>
+            router.push(`/dashboard/clients/${clientId}/reservation`)
+          }
+        >
+          حجز
         </Button>
       </div>
 

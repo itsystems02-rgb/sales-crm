@@ -50,17 +50,15 @@ export default function ReservationPage() {
   }, []);
 
   /* =====================
-     Fetch Data
+     Fetch Data (NO PROJECTS)
   ===================== */
 
   async function fetchData() {
-    // الوحدات (تقدر تزود فلترة status لو حابب)
+    // 🔥 كل الوحدات مباشرة
     const { data: u } = await supabase
       .from('units')
       .select('id, unit_code');
-      // .eq('status', 'available');
 
-    // الموظفين
     const { data: e } = await supabase
       .from('employees')
       .select('id, name');
@@ -101,12 +99,6 @@ export default function ReservationPage() {
       return;
     }
 
-    // (اختياري) تحديث حالة الوحدة بعد الحجز
-    // await supabase
-    //   .from('units')
-    //   .update({ status: 'reserved' })
-    //   .eq('id', unitId);
-
     router.back();
   }
 
@@ -136,7 +128,6 @@ export default function ReservationPage() {
         </Button>
       </div>
 
-      {/* ================= RESERVATION ================= */}
       <div className="details-layout">
 
         <Card title="بيانات الحجز">
@@ -165,10 +156,7 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم البنك</label>
-              <input
-                value={bankName}
-                onChange={e => setBankName(e.target.value)}
-              />
+              <input value={bankName} onChange={e => setBankName(e.target.value)} />
             </div>
 
             <div className="form-field">
@@ -200,16 +188,12 @@ export default function ReservationPage() {
 
             <div className="form-field" style={{ gridColumn: '1 / -1' }}>
               <label>ملاحظات</label>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-              />
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
 
           </div>
         </Card>
 
-        {/* ================= FOLLOW ================= */}
         <Card title="بيانات المتابعة">
           <div className="details-grid">
 

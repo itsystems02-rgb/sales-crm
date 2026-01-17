@@ -47,7 +47,6 @@ export default function ReservationPage() {
 
   useEffect(() => {
     fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* =====================
@@ -55,25 +54,13 @@ export default function ReservationPage() {
   ===================== */
 
   async function fetchData() {
-    // 1️⃣ هات project_id بتاع العميل
-    const { data: client } = await supabase
-      .from('clients')
-      .select('project_id')
-      .eq('id', clientId)
-      .maybeSingle();
-
-    if (!client?.project_id) {
-      alert('العميل غير مربوط بمشروع');
-      return;
-    }
-
-    // 2️⃣ هات الوحدات الخاصة بالمشروع
+    // الوحدات (تقدر تزود فلترة status لو حابب)
     const { data: u } = await supabase
       .from('units')
-      .select('id, unit_code')
-      .eq('project_id', client.project_id);
+      .select('id, unit_code');
+      // .eq('status', 'available');
 
-    // 3️⃣ الموظفين
+    // الموظفين
     const { data: e } = await supabase
       .from('employees')
       .select('id, name');
@@ -113,6 +100,12 @@ export default function ReservationPage() {
       alert(error.message);
       return;
     }
+
+    // (اختياري) تحديث حالة الوحدة بعد الحجز
+    // await supabase
+    //   .from('units')
+    //   .update({ status: 'reserved' })
+    //   .eq('id', unitId);
 
     router.back();
   }

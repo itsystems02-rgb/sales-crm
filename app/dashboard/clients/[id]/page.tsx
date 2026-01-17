@@ -159,11 +159,13 @@ export default function ClientPage() {
           حجز
         </Button>
 
-        {/* 🔥 عرض الحجز */}
+        {/* 🔥 عرض الحجز (المسار الصح) */}
         {reservationId && (
           <Button
             onClick={() =>
-              router.push(`/dashboard/reservations/${reservationId}`)
+              router.push(
+                `/dashboard/clients/${clientId}/reservation/${reservationId}`
+              )
             }
           >
             عرض الحجز

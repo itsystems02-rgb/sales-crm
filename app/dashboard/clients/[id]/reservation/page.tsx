@@ -48,6 +48,10 @@ export default function ReservationPage() {
   const [status, setStatus] = useState('');
   const [notes, setNotes] = useState('');
 
+  // 🔥 ID الحجز بعد الحفظ
+  const [reservationId, setReservationId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -95,25 +99,32 @@ export default function ReservationPage() {
       return;
     }
 
-    const { error } = await supabase.from('reservations').insert({
-      client_id: clientId,
-      unit_id: unitId,
-      reservation_date: reservationDate,
+    setSaving(true);
 
-      bank_name: bankName || null,
-      bank_employee_name: bankEmployeeName || null,
-      bank_employee_mobile: bankEmployeeMobile || null,
+    const { data, error } = await supabase
+      .from('reservations')
+      .insert({
+        client_id: clientId,
+        unit_id: unitId,
+        reservation_date: reservationDate,
 
-      status: status || 'تم الحجز',
-      notes: notes || null,
+        bank_name: bankName || null,
+        bank_employee_name: bankEmployeeName || null,
+        bank_employee_mobile: bankEmployeeMobile || null,
 
-      follow_employee_id: lastFollowUp?.employee_id || null,
-      last_follow_up_at: lastFollowUp?.created_at || null,
-      follow_up_details: lastFollowUp?.notes || null,
-    });
+        status: status || 'تم الحجز',
+        notes: notes || null,
+
+        follow_employee_id: lastFollowUp?.employee_id || null,
+        last_follow_up_at: lastFollowUp?.created_at || null,
+        follow_up_details: lastFollowUp?.notes || null,
+      })
+      .select('id')
+      .single();
 
     if (error) {
       alert(error.message);
+      setSaving(false);
       return;
     }
 
@@ -129,7 +140,9 @@ export default function ReservationPage() {
       .update({ status: 'reserved' })
       .eq('id', unitId);
 
-    router.back();
+    // 🔥 حفظ ID الحجز
+    setReservationId(data.id);
+    setSaving(false);
   }
 
   /* =====================
@@ -184,7 +197,6 @@ export default function ReservationPage() {
               />
             </div>
 
-            {/* 🔥 البنك من جدول banks */}
             <div className="form-field">
               <label>اسم البنك</label>
               <select
@@ -248,9 +260,24 @@ export default function ReservationPage() {
 
       </div>
 
-      <Button variant="primary" onClick={submit}>
-        حفظ الحجز
-      </Button>
+      {/* ===== ACTIONS ===== */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        {!reservationId && (
+          <Button variant="primary" onClick={submit} disabled={saving}>
+            {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
+          </Button>
+        )}
+
+        {reservationId && (
+          <Button
+            onClick={() =>
+              router.push(`/dashboard/reservations/${reservationId}`)
+            }
+          >
+            عرض الحجز
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,11 @@ type Unit = {
   unit_code: string;
 };
 
+type Bank = {
+  id: string;
+  name: string;
+};
+
 type FollowUp = {
   employee_id: string | null;
   created_at: string | null;
@@ -32,6 +37,7 @@ export default function ReservationPage() {
   const clientId = params.id as string;
 
   const [units, setUnits] = useState<Unit[]>([]);
+  const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
 
   const [unitId, setUnitId] = useState('');
@@ -51,7 +57,7 @@ export default function ReservationPage() {
   ===================== */
 
   async function fetchData() {
-    // الوحدات
+    // الوحدات المتاحة
     const { data: u } = await supabase
       .from('units')
       .select('id, unit_code')
@@ -59,7 +65,15 @@ export default function ReservationPage() {
 
     setUnits(u || []);
 
-    // 🔥 آخر متابعة
+    // البنوك
+    const { data: b } = await supabase
+      .from('banks')
+      .select('id, name')
+      .order('name');
+
+    setBanks(b || []);
+
+    // آخر متابعة
     const { data: follow } = await supabase
       .from('client_followups')
       .select('employee_id, created_at, notes')
@@ -81,7 +95,6 @@ export default function ReservationPage() {
       return;
     }
 
-    /* 1️⃣ إضافة الحجز */
     const { error } = await supabase.from('reservations').insert({
       client_id: clientId,
       unit_id: unitId,
@@ -94,7 +107,6 @@ export default function ReservationPage() {
       status: status || 'تم الحجز',
       notes: notes || null,
 
-      // 🔥 من آخر متابعة
       follow_employee_id: lastFollowUp?.employee_id || null,
       last_follow_up_at: lastFollowUp?.created_at || null,
       follow_up_details: lastFollowUp?.notes || null,
@@ -105,13 +117,13 @@ export default function ReservationPage() {
       return;
     }
 
-    /* 2️⃣ تحديث حالة العميل */
+    // تحديث حالة العميل
     await supabase
       .from('clients')
       .update({ status: 'reserved' })
       .eq('id', clientId);
 
-    /* 3️⃣ تحديث حالة الوحدة */
+    // تحديث حالة الوحدة
     await supabase
       .from('units')
       .update({ status: 'reserved' })
@@ -172,9 +184,20 @@ export default function ReservationPage() {
               />
             </div>
 
+            {/* 🔥 البنك من جدول banks */}
             <div className="form-field">
               <label>اسم البنك</label>
-              <input value={bankName} onChange={e => setBankName(e.target.value)} />
+              <select
+                value={bankName}
+                onChange={e => setBankName(e.target.value)}
+              >
+                <option value="">اختر البنك</option>
+                {banks.map(bank => (
+                  <option key={bank.id} value={bank.name}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="form-field">
@@ -212,7 +235,6 @@ export default function ReservationPage() {
           </div>
         </Card>
 
-        {/* ===== AUTO FOLLOW UP PREVIEW ===== */}
         <Card title="آخر متابعة (تلقائي)">
           {lastFollowUp ? (
             <div className="detail-row">

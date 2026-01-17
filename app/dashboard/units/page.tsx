@@ -345,7 +345,7 @@ export default function UnitsPage() {
 
   return (
     <RequireAuth>
-      <div className="page">
+      <div className="page units-page">
         {/* FORM */}
         <Card title={editingId ? 'تعديل وحدة' : 'إضافة وحدة'}>
           <div className="form-row">

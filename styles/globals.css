@@ -60,114 +60,85 @@ body {
   color: #0369a1;
   font-size: 12px;
 }
-/* ===== Scrollable Table Wrapper ===== */
-.table-scroll {
-  width: 100%;
-  overflow-x: auto;
+/* =========================
+   Scroll ONLY inside table
+========================= */
+
+.units-scroll {
+  max-height: 60vh;        /* 👈 الجدول بس اللي يتمدد */
+  overflow-x: auto;        /* scroll يمين / شمال */
+  overflow-y: auto;        /* scroll فوق / تحت */
   position: relative;
   border-radius: 10px;
 }
 
-/* مهم لأن Table.tsx مفيهوش className */
-.table-scroll table {
-  min-width: 1300px; /* يدي مساحة للأعمدة */
+/* الجدول نفسه */
+.units-scroll table {
+  min-width: 1400px;       /* مساحة مريحة للأعمدة */
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-/* منع تكسير الكلام */
-.table-scroll th,
-.table-scroll td {
+/* الخلايا */
+.units-scroll th,
+.units-scroll td {
   white-space: nowrap;
   text-align: center;
+  background: #fff;
 }
 
-/* تثبيت أول عمود (الكود) */
-.table-scroll th:first-child,
-.table-scroll td.sticky-left {
+/* =========================
+   Sticky columns
+========================= */
+
+/* أول عمود (الكود) */
+.units-scroll th:first-child,
+.units-scroll td.sticky-left {
   position: sticky;
   left: 0;
-  background: #fff;
   z-index: 3;
+  background: #fff;
   box-shadow: 8px 0 18px rgba(0, 0, 0, 0.04);
   font-weight: 700;
 }
 
-/* تثبيت آخر عمود (الإجراء) */
-.table-scroll th:last-child,
-.table-scroll td.sticky-right {
+/* آخر عمود (الإجراء) */
+.units-scroll th:last-child,
+.units-scroll td.sticky-right {
   position: sticky;
   right: 0;
-  background: #fff;
   z-index: 3;
+  background: #fff;
   box-shadow: -8px 0 18px rgba(0, 0, 0, 0.04);
 }
 
-/* Actions */
+/* =========================
+   Extras
+========================= */
+
 .actions {
   display: flex;
   gap: 8px;
   justify-content: center;
-  align-items: center;
 }
 
-/* Price */
 .price {
   font-weight: 800;
   color: #1f6feb;
 }
 
-/* Scrollbar */
-.table-scroll::-webkit-scrollbar {
+/* Scrollbar جمال */
+.units-scroll::-webkit-scrollbar {
   height: 10px;
+  width: 10px;
 }
-.table-scroll::-webkit-scrollbar-thumb {
+
+.units-scroll::-webkit-scrollbar-thumb {
   background: #cfd6df;
   border-radius: 999px;
 }
-.table-scroll::-webkit-scrollbar-track {
+
+.units-scroll::-webkit-scrollbar-track {
   background: #eef1f5;
   border-radius: 999px;
-}
-
-/* ===== Sticky Left (الكود) ===== */
-.sticky-left {
-  position: sticky;
-  left: 0;
-  background: #fff;
-  z-index: 2;
-  font-weight: 600;
-}
-
-/* ===== Sticky Right (الإجراءات) ===== */
-.sticky-right {
-  position: sticky;
-  right: 0;
-  background: #fff;
-  z-index: 2;
-}
-
-/* ===== Actions ===== */
-.actions {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-}
-
-/* ===== Price ===== */
-.price {
-  font-weight: bold;
-  color: #1f6feb;
-}
-
-/* ===== Hover ===== */
-.units-table tr:hover td {
-  background: #fafafa;
-}
-
-/* ===== Scrollbar (اختياري شكله أحلى) ===== */
-.table-scroll::-webkit-scrollbar {
-  height: 8px;
-}
-.table-scroll::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 4px;
 }

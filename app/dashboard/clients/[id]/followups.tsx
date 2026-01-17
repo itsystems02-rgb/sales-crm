@@ -17,7 +17,7 @@ type FollowUp = {
   next_follow_up_date: string | null;
   visit_location: string | null;
   created_at: string;
-  employee: { name: string }[] | null;
+  employee: { name: string } | null;
 };
 
 /* =====================
@@ -90,7 +90,9 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         next_follow_up_date,
         visit_location,
         created_at,
-        employee:employees!client_followups_employee_id_fkey(name)
+        employee:employees!client_followups_employee_id_fkey (
+          name
+        )
       `)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
@@ -101,7 +103,13 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       return;
     }
 
-    setItems((data ?? []) as FollowUp[]);
+    // 🔥 تحويل صحيح بدون Arrays
+    const normalized: FollowUp[] = (data ?? []).map((f: any) => ({
+      ...f,
+      employee: f.employee ?? null,
+    }));
+
+    setItems(normalized);
   }
 
   /* =====================
@@ -141,11 +149,10 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       return;
     }
 
-    // تحديث حالة العميل تلقائي
+    // تحديث حالة العميل
     const status = type === 'visit' ? 'visited' : 'interested';
     await supabase.from('clients').update({ status }).eq('id', clientId);
 
-    // reset
     setDetails('');
     setNotes('');
     setNextDate('');
@@ -170,9 +177,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         <div className="form-col">
           <select value={type} onChange={(e) => setType(e.target.value as any)}>
             {TYPES.map(t => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
+              <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
 
@@ -211,21 +216,10 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       </Card>
 
       <Card title="سجل المتابعات">
-        <Table
-          headers={[
-            'النوع',
-            'التفاصيل / الملاحظات',
-            'مكان الزيارة',
-            'المتابعة القادمة',
-            'الموظف',
-            'التاريخ',
-          ]}
-        >
+        <Table headers={['النوع','التفاصيل','مكان الزيارة','المتابعة القادمة','الموظف','التاريخ']}>
           {items.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: 'center' }}>
-                لا توجد متابعات
-              </td>
+              <td colSpan={6} style={{ textAlign: 'center' }}>لا توجد متابعات</td>
             </tr>
           ) : (
             items.map(f => (
@@ -234,7 +228,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
                 <td>{f.notes || '-'}</td>
                 <td>{f.visit_location || '-'}</td>
                 <td>{f.next_follow_up_date || '-'}</td>
-                <td>{f.employee?.[0]?.name || '-'}</td>
+                <td>{f.employee?.name || '-'}</td>
                 <td>{new Date(f.created_at).toLocaleDateString()}</td>
               </tr>
             ))

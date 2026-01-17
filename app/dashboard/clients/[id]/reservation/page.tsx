@@ -40,6 +40,9 @@ export default function ReservationPage() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
 
+  // ✅ الموظف الحالي اللي عامل الحجز
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
@@ -54,7 +57,29 @@ export default function ReservationPage() {
 
   useEffect(() => {
     fetchData();
+    fetchCurrentEmployee();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* =====================
+     Fetch Current Employee
+  ===================== */
+
+  async function fetchCurrentEmployee() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.email) return;
+
+    const { data } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    if (data?.id) setEmployeeId(data.id);
+  }
 
   /* =====================
      Fetch Data
@@ -99,6 +124,11 @@ export default function ReservationPage() {
       return;
     }
 
+    if (!employeeId) {
+      alert('لم يتم تحديد الموظف الحالي (employee_id)');
+      return;
+    }
+
     setSaving(true);
 
     const { data, error } = await supabase
@@ -106,6 +136,10 @@ export default function ReservationPage() {
       .insert({
         client_id: clientId,
         unit_id: unitId,
+
+        // ✅ أهم سطر: الموظف اللي عمل الحجز
+        employee_id: employeeId,
+
         reservation_date: reservationDate,
 
         bank_name: bankName || null,
@@ -140,7 +174,7 @@ export default function ReservationPage() {
       .update({ status: 'reserved' })
       .eq('id', unitId);
 
-    // 🔥 حفظ ID الحجز
+    // حفظ ID الحجز
     setReservationId(data.id);
     setSaving(false);
   }
@@ -151,7 +185,6 @@ export default function ReservationPage() {
 
   return (
     <div className="page">
-
       {/* ===== TOP TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>
@@ -159,23 +192,17 @@ export default function ReservationPage() {
         </Button>
 
         <Button
-          onClick={() =>
-            router.push(`/dashboard/clients/${clientId}?tab=followups`)
-          }
+          onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}
         >
           المتابعات
         </Button>
 
-        <Button variant="primary">
-          حجز
-        </Button>
+        <Button variant="primary">حجز</Button>
       </div>
 
       <div className="details-layout">
-
         <Card title="بيانات الحجز">
           <div className="details-grid">
-
             <div className="form-field">
               <label>الوحدة</label>
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
@@ -199,10 +226,7 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم البنك</label>
-              <select
-                value={bankName}
-                onChange={e => setBankName(e.target.value)}
-              >
+              <select value={bankName} onChange={e => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
                 {banks.map(bank => (
                   <option key={bank.id} value={bank.name}>
@@ -243,7 +267,6 @@ export default function ReservationPage() {
               <label>ملاحظات</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
-
           </div>
         </Card>
 
@@ -257,7 +280,6 @@ export default function ReservationPage() {
             <div>لا توجد متابعات سابقة</div>
           )}
         </Card>
-
       </div>
 
       {/* ===== ACTIONS ===== */}
@@ -269,11 +291,7 @@ export default function ReservationPage() {
         )}
 
         {reservationId && (
-          <Button
-            onClick={() =>
-              router.push(`/dashboard/reservations/${reservationId}`)
-            }
-          >
+          <Button onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}>
             عرض الحجز
           </Button>
         )}

@@ -40,7 +40,7 @@ export default function ReservationPage() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
 
-  // ✅ الموظف الحالي اللي عامل الحجز
+  // الموظف الحالي
   const [employeeId, setEmployeeId] = useState<string | null>(null);
 
   const [unitId, setUnitId] = useState('');
@@ -48,10 +48,12 @@ export default function ReservationPage() {
   const [bankName, setBankName] = useState('');
   const [bankEmployeeName, setBankEmployeeName] = useState('');
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
-  const [status, setStatus] = useState('');
+
+  // ✅ قيم status المتوافقة مع DB
+  const [status, setStatus] = useState<'submitted' | 'review' | 'approved' | 'rejected' | ''>('');
   const [notes, setNotes] = useState('');
 
-  // 🔥 ID الحجز بعد الحفظ
+  // بعد الحفظ
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -62,14 +64,11 @@ export default function ReservationPage() {
   }, []);
 
   /* =====================
-     Fetch Current Employee
+     Current Employee
   ===================== */
 
   async function fetchCurrentEmployee() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
 
     const { data } = await supabase
@@ -125,7 +124,7 @@ export default function ReservationPage() {
     }
 
     if (!employeeId) {
-      alert('لم يتم تحديد الموظف الحالي (employee_id)');
+      alert('لم يتم تحديد الموظف الحالي');
       return;
     }
 
@@ -136,8 +135,6 @@ export default function ReservationPage() {
       .insert({
         client_id: clientId,
         unit_id: unitId,
-
-        // ✅ أهم سطر: الموظف اللي عمل الحجز
         employee_id: employeeId,
 
         reservation_date: reservationDate,
@@ -146,7 +143,9 @@ export default function ReservationPage() {
         bank_employee_name: bankEmployeeName || null,
         bank_employee_mobile: bankEmployeeMobile || null,
 
-        status: status || 'تم الحجز',
+        // ✅ قيمة صحيحة 100%
+        status: status || 'submitted',
+
         notes: notes || null,
 
         follow_employee_id: lastFollowUp?.employee_id || null,
@@ -174,7 +173,6 @@ export default function ReservationPage() {
       .update({ status: 'reserved' })
       .eq('id', unitId);
 
-    // حفظ ID الحجز
     setReservationId(data.id);
     setSaving(false);
   }
@@ -185,15 +183,14 @@ export default function ReservationPage() {
 
   return (
     <div className="page">
-      {/* ===== TOP TABS ===== */}
+
+      {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>
           البيانات
         </Button>
 
-        <Button
-          onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}
-        >
+        <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>
           المتابعات
         </Button>
 
@@ -201,16 +198,16 @@ export default function ReservationPage() {
       </div>
 
       <div className="details-layout">
+
         <Card title="بيانات الحجز">
           <div className="details-grid">
+
             <div className="form-field">
               <label>الوحدة</label>
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
                 <option value="">اختر الوحدة</option>
                 {units.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.unit_code}
-                  </option>
+                  <option key={u.id} value={u.id}>{u.unit_code}</option>
                 ))}
               </select>
             </div>
@@ -228,38 +225,31 @@ export default function ReservationPage() {
               <label>اسم البنك</label>
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
-                {banks.map(bank => (
-                  <option key={bank.id} value={bank.name}>
-                    {bank.name}
-                  </option>
+                {banks.map(b => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
                 ))}
               </select>
             </div>
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              <input
-                value={bankEmployeeName}
-                onChange={e => setBankEmployeeName(e.target.value)}
-              />
+              <input value={bankEmployeeName} onChange={e => setBankEmployeeName(e.target.value)} />
             </div>
 
             <div className="form-field">
               <label>رقم موظف البنك</label>
-              <input
-                value={bankEmployeeMobile}
-                onChange={e => setBankEmployeeMobile(e.target.value)}
-              />
+              <input value={bankEmployeeMobile} onChange={e => setBankEmployeeMobile(e.target.value)} />
             </div>
 
+            {/* ✅ الحالات المتوافقة مع DB */}
             <div className="form-field">
               <label>حالة الطلب</label>
-              <select value={status} onChange={e => setStatus(e.target.value)}>
+              <select value={status} onChange={e => setStatus(e.target.value as any)}>
                 <option value="">اختر الحالة</option>
-                <option value="تم رفع الطلب">تم رفع الطلب</option>
-                <option value="قيد المراجعة">قيد المراجعة</option>
-                <option value="تم القبول">تم القبول</option>
-                <option value="مرفوض">مرفوض</option>
+                <option value="submitted">تم رفع الطلب</option>
+                <option value="review">قيد المراجعة</option>
+                <option value="approved">تم القبول</option>
+                <option value="rejected">مرفوض</option>
               </select>
             </div>
 
@@ -267,6 +257,7 @@ export default function ReservationPage() {
               <label>ملاحظات</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
+
           </div>
         </Card>
 
@@ -280,6 +271,7 @@ export default function ReservationPage() {
             <div>لا توجد متابعات سابقة</div>
           )}
         </Card>
+
       </div>
 
       {/* ===== ACTIONS ===== */}

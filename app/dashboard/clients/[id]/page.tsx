@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 import Card from '@/components/ui/Card';
@@ -39,7 +39,6 @@ type Client = {
 
 export default function ClientPage() {
   const params = useParams();
-  const router = useRouter();
   const clientId = params.id as string;
 
   const [client, setClient] = useState<Client | null>(null);
@@ -58,6 +57,7 @@ export default function ClientPage() {
   async function fetchAll() {
     setLoading(true);
 
+    // client
     const { data: c } = await supabase
       .from('clients')
       .select('*')
@@ -72,6 +72,7 @@ export default function ClientPage() {
 
     setClient(c);
 
+    // salary bank
     if (c.salary_bank_id) {
       const { data } = await supabase
         .from('banks')
@@ -80,8 +81,11 @@ export default function ClientPage() {
         .maybeSingle();
 
       setSalaryBankName(data?.name ?? null);
-    } else setSalaryBankName(null);
+    } else {
+      setSalaryBankName(null);
+    }
 
+    // finance bank
     if (c.finance_bank_id) {
       const { data } = await supabase
         .from('banks')
@@ -90,8 +94,11 @@ export default function ClientPage() {
         .maybeSingle();
 
       setFinanceBankName(data?.name ?? null);
-    } else setFinanceBankName(null);
+    } else {
+      setFinanceBankName(null);
+    }
 
+    // job sector
     if (c.job_sector_id) {
       const { data } = await supabase
         .from('job_sectors')
@@ -100,7 +107,9 @@ export default function ClientPage() {
         .maybeSingle();
 
       setJobSectorName(data?.name ?? null);
-    } else setJobSectorName(null);
+    } else {
+      setJobSectorName(null);
+    }
 
     setLoading(false);
   }
@@ -110,8 +119,8 @@ export default function ClientPage() {
 
   return (
     <div className="page">
-      {/* ====== TOP ACTIONS ====== */}
-      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+      {/* Tabs */}
+      <div className="tabs">
         <Button
           variant={tab === 'details' ? 'primary' : undefined}
           onClick={() => setTab('details')}
@@ -125,21 +134,12 @@ export default function ClientPage() {
         >
           المتابعات
         </Button>
-
-        {/* 🔥 زرار الحجز */}
-        <Button
-          variant="success"
-          onClick={() =>
-            router.push(`/dashboard/clients/${clientId}/reservation`)
-          }
-        >
-          حجز
-        </Button>
       </div>
 
       {/* ================= DETAILS ================= */}
       {tab === 'details' && (
         <div className="details-layout">
+          {/* Basic */}
           <Card title="البيانات الأساسية">
             <div className="details-grid">
               <Detail label="الاسم" value={client.name} />
@@ -153,6 +153,7 @@ export default function ClientPage() {
             </div>
           </Card>
 
+          {/* Identity */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <Detail label="مستحق" value={client.eligible ? 'نعم' : 'لا'} badge />
@@ -166,6 +167,7 @@ export default function ClientPage() {
             </div>
           </Card>
 
+          {/* Work */}
           <Card title="العمل والبنوك">
             <div className="details-grid">
               <Detail label="القطاع الوظيفي" value={jobSectorName || '-'} />

@@ -75,7 +75,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       .from('employees')
       .select('id')
       .eq('email', user.email)
-      .single();
+      .maybeSingle();
 
     if (data) setEmployeeId(data.id);
   }
@@ -90,7 +90,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         next_follow_up_date,
         visit_location,
         created_at,
-        employee:employees(name)
+        employee:employees!client_followups_employee_id_fkey(name)
       `)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });

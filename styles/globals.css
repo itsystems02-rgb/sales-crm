@@ -142,3 +142,20 @@ body {
   background: #eef1f5;
   border-radius: 999px;
 }
+
+/* =========================
+   Lock page scrolling
+========================= */
+
+.units-page {
+  height: calc(100vh - 64px); /* حسب ارتفاع الهيدر عندك */
+  overflow: hidden;           /* ❌ امنع السكرول من الصفحة */
+  display: flex;
+  flex-direction: column;
+}
+
+/* الكارت بتاع الجدول يتمدد */
+.units-page .card {
+  flex: 1;
+  min-height: 0; /* مهم جدًا */
+}

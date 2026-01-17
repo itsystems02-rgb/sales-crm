@@ -60,3 +60,75 @@ body {
   color: #0369a1;
   font-size: 12px;
 }
+/* ===== Scrollable Table Wrapper ===== */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  position: relative;
+}
+
+/* ===== Table Size ===== */
+.units-table {
+  min-width: 1300px; /* أهم سطر */
+  border-collapse: collapse;
+}
+
+/* ===== Cells ===== */
+.units-table th,
+.units-table td {
+  padding: 12px 14px;
+  white-space: nowrap;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  font-size: 14px;
+}
+
+/* ===== Header ===== */
+.units-table th {
+  background: #f8f9fb;
+  font-weight: 600;
+}
+
+/* ===== Sticky Left (الكود) ===== */
+.sticky-left {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 2;
+  font-weight: 600;
+}
+
+/* ===== Sticky Right (الإجراءات) ===== */
+.sticky-right {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  z-index: 2;
+}
+
+/* ===== Actions ===== */
+.actions {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+/* ===== Price ===== */
+.price {
+  font-weight: bold;
+  color: #1f6feb;
+}
+
+/* ===== Hover ===== */
+.units-table tr:hover td {
+  background: #fafafa;
+}
+
+/* ===== Scrollbar (اختياري شكله أحلى) ===== */
+.table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 4px;
+}

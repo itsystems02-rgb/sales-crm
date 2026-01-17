@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 import RequireAuth from '@/components/auth/RequireAuth';
@@ -32,7 +32,6 @@ type Unit = {
   land_area: number | null;
   build_area: number | null;
 
-  // بعد الـ normalize هنخليهم objects ثابتة
   project: ProjectRef | null;
   model: ModelRef | null;
 };
@@ -62,19 +61,11 @@ function typeLabel(t: Unit['unit_type']) {
   return 'شقة';
 }
 
-// ✅ أهم جزء: تطبيع الـ relation لو رجعت array أو object
+// تطبيع relation لو رجعت array أو object
 function normalizeRel<T>(val: unknown): T | null {
   if (!val) return null;
-
-  if (Array.isArray(val)) {
-    const first = val[0];
-    return (first ?? null) as T | null;
-  }
-
-  if (typeof val === 'object') {
-    return val as T;
-  }
-
+  if (Array.isArray(val)) return (val[0] ?? null) as T | null;
+  if (typeof val === 'object') return val as T;
   return null;
 }
 
@@ -91,7 +82,7 @@ export default function UnitsPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form (كلها string عشان inputs)
+  // form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitCode, setUnitCode] = useState('');
   const [blockNo, setBlockNo] = useState('');
@@ -101,7 +92,6 @@ export default function UnitsPage() {
   const [price, setPrice] = useState('');
   const [landArea, setLandArea] = useState('');
   const [buildArea, setBuildArea] = useState('');
-
   const [projectId, setProjectId] = useState('');
   const [modelId, setModelId] = useState('');
 
@@ -148,9 +138,6 @@ export default function UnitsPage() {
   async function loadUnits() {
     setLoading(true);
 
-    // ⚠️ استخدم أسماء العلاقات الثابتة (المهم consistent)
-    // لو الـ FK names مختلفة عندك، غيرهم هنا بس:
-    // units_project_id_fkey / units_model_id_fkey
     const { data, error } = await supabase
       .from('units')
       .select(`
@@ -186,18 +173,14 @@ export default function UnitsPage() {
       id: r.id,
       project_id: r.project_id,
       model_id: r.model_id,
-
       unit_code: r.unit_code,
       block_no: r.block_no,
       unit_no: r.unit_no,
-
       unit_type: r.unit_type,
       status: r.status,
-
       supported_price: Number(r.supported_price || 0),
       land_area: r.land_area === null ? null : Number(r.land_area),
       build_area: r.build_area === null ? null : Number(r.build_area),
-
       project: normalizeRel<ProjectRef>(r.project),
       model: normalizeRel<ModelRef>(r.model),
     }));
@@ -206,7 +189,7 @@ export default function UnitsPage() {
     setLoading(false);
   }
 
-  // ✅ أول ما تختار مشروع: هات النماذج وفضّي اختيار النموذج
+  // project → models
   useEffect(() => {
     if (!projectId) {
       setModels([]);
@@ -235,11 +218,6 @@ export default function UnitsPage() {
     setModelId('');
     setModels([]);
   }
-
-  const canDeleteSelectedStatus = useMemo(() => {
-    // مجرد helper لو احتجته لاحقاً
-    return true;
-  }, []);
 
   async function handleSubmit() {
     if (!unitCode.trim() || !projectId) {
@@ -388,37 +366,41 @@ export default function UnitsPage() {
 
         {/* TABLE */}
         <Card title="قائمة الوحدات">
-          <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>
-            {loading ? (
-              <tr>
-                <td colSpan={9} style={{ textAlign: 'center' }}>جاري التحميل...</td>
-              </tr>
-            ) : units.length === 0 ? (
-              <tr>
-                <td colSpan={9} style={{ textAlign: 'center' }}>لا توجد وحدات</td>
-              </tr>
-            ) : (
-              units.map((u) => (
-                <tr key={u.id}>
-                  <td data-label="الكود">{u.unit_code}</td>
-                  <td data-label="النوع">{typeLabel(u.unit_type)}</td>
+          <div className="table-scroll units-scroll">
+            <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>
+              {loading ? (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: 'center' }}>جاري التحميل...</td>
+                </tr>
+              ) : units.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: 'center' }}>لا توجد وحدات</td>
+                </tr>
+              ) : (
+                units.map((u) => (
+                  <tr key={u.id}>
+                    <td data-label="الكود" className="sticky-left">{u.unit_code}</td>
 
-                  <td data-label="الحالة">
-                    <span className={`badge ${u.status}`}>{statusLabel(u.status)}</span>
-                  </td>
+                    <td data-label="النوع">{typeLabel(u.unit_type)}</td>
 
-                  <td data-label="الأرض">{u.land_area ?? '-'}</td>
-                  <td data-label="البناء">{u.build_area ?? '-'}</td>
-                  <td data-label="السعر">{u.supported_price.toLocaleString()}</td>
+                    <td data-label="الحالة">
+                      <span className={`badge ${u.status}`}>{statusLabel(u.status)}</span>
+                    </td>
 
-                  <td data-label="المشروع">
-                    {u.project ? `${u.project.name}${u.project.code ? ` (${u.project.code})` : ''}` : '-'}
-                  </td>
+                    <td data-label="الأرض">{u.land_area ?? '-'}</td>
+                    <td data-label="البناء">{u.build_area ?? '-'}</td>
 
-                  <td data-label="النموذج">{u.model?.name || '-'}</td>
+                    <td data-label="السعر" className="price">
+                      {u.supported_price.toLocaleString()}
+                    </td>
 
-                  <td data-label="إجراء">
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <td data-label="المشروع">
+                      {u.project ? `${u.project.name}${u.project.code ? ` (${u.project.code})` : ''}` : '-'}
+                    </td>
+
+                    <td data-label="النموذج">{u.model?.name || '-'}</td>
+
+                    <td data-label="إجراء" className="sticky-right actions">
                       <Button onClick={() => startEdit(u)}>تعديل</Button>
                       <Button
                         variant="danger"
@@ -427,12 +409,12 @@ export default function UnitsPage() {
                       >
                         {deletingId === u.id ? '...' : 'حذف'}
                       </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </Table>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </Table>
+          </div>
         </Card>
       </div>
     </RequireAuth>

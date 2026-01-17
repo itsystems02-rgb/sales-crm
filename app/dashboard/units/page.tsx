@@ -29,11 +29,9 @@ type Unit = {
   land_area: number | null;
   build_area: number | null;
 
-  // ✅ هنا Object مش Array
-  project: { name: string; code: string } | null;
-
-  // ✅ model برضه Object مش Array
-  model: { name: string } | null;
+  // Supabase relations are arrays
+  project: { name: string; code: string | null }[];
+  model: { name: string }[];
 };
 
 type ProjectOption = { id: string; name: string; code: string | null };
@@ -43,7 +41,11 @@ const UNIT_TYPES = [
   { value: 'villa', label: 'فيلا' },
   { value: 'duplex', label: 'دوبلكس' },
   { value: 'apartment', label: 'شقة' },
-];
+] as const;
+
+/* =====================
+   Page
+===================== */
 
 export default function UnitsPage() {
   const [units, setUnits] = useState<Unit[]>([]);
@@ -53,7 +55,7 @@ export default function UnitsPage() {
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form state (كلها string عشان TS)
+  // form state (strings to avoid TS issues)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitCode, setUnitCode] = useState('');
   const [blockNo, setBlockNo] = useState('');
@@ -65,7 +67,7 @@ export default function UnitsPage() {
   const [buildArea, setBuildArea] = useState('');
 
   const [projectId, setProjectId] = useState('');
-  const [modelId, setModelId] = useState(''); // ✅ اختيار النموذج
+  const [modelId, setModelId] = useState('');
 
   /* =====================
      LOAD DATA
@@ -102,7 +104,7 @@ export default function UnitsPage() {
       console.error(error);
       setUnits([]);
     } else {
-      setUnits((data as Unit[]) || []);
+      setUnits(data || []);
     }
 
     setLoading(false);
@@ -120,7 +122,7 @@ export default function UnitsPage() {
       return;
     }
 
-    setProjects((data as ProjectOption[]) || []);
+    setProjects(data || []);
   }
 
   async function loadModels(projectIdValue: string) {
@@ -136,18 +138,19 @@ export default function UnitsPage() {
       return;
     }
 
-    setModels((data as ModelOption[]) || []);
+    setModels(data || []);
   }
 
-  // ✅ أول ما تختار مشروع → نجيب نماذجه
+  // When project changes -> reload models
   useEffect(() => {
     if (!projectId) {
       setModels([]);
       setModelId('');
       return;
     }
+
     loadModels(projectId);
-    setModelId(''); // reset اختيار النموذج عند تغيير المشروع
+    setModelId('');
   }, [projectId]);
 
   /* =====================
@@ -174,7 +177,6 @@ export default function UnitsPage() {
       return;
     }
 
-    // ✅ لازم نموذج
     if (!modelId) {
       alert('من فضلك اختر النموذج');
       return;
@@ -195,7 +197,7 @@ export default function UnitsPage() {
       land_area: landArea ? Number(landArea) : null,
       build_area: buildArea ? Number(buildArea) : null,
       project_id: projectId,
-      model_id: modelId, // ✅ حفظ النموذج
+      model_id: modelId,
     };
 
     if (editingId) {
@@ -228,8 +230,6 @@ export default function UnitsPage() {
     setBuildArea(u.build_area !== null ? String(u.build_area) : '');
 
     setProjectId(u.project_id);
-
-    // ✅ لازم نحمل نماذج المشروع قبل ما نحط value
     await loadModels(u.project_id);
     setModelId(u.model_id || '');
   }
@@ -254,15 +254,15 @@ export default function UnitsPage() {
     loadUnits();
   }
 
-  function renderStatus(statusValue: Unit['status']) {
-    if (statusValue === 'available') return 'متاحة';
-    if (statusValue === 'reserved') return 'محجوزة';
+  function renderStatus(v: Unit['status']) {
+    if (v === 'available') return 'متاحة';
+    if (v === 'reserved') return 'محجوزة';
     return 'مباعة';
   }
 
-  function renderType(typeValue: Unit['unit_type']) {
-    if (typeValue === 'villa') return 'فيلا';
-    if (typeValue === 'duplex') return 'دوبلكس';
+  function renderType(v: Unit['unit_type']) {
+    if (v === 'villa') return 'فيلا';
+    if (v === 'duplex') return 'دوبلكس';
     return 'شقة';
   }
 
@@ -298,7 +298,6 @@ export default function UnitsPage() {
               <option value="sold">مباعة</option>
             </select>
 
-            {/* ✅ المشروع */}
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">اختر المشروع</option>
               {projects.map((p) => (
@@ -309,7 +308,6 @@ export default function UnitsPage() {
               ))}
             </select>
 
-            {/* ✅ النموذج يظهر بعد اختيار المشروع */}
             <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!projectId}>
               <option value="">اختر النموذج</option>
               {models.map((m) => (
@@ -356,13 +354,15 @@ export default function UnitsPage() {
                   <td data-label="البناء">{u.build_area ?? '-'}</td>
                   <td data-label="السعر">{u.supported_price.toLocaleString()}</td>
 
-                  {/* ✅ المشروع لن يكون فاضي بعد إصلاح الـ type */}
                   <td data-label="المشروع">
-                    {u.project ? `${u.project.name}${u.project.code ? ` (${u.project.code})` : ''}` : '-'}
+                    {u.project.length
+                      ? `${u.project[0].name}${u.project[0].code ? ` (${u.project[0].code})` : ''}`
+                      : '-'}
                   </td>
 
-                  {/* ✅ النموذج */}
-                  <td data-label="النموذج">{u.model?.name || '-'}</td>
+                  <td data-label="النموذج">
+                    {u.model.length ? u.model[0].name : '-'}
+                  </td>
 
                   <td data-label="إجراء">
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

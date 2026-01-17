@@ -11,6 +11,11 @@ import Button from '@/components/ui/Button';
    Types
 ===================== */
 
+type ReservationLite = {
+  id: string;
+  reservation_date: string;
+};
+
 type Reservation = {
   id: string;
   reservation_date: string;
@@ -56,6 +61,7 @@ export default function ReservationViewPage() {
   const clientId = params.id as string;
   const reservationId = params.reservationId as string;
 
+  const [reservations, setReservations] = useState<ReservationLite[]>([]);
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
@@ -72,6 +78,15 @@ export default function ReservationViewPage() {
 
   async function fetchAll() {
     setLoading(true);
+
+    /* ========= All Client Reservations (Dropdown) ========= */
+    const { data: allReservations } = await supabase
+      .from('reservations')
+      .select('id, reservation_date')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false });
+
+    setReservations(allReservations || []);
 
     /* ========= Reservation ========= */
     const { data: r } = await supabase
@@ -114,6 +129,8 @@ export default function ReservationViewPage() {
         .maybeSingle();
 
       setSalesEmployee(data || null);
+    } else {
+      setSalesEmployee(null);
     }
 
     /* ========= Follow-up Employee ========= */
@@ -125,6 +142,8 @@ export default function ReservationViewPage() {
         .maybeSingle();
 
       setFollowEmployee(data || null);
+    } else {
+      setFollowEmployee(null);
     }
 
     setLoading(false);
@@ -136,11 +155,29 @@ export default function ReservationViewPage() {
   return (
     <div className="page">
 
-      {/* ===== TOP ACTION ===== */}
-      <div style={{ marginBottom: 20 }}>
+      {/* ===== TOP ACTIONS ===== */}
+      <div className="tabs" style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>
           رجوع للعميل
         </Button>
+
+        {/* 🔥 Dropdown الحجوزات */}
+        {reservations.length > 1 && (
+          <select
+            value={reservationId}
+            onChange={e =>
+              router.push(
+                `/dashboard/clients/${clientId}/reservation/${e.target.value}`
+              )
+            }
+          >
+            {reservations.map(r => (
+              <option key={r.id} value={r.id}>
+                حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString()}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* ================= CLIENT ================= */}

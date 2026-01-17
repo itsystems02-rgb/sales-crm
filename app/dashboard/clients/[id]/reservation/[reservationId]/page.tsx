@@ -76,10 +76,14 @@ export default function ReservationViewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reservationId]);
 
+  /* =====================
+     Fetch Data
+  ===================== */
+
   async function fetchAll() {
     setLoading(true);
 
-    /* ========= All Client Reservations (Dropdown) ========= */
+    // كل حجوزات العميل (Dropdown)
     const { data: allReservations } = await supabase
       .from('reservations')
       .select('id, reservation_date')
@@ -88,7 +92,7 @@ export default function ReservationViewPage() {
 
     setReservations(allReservations || []);
 
-    /* ========= Reservation ========= */
+    // الحجز الحالي
     const { data: r } = await supabase
       .from('reservations')
       .select('*')
@@ -102,7 +106,7 @@ export default function ReservationViewPage() {
 
     setReservation(r);
 
-    /* ========= Client ========= */
+    // العميل
     const { data: c } = await supabase
       .from('clients')
       .select('name, mobile, identity_no, status')
@@ -111,7 +115,7 @@ export default function ReservationViewPage() {
 
     setClient(c || null);
 
-    /* ========= Unit ========= */
+    // الوحدة
     const { data: u } = await supabase
       .from('units')
       .select('unit_code, block_no')
@@ -120,7 +124,7 @@ export default function ReservationViewPage() {
 
     setUnit(u || null);
 
-    /* ========= Sales Employee ========= */
+    // موظف الحجز
     if (r.employee_id) {
       const { data } = await supabase
         .from('employees')
@@ -133,7 +137,7 @@ export default function ReservationViewPage() {
       setSalesEmployee(null);
     }
 
-    /* ========= Follow-up Employee ========= */
+    // موظف المتابعة
     if (r.follow_employee_id) {
       const { data } = await supabase
         .from('employees')
@@ -149,6 +153,50 @@ export default function ReservationViewPage() {
     setLoading(false);
   }
 
+  /* =====================
+     Delete Reservation
+  ===================== */
+
+  async function deleteReservation() {
+    if (!reservation) return;
+
+    if (!confirm('هل أنت متأكد من حذف الحجز؟')) return;
+
+    // 1️⃣ حذف الحجز
+    await supabase
+      .from('reservations')
+      .delete()
+      .eq('id', reservation.id);
+
+    // 2️⃣ إعادة الوحدة Available
+    await supabase
+      .from('units')
+      .update({ status: 'available' })
+      .eq('id', reservation.unit_id);
+
+    // 3️⃣ هل للعميل حجوزات أخرى؟
+    const { data: otherReservations } = await supabase
+      .from('reservations')
+      .select('id')
+      .eq('client_id', reservation.client_id)
+      .limit(1);
+
+    // لو مفيش حجوزات تانية → نرجع حالة العميل
+    if (!otherReservations || otherReservations.length === 0) {
+      await supabase
+        .from('clients')
+        .update({ status: 'new' }) // عدلها لو عندك status تانية
+        .eq('id', reservation.client_id);
+    }
+
+    alert('تم حذف الحجز بنجاح');
+    router.push(`/dashboard/clients/${clientId}`);
+  }
+
+  /* =====================
+     UI
+  ===================== */
+
   if (loading) return <div className="page">جاري التحميل...</div>;
   if (!reservation || !client) return <div className="page">الحجز غير موجود</div>;
 
@@ -161,7 +209,15 @@ export default function ReservationViewPage() {
           رجوع للعميل
         </Button>
 
-        {/* 🔥 Dropdown الحجوزات */}
+        <Button onClick={() => window.print()}>
+          طباعة PDF
+        </Button>
+
+        <Button variant="danger" onClick={deleteReservation}>
+          حذف الحجز
+        </Button>
+
+        {/* Dropdown الحجوزات */}
         {reservations.length > 1 && (
           <select
             value={reservationId}

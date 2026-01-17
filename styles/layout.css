@@ -173,3 +173,8 @@
     box-shadow: var(--shadow-sm);
   }
 }
+
+.dashboard-content {
+  height: 100vh;
+  overflow: hidden;
+}

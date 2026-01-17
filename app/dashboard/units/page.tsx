@@ -29,7 +29,7 @@ type Unit = {
   land_area: number | null;
   build_area: number | null;
 
-  // Supabase relations are arrays
+  // ✅ Supabase relations = ARRAY
   project: { name: string; code: string | null }[];
   model: { name: string }[];
 };
@@ -41,7 +41,7 @@ const UNIT_TYPES = [
   { value: 'villa', label: 'فيلا' },
   { value: 'duplex', label: 'دوبلكس' },
   { value: 'apartment', label: 'شقة' },
-] as const;
+];
 
 /* =====================
    Page
@@ -55,7 +55,7 @@ export default function UnitsPage() {
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form state (strings to avoid TS issues)
+  // form state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitCode, setUnitCode] = useState('');
   const [blockNo, setBlockNo] = useState('');
@@ -111,50 +111,36 @@ export default function UnitsPage() {
   }
 
   async function loadProjects() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('projects')
       .select('id, name, code')
       .order('name');
 
-    if (error) {
-      console.error(error);
-      setProjects([]);
-      return;
-    }
-
     setProjects(data || []);
   }
 
-  async function loadModels(projectIdValue: string) {
-    const { data, error } = await supabase
+  async function loadModels(pid: string) {
+    const { data } = await supabase
       .from('project_models')
       .select('id, name')
-      .eq('project_id', projectIdValue)
+      .eq('project_id', pid)
       .order('name');
-
-    if (error) {
-      console.error(error);
-      setModels([]);
-      return;
-    }
 
     setModels(data || []);
   }
 
-  // When project changes -> reload models
   useEffect(() => {
     if (!projectId) {
       setModels([]);
       setModelId('');
       return;
     }
-
     loadModels(projectId);
     setModelId('');
   }, [projectId]);
 
   /* =====================
-     FORM HELPERS
+     FORM
   ===================== */
 
   function resetForm() {
@@ -172,25 +158,15 @@ export default function UnitsPage() {
   }
 
   async function handleSubmit() {
-    if (!unitCode.trim() || !projectId) {
-      alert('كود الوحدة والمشروع مطلوبين');
-      return;
-    }
-
-    if (!modelId) {
-      alert('من فضلك اختر النموذج');
-      return;
-    }
-
-    if (!price || Number(price) <= 0) {
-      alert('من فضلك أدخل سعر صحيح');
+    if (!unitCode || !projectId || !modelId) {
+      alert('كل الحقول الأساسية مطلوبة');
       return;
     }
 
     const payload = {
-      unit_code: unitCode.trim(),
-      block_no: blockNo.trim() || null,
-      unit_no: unitNo.trim() || null,
+      unit_code: unitCode,
+      block_no: blockNo || null,
+      unit_no: unitNo || null,
       unit_type: unitType,
       status,
       supported_price: Number(price),
@@ -201,17 +177,9 @@ export default function UnitsPage() {
     };
 
     if (editingId) {
-      const { error } = await supabase.from('units').update(payload).eq('id', editingId);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      await supabase.from('units').update(payload).eq('id', editingId);
     } else {
-      const { error } = await supabase.from('units').insert(payload);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      await supabase.from('units').insert(payload);
     }
 
     resetForm();
@@ -226,8 +194,8 @@ export default function UnitsPage() {
     setUnitType(u.unit_type);
     setStatus(u.status);
     setPrice(String(u.supported_price));
-    setLandArea(u.land_area !== null ? String(u.land_area) : '');
-    setBuildArea(u.build_area !== null ? String(u.build_area) : '');
+    setLandArea(u.land_area ? String(u.land_area) : '');
+    setBuildArea(u.build_area ? String(u.build_area) : '');
 
     setProjectId(u.project_id);
     await loadModels(u.project_id);
@@ -235,35 +203,12 @@ export default function UnitsPage() {
   }
 
   async function deleteUnit(u: Unit) {
-    if (u.status !== 'available') {
-      alert('لا يمكن حذف وحدة محجوزة أو مباعة');
-      return;
-    }
-
-    if (!confirm('هل أنت متأكد من حذف الوحدة؟')) return;
+    if (u.status !== 'available') return;
 
     setDeletingId(u.id);
-    const { error } = await supabase.from('units').delete().eq('id', u.id);
+    await supabase.from('units').delete().eq('id', u.id);
     setDeletingId(null);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
     loadUnits();
-  }
-
-  function renderStatus(v: Unit['status']) {
-    if (v === 'available') return 'متاحة';
-    if (v === 'reserved') return 'محجوزة';
-    return 'مباعة';
-  }
-
-  function renderType(v: Unit['unit_type']) {
-    if (v === 'villa') return 'فيلا';
-    if (v === 'duplex') return 'دوبلكس';
-    return 'شقة';
   }
 
   /* =====================
@@ -273,112 +218,50 @@ export default function UnitsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* FORM */}
         <Card title="إدارة الوحدات">
           <div className="form-row">
-            <Input placeholder="كود الوحدة" value={unitCode} onChange={(e) => setUnitCode(e.target.value)} />
-            <Input placeholder="رقم البلوك" value={blockNo} onChange={(e) => setBlockNo(e.target.value)} />
-            <Input placeholder="رقم الوحدة" value={unitNo} onChange={(e) => setUnitNo(e.target.value)} />
+            <Input placeholder="كود الوحدة" value={unitCode} onChange={e => setUnitCode(e.target.value)} />
+            <Input placeholder="رقم البلوك" value={blockNo} onChange={e => setBlockNo(e.target.value)} />
+            <Input placeholder="رقم الوحدة" value={unitNo} onChange={e => setUnitNo(e.target.value)} />
 
-            <select value={unitType} onChange={(e) => setUnitType(e.target.value as any)}>
-              {UNIT_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
+            <select value={unitType} onChange={e => setUnitType(e.target.value as any)}>
+              {UNIT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
 
-            <Input type="number" placeholder="مساحة الأرض" value={landArea} onChange={(e) => setLandArea(e.target.value)} />
-            <Input type="number" placeholder="مسطح البناء" value={buildArea} onChange={(e) => setBuildArea(e.target.value)} />
-            <Input type="number" placeholder="السعر المعتمد" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Input type="number" placeholder="السعر" value={price} onChange={e => setPrice(e.target.value)} />
 
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
-              <option value="available">متاحة</option>
-              <option value="reserved">محجوزة</option>
-              <option value="sold">مباعة</option>
-            </select>
-
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            <select value={projectId} onChange={e => setProjectId(e.target.value)}>
               <option value="">اختر المشروع</option>
-              {projects.map((p) => (
+              {projects.map(p => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
-                  {p.code ? ` (${p.code})` : ''}
+                  {p.name} {p.code ? `(${p.code})` : ''}
                 </option>
               ))}
             </select>
 
-            <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!projectId}>
+            <select value={modelId} onChange={e => setModelId(e.target.value)} disabled={!projectId}>
               <option value="">اختر النموذج</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
+              {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
 
-            <Button onClick={handleSubmit}>
-              {editingId ? 'تعديل الوحدة' : 'إضافة وحدة'}
-            </Button>
-
-            {editingId && (
-              <Button variant="danger" onClick={resetForm}>
-                إلغاء
-              </Button>
-            )}
+            <Button onClick={handleSubmit}>{editingId ? 'تعديل' : 'حفظ'}</Button>
           </div>
         </Card>
 
-        {/* TABLE */}
         <Card title="قائمة الوحدات">
-          <Table headers={['الكود', 'النوع', 'الحالة', 'الأرض', 'البناء', 'السعر', 'المشروع', 'النموذج', 'إجراء']}>
-            {loading ? (
-              <tr>
-                <td colSpan={9}>جاري التحميل...</td>
+          <Table headers={['الكود','المشروع','النموذج','الحالة','إجراء']}>
+            {units.map(u => (
+              <tr key={u.id}>
+                <td>{u.unit_code}</td>
+                <td>{u.project?.[0]?.name || '-'}</td>
+                <td>{u.model?.[0]?.name || '-'}</td>
+                <td>{u.status}</td>
+                <td>
+                  <Button onClick={() => startEdit(u)}>تعديل</Button>
+                  <Button variant="danger" onClick={() => deleteUnit(u)}>حذف</Button>
+                </td>
               </tr>
-            ) : units.length === 0 ? (
-              <tr>
-                <td colSpan={9}>لا توجد وحدات</td>
-              </tr>
-            ) : (
-              units.map((u) => (
-                <tr key={u.id}>
-                  <td data-label="الكود">{u.unit_code}</td>
-                  <td data-label="النوع">{renderType(u.unit_type)}</td>
-
-                  <td data-label="الحالة">
-                    <span className={`badge ${u.status}`}>{renderStatus(u.status)}</span>
-                  </td>
-
-                  <td data-label="الأرض">{u.land_area ?? '-'}</td>
-                  <td data-label="البناء">{u.build_area ?? '-'}</td>
-                  <td data-label="السعر">{u.supported_price.toLocaleString()}</td>
-
-                  <td data-label="المشروع">
-                    {u.project.length
-                      ? `${u.project[0].name}${u.project[0].code ? ` (${u.project[0].code})` : ''}`
-                      : '-'}
-                  </td>
-
-                  <td data-label="النموذج">
-                    {u.model.length ? u.model[0].name : '-'}
-                  </td>
-
-                  <td data-label="إجراء">
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <Button onClick={() => startEdit(u)}>تعديل</Button>
-                      <Button
-                        variant="danger"
-                        disabled={deletingId === u.id}
-                        onClick={() => deleteUnit(u)}
-                      >
-                        {deletingId === u.id ? '...' : 'حذف'}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            ))}
           </Table>
         </Card>
       </div>

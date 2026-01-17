@@ -17,9 +17,7 @@ type FollowUp = {
   next_follow_up_date: string | null;
   visit_location: string | null;
   created_at: string;
-  employee: {
-    name: string;
-  } | null;
+  employee: { name: string }[] | null;
 };
 
 /* =====================
@@ -83,7 +81,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   }
 
   async function fetchFollowUps() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('client_followups')
       .select(`
         id,
@@ -97,7 +95,13 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
-    setItems((data as FollowUp[]) || []);
+    if (error) {
+      console.error(error);
+      setItems([]);
+      return;
+    }
+
+    setItems((data ?? []) as FollowUp[]);
   }
 
   /* =====================
@@ -162,7 +166,6 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
   return (
     <>
-      {/* Add */}
       <Card title="إضافة متابعة">
         <div className="form-col">
           <select value={type} onChange={(e) => setType(e.target.value as any)}>
@@ -173,7 +176,6 @@ export default function FollowUps({ clientId }: { clientId: string }) {
             ))}
           </select>
 
-          {/* تفاصيل جاهزة */}
           <select value={details} onChange={(e) => setDetails(e.target.value)}>
             <option value="">تفاصيل المتابعة</option>
             {DETAILS_OPTIONS.map(d => (
@@ -208,7 +210,6 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         </div>
       </Card>
 
-      {/* List */}
       <Card title="سجل المتابعات">
         <Table
           headers={[
@@ -233,7 +234,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
                 <td>{f.notes || '-'}</td>
                 <td>{f.visit_location || '-'}</td>
                 <td>{f.next_follow_up_date || '-'}</td>
-                <td>{f.employee?.name || '-'}</td>
+                <td>{f.employee?.[0]?.name || '-'}</td>
                 <td>{new Date(f.created_at).toLocaleDateString()}</td>
               </tr>
             ))

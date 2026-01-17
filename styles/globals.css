@@ -65,28 +65,67 @@ body {
   width: 100%;
   overflow-x: auto;
   position: relative;
+  border-radius: 10px;
 }
 
-/* ===== Table Size ===== */
-.units-table {
-  min-width: 1300px; /* أهم سطر */
-  border-collapse: collapse;
+/* مهم لأن Table.tsx مفيهوش className */
+.table-scroll table {
+  min-width: 1300px; /* يدي مساحة للأعمدة */
 }
 
-/* ===== Cells ===== */
-.units-table th,
-.units-table td {
-  padding: 12px 14px;
+/* منع تكسير الكلام */
+.table-scroll th,
+.table-scroll td {
   white-space: nowrap;
   text-align: center;
-  border-bottom: 1px solid #eee;
-  font-size: 14px;
 }
 
-/* ===== Header ===== */
-.units-table th {
-  background: #f8f9fb;
-  font-weight: 600;
+/* تثبيت أول عمود (الكود) */
+.table-scroll th:first-child,
+.table-scroll td.sticky-left {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 3;
+  box-shadow: 8px 0 18px rgba(0, 0, 0, 0.04);
+  font-weight: 700;
+}
+
+/* تثبيت آخر عمود (الإجراء) */
+.table-scroll th:last-child,
+.table-scroll td.sticky-right {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  z-index: 3;
+  box-shadow: -8px 0 18px rgba(0, 0, 0, 0.04);
+}
+
+/* Actions */
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Price */
+.price {
+  font-weight: 800;
+  color: #1f6feb;
+}
+
+/* Scrollbar */
+.table-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: #cfd6df;
+  border-radius: 999px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background: #eef1f5;
+  border-radius: 999px;
 }
 
 /* ===== Sticky Left (الكود) ===== */

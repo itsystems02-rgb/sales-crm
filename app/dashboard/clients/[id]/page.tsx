@@ -50,6 +50,9 @@ export default function ClientPage() {
   const [financeBankName, setFinanceBankName] = useState<string | null>(null);
   const [jobSectorName, setJobSectorName] = useState<string | null>(null);
 
+  // 🔥 آخر حجز
+  const [reservationId, setReservationId] = useState<string | null>(null);
+
   useEffect(() => {
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -58,7 +61,7 @@ export default function ClientPage() {
   async function fetchAll() {
     setLoading(true);
 
-    // client
+    /* ========= Client ========= */
     const { data: c } = await supabase
       .from('clients')
       .select('*')
@@ -73,7 +76,7 @@ export default function ClientPage() {
 
     setClient(c);
 
-    // salary bank
+    /* ========= Salary Bank ========= */
     if (c.salary_bank_id) {
       const { data } = await supabase
         .from('banks')
@@ -86,7 +89,7 @@ export default function ClientPage() {
       setSalaryBankName(null);
     }
 
-    // finance bank
+    /* ========= Finance Bank ========= */
     if (c.finance_bank_id) {
       const { data } = await supabase
         .from('banks')
@@ -99,7 +102,7 @@ export default function ClientPage() {
       setFinanceBankName(null);
     }
 
-    // job sector
+    /* ========= Job Sector ========= */
     if (c.job_sector_id) {
       const { data } = await supabase
         .from('job_sectors')
@@ -112,6 +115,17 @@ export default function ClientPage() {
       setJobSectorName(null);
     }
 
+    /* ========= Last Reservation ========= */
+    const { data: reservation } = await supabase
+      .from('reservations')
+      .select('id')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    setReservationId(reservation?.id ?? null);
+
     setLoading(false);
   }
 
@@ -120,7 +134,8 @@ export default function ClientPage() {
 
   return (
     <div className="page">
-      {/* Tabs + Actions */}
+
+      {/* ================= TOP BUTTONS ================= */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button
           variant={tab === 'details' ? 'primary' : undefined}
@@ -136,21 +151,30 @@ export default function ClientPage() {
           المتابعات
         </Button>
 
-        {/* 🔥 زرار الحجز */}
         <Button
-          variant="primary"
           onClick={() =>
             router.push(`/dashboard/clients/${clientId}/reservation`)
           }
         >
           حجز
         </Button>
+
+        {/* 🔥 عرض الحجز */}
+        {reservationId && (
+          <Button
+            onClick={() =>
+              router.push(`/dashboard/reservations/${reservationId}`)
+            }
+          >
+            عرض الحجز
+          </Button>
+        )}
       </div>
 
       {/* ================= DETAILS ================= */}
       {tab === 'details' && (
         <div className="details-layout">
-          {/* Basic */}
+
           <Card title="البيانات الأساسية">
             <div className="details-grid">
               <Detail label="الاسم" value={client.name} />
@@ -164,7 +188,6 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* Identity */}
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <Detail label="مستحق" value={client.eligible ? 'نعم' : 'لا'} badge />
@@ -178,7 +201,6 @@ export default function ClientPage() {
             </div>
           </Card>
 
-          {/* Work */}
           <Card title="العمل والبنوك">
             <div className="details-grid">
               <Detail label="القطاع الوظيفي" value={jobSectorName || '-'} />
@@ -186,6 +208,7 @@ export default function ClientPage() {
               <Detail label="بنك التمويل" value={financeBankName || '-'} />
             </div>
           </Card>
+
         </div>
       )}
 

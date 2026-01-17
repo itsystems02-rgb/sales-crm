@@ -13,7 +13,7 @@ import Button from '@/components/ui/Button';
 
 type Unit = {
   id: string;
-  name: string;
+  unit_code: string;
 };
 
 type Employee = {
@@ -47,13 +47,33 @@ export default function ReservationPage() {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* =====================
+     Fetch Data
+  ===================== */
+
   async function fetchData() {
+    // 1️⃣ هات project_id بتاع العميل
+    const { data: client } = await supabase
+      .from('clients')
+      .select('project_id')
+      .eq('id', clientId)
+      .maybeSingle();
+
+    if (!client?.project_id) {
+      alert('العميل غير مربوط بمشروع');
+      return;
+    }
+
+    // 2️⃣ هات الوحدات الخاصة بالمشروع
     const { data: u } = await supabase
       .from('units')
-      .select('id, name');
+      .select('id, unit_code')
+      .eq('project_id', client.project_id);
 
+    // 3️⃣ الموظفين
     const { data: e } = await supabase
       .from('employees')
       .select('id, name');
@@ -61,6 +81,10 @@ export default function ReservationPage() {
     setUnits(u || []);
     setEmployees(e || []);
   }
+
+  /* =====================
+     Submit
+  ===================== */
 
   async function submit() {
     if (!unitId || !reservationDate) {
@@ -93,14 +117,16 @@ export default function ReservationPage() {
     router.back();
   }
 
+  /* =====================
+     UI
+  ===================== */
+
   return (
     <div className="page">
 
       {/* ===== TOP TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
-        <Button
-          onClick={() => router.push(`/dashboard/clients/${clientId}`)}
-        >
+        <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>
           البيانات
         </Button>
 
@@ -128,7 +154,9 @@ export default function ReservationPage() {
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
                 <option value="">اختر الوحدة</option>
                 {units.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.unit_code}
+                  </option>
                 ))}
               </select>
             </div>
@@ -200,7 +228,9 @@ export default function ReservationPage() {
               >
                 <option value="">اختر الموظف</option>
                 {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
                 ))}
               </select>
             </div>

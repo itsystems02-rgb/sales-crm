@@ -16,9 +16,10 @@ type Unit = {
   unit_code: string;
 };
 
-type Employee = {
-  id: string;
-  name: string;
+type FollowUp = {
+  employee_id: string | null;
+  created_at: string | null;
+  notes: string | null;
 };
 
 /* =====================
@@ -31,7 +32,7 @@ export default function ReservationPage() {
   const clientId = params.id as string;
 
   const [units, setUnits] = useState<Unit[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
 
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
@@ -41,30 +42,33 @@ export default function ReservationPage() {
   const [status, setStatus] = useState('');
   const [notes, setNotes] = useState('');
 
-  const [followEmployeeId, setFollowEmployeeId] = useState('');
-  const [followUpDate, setFollowUpDate] = useState('');
-  const [followUpDetails, setFollowUpDetails] = useState('');
-
   useEffect(() => {
     fetchData();
   }, []);
 
   /* =====================
-     Fetch Data (NO PROJECTS)
+     Fetch Data
   ===================== */
 
   async function fetchData() {
-    // 🔥 كل الوحدات مباشرة
+    // الوحدات
     const { data: u } = await supabase
       .from('units')
-      .select('id, unit_code');
-
-    const { data: e } = await supabase
-      .from('employees')
-      .select('id, name');
+      .select('id, unit_code')
+      .neq('status', 'reserved');
 
     setUnits(u || []);
-    setEmployees(e || []);
+
+    // 🔥 آخر متابعة
+    const { data: follow } = await supabase
+      .from('client_followups')
+      .select('employee_id, created_at, notes')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    setLastFollowUp(follow || null);
   }
 
   /* =====================
@@ -77,6 +81,7 @@ export default function ReservationPage() {
       return;
     }
 
+    /* 1️⃣ إضافة الحجز */
     const { error } = await supabase.from('reservations').insert({
       client_id: clientId,
       unit_id: unitId,
@@ -86,18 +91,31 @@ export default function ReservationPage() {
       bank_employee_name: bankEmployeeName || null,
       bank_employee_mobile: bankEmployeeMobile || null,
 
-      status: status || null,
+      status: status || 'تم الحجز',
       notes: notes || null,
 
-      follow_employee_id: followEmployeeId || null,
-      last_follow_up_at: followUpDate || null,
-      follow_up_details: followUpDetails || null,
+      // 🔥 من آخر متابعة
+      follow_employee_id: lastFollowUp?.employee_id || null,
+      last_follow_up_at: lastFollowUp?.created_at || null,
+      follow_up_details: lastFollowUp?.notes || null,
     });
 
     if (error) {
       alert(error.message);
       return;
     }
+
+    /* 2️⃣ تحديث حالة العميل */
+    await supabase
+      .from('clients')
+      .update({ status: 'reserved' })
+      .eq('id', clientId);
+
+    /* 3️⃣ تحديث حالة الوحدة */
+    await supabase
+      .from('units')
+      .update({ status: 'reserved' })
+      .eq('id', unitId);
 
     router.back();
   }
@@ -194,42 +212,16 @@ export default function ReservationPage() {
           </div>
         </Card>
 
-        <Card title="بيانات المتابعة">
-          <div className="details-grid">
-
-            <div className="form-field">
-              <label>موظف المتابعة</label>
-              <select
-                value={followEmployeeId}
-                onChange={e => setFollowEmployeeId(e.target.value)}
-              >
-                <option value="">اختر الموظف</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
-                  </option>
-                ))}
-              </select>
+        {/* ===== AUTO FOLLOW UP PREVIEW ===== */}
+        <Card title="آخر متابعة (تلقائي)">
+          {lastFollowUp ? (
+            <div className="detail-row">
+              <span className="label">تفاصيل المتابعة</span>
+              <span className="value">{lastFollowUp.notes || '-'}</span>
             </div>
-
-            <div className="form-field">
-              <label>تاريخ آخر متابعة</label>
-              <input
-                type="date"
-                value={followUpDate}
-                onChange={e => setFollowUpDate(e.target.value)}
-              />
-            </div>
-
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>تفاصيل المتابعة</label>
-              <textarea
-                value={followUpDetails}
-                onChange={e => setFollowUpDetails(e.target.value)}
-              />
-            </div>
-
-          </div>
+          ) : (
+            <div>لا توجد متابعات سابقة</div>
+          )}
         </Card>
 
       </div>

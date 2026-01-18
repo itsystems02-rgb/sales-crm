@@ -8,7 +8,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
-   Types
+   Types (✔️ مطابق لـ Supabase)
 ===================== */
 
 type Sale = {
@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number;
   finance_type: string | null;
 
-  client: { id: string; name: string } | null;
-  unit: { id: string; unit_code: string } | null;
-  employee: { id: string; name: string } | null;
+  client: { id: string; name: string }[] | null;
+  unit: { id: string; unit_code: string }[] | null;
+  employee: { id: string; name: string }[] | null;
 };
 
 /* =====================
@@ -38,7 +38,7 @@ export default function SalesPage() {
   }, []);
 
   /* =====================
-     Fetch Sales (✔️ صح)
+     Fetch Sales (✔️ ثابت)
   ===================== */
 
   async function fetchSales() {
@@ -84,31 +84,23 @@ export default function SalesPage() {
   async function deleteSale(sale: Sale) {
     if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
 
-    // حذف التنفيذ
-    const { error } = await supabase
-      .from('sales')
-      .delete()
-      .eq('id', sale.id);
+    await supabase.from('sales').delete().eq('id', sale.id);
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+    const unitId = sale.unit?.[0]?.id;
+    const clientId = sale.client?.[0]?.id;
 
-    // إرجاع حالة الوحدة
-    if (sale.unit?.id) {
+    if (unitId) {
       await supabase
         .from('units')
         .update({ status: 'reserved' })
-        .eq('id', sale.unit.id);
+        .eq('id', unitId);
     }
 
-    // إرجاع حالة العميل
-    if (sale.client?.id) {
+    if (clientId) {
       await supabase
         .from('clients')
         .update({ status: 'reserved' })
-        .eq('id', sale.client.id);
+        .eq('id', clientId);
     }
 
     fetchSales();
@@ -121,10 +113,11 @@ export default function SalesPage() {
   const filteredSales = useMemo(() => {
     if (!filter.trim()) return sales;
 
-    return sales.filter(s =>
-      s.client?.name.includes(filter) ||
-      s.unit?.unit_code.includes(filter)
-    );
+    return sales.filter(s => {
+      const clientName = s.client?.[0]?.name ?? '';
+      const unitCode = s.unit?.[0]?.unit_code ?? '';
+      return clientName.includes(filter) || unitCode.includes(filter);
+    });
   }, [sales, filter]);
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -132,7 +125,6 @@ export default function SalesPage() {
   return (
     <div className="page">
 
-      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button variant="primary">التنفيذات</Button>
 
@@ -146,7 +138,6 @@ export default function SalesPage() {
       <div className="details-layout">
         <Card title="قائمة التنفيذات">
 
-          {/* ===== Filter ===== */}
           <div style={{ marginBottom: 15 }}>
             <input
               placeholder="بحث باسم العميل أو رقم الوحدة"
@@ -175,16 +166,12 @@ export default function SalesPage() {
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.name || '-'}</td>
-                      <td>{sale.unit?.unit_code || '-'}</td>
-                      <td>
-                        {new Date(sale.sale_date).toLocaleDateString()}
-                      </td>
-                      <td>
-                        {sale.price_before_tax.toLocaleString()}
-                      </td>
+                      <td>{sale.client?.[0]?.name || '-'}</td>
+                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
+                      <td>{new Date(sale.sale_date).toLocaleDateString()}</td>
+                      <td>{sale.price_before_tax.toLocaleString()}</td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.name || '-'}</td>
+                      <td>{sale.employee?.[0]?.name || '-'}</td>
                       <td style={{ display: 'flex', gap: 6 }}>
                         <Button
                           onClick={() =>

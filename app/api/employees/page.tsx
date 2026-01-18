@@ -271,7 +271,7 @@ export default function EmployeesPage() {
                           {/* 🔥 زر المشاريع */}
                           <Button
                             onClick={() =>
-                              router.push(`/dashboard/employees/${e.id}/projects`)
+                              router.push(`/api/employees/${e.id}/projects`)
                             }
                           >
                             المشاريع

@@ -8,7 +8,7 @@ const MENU = [
   { href: '/dashboard/units', label: 'الوحدات', icon: '🏠' },
   { href: '/dashboard/clients', label: 'العملاء', icon: '👥' },
   { href: '/api/employees', label: 'الموظفين', icon: '🧑‍💼' },
- { href: '/dashboard/sales/new', label: 'العملاء', icon: '👥' },
+ { href: '/dashboard/sales/new', label: 'التنفيذات', icon: '👥' },
 ];
 
 export default function Sidebar() {

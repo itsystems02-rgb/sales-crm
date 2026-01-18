@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -8,7 +8,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
-   Types (✔️ صح 100%)
+   Types
 ===================== */
 
 type Sale = {
@@ -17,6 +17,7 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
+  // Supabase بيرجعها Arrays
   client: { name: string }[] | null;
   unit: { unit_code: string }[] | null;
   employee: { name: string }[] | null;
@@ -52,30 +53,37 @@ export default function SalesPage() {
         price_before_tax,
         finance_type,
 
-        client:clients(name),
-        unit:units(unit_code),
-        employee:employees(name)
+        client:clients!sales_client_id_fkey(name),
+        unit:units!sales_unit_id_fkey(unit_code),
+        employee:employees!sales_sales_employee_id_fkey(name)
       `)
       .order('created_at', { ascending: false });
 
     if (error) {
       console.error('FETCH SALES ERROR:', error);
       setSales([]);
-    } else {
-      setSales(data ?? []);
+      setLoading(false);
+      return;
     }
 
+    setSales((data ?? []) as Sale[]);
     setLoading(false);
   }
 
   /* =====================
-     Filter
+     Filter (✅ لو الفلتر فاضي اعرض الكل)
   ===================== */
 
-  const filteredSales = sales.filter(s =>
-    s.client?.[0]?.name?.includes(filter) ||
-    s.unit?.[0]?.unit_code?.includes(filter)
-  );
+  const filteredSales = useMemo(() => {
+    const q = filter.trim();
+    if (!q) return sales;
+
+    return sales.filter(s => {
+      const clientName = s.client?.[0]?.name ?? '';
+      const unitCode = s.unit?.[0]?.unit_code ?? '';
+      return clientName.includes(q) || unitCode.includes(q);
+    });
+  }, [sales, filter]);
 
   if (loading) return <div className="page">جاري التحميل...</div>;
 
@@ -88,6 +96,9 @@ export default function SalesPage() {
         <Button onClick={() => router.push('/dashboard/sales/new')}>
           تنفيذ جديد
         </Button>
+
+        {/* زر تحديث سريع */}
+        <Button onClick={fetchSales}>تحديث</Button>
       </div>
 
       <div className="details-layout">
@@ -129,8 +140,8 @@ export default function SalesPage() {
                           : '-'}
                       </td>
                       <td>
-                        {sale.price_before_tax
-                          ? sale.price_before_tax.toLocaleString()
+                        {sale.price_before_tax != null
+                          ? Number(sale.price_before_tax).toLocaleString()
                           : '-'}
                       </td>
                       <td>{sale.finance_type || '-'}</td>

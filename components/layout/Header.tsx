@@ -70,8 +70,7 @@ export default function Header() {
     <header className="header pro-header">
       {/* ===== Left ===== */}
       <div className="header-left">
-        <button className="menu-btn">☰</button>
-
+      
         <div className="header-text">
           <span className="header-breadcrumb">Dashboard</span>
           <h1 className="header-title">{title || 'لوحة التحكم'}</h1>
@@ -93,16 +92,7 @@ export default function Header() {
           </div>
         )}
 
-        {/* Dark mode */}
-        <button
-          className="icon-btn"
-          onClick={() =>
-            document.documentElement.classList.toggle('dark')
-          }
-          title="الوضع الليلي"
-        >
-          🌙
-        </button>
+       
 
         <Button variant="danger" onClick={logout}>
           تسجيل خروج

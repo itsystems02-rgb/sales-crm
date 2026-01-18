@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 import Card from '@/components/ui/Card';
@@ -11,310 +11,222 @@ import Button from '@/components/ui/Button';
    Types
 ===================== */
 
-type ReservationLite = {
+type Sale = {
   id: string;
-  reservation_date: string;
-};
+  sale_date: string | null;
+  price_before_tax: number | null;
+  finance_type: string | null;
 
-type Reservation = {
-  id: string;
-  reservation_date: string;
-  bank_name: string | null;
-  bank_employee_name: string | null;
-  bank_employee_mobile: string | null;
-  notes: string | null;
-  status: string;
+  contract_support_no: string | null;
+  contract_talad_no: string | null;
 
   client_id: string;
   unit_id: string;
-  employee_id: string | null;
+  reservation_id: string | null;
 
-  follow_employee_id: string | null;
-  last_follow_up_at: string | null;
-  follow_up_details: string | null;
-};
-
-type Client = {
-  name: string;
-  mobile: string;
-  identity_no: string | null;
-  status: string;
-};
-
-type Unit = {
-  unit_code: string;
-  block_no: string | null;
-};
-
-type Employee = {
-  name: string;
+  client: { name: string }[] | null;
+  unit: { unit_code: string }[] | null;
+  employee: { name: string }[] | null;
 };
 
 /* =====================
    Page
 ===================== */
 
-export default function ReservationViewPage() {
-  const params = useParams();
+export default function SalesPage() {
   const router = useRouter();
 
-  const clientId = params.id as string;
-  const reservationId = params.reservationId as string;
-
-  const [reservations, setReservations] = useState<ReservationLite[]>([]);
-  const [reservation, setReservation] = useState<Reservation | null>(null);
-  const [client, setClient] = useState<Client | null>(null);
-  const [unit, setUnit] = useState<Unit | null>(null);
-
-  const [salesEmployee, setSalesEmployee] = useState<Employee | null>(null);
-  const [followEmployee, setFollowEmployee] = useState<Employee | null>(null);
-
+  const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
-    fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reservationId]);
+    fetchSales();
+  }, []);
 
   /* =====================
-     Fetch Data
+     Fetch Sales
   ===================== */
 
-  async function fetchAll() {
+  async function fetchSales() {
     setLoading(true);
 
-    // كل حجوزات العميل (Dropdown)
-    const { data: allReservations } = await supabase
-      .from('reservations')
-      .select('id, reservation_date')
-      .eq('client_id', clientId)
+    const { data, error } = await supabase
+      .from('sales')
+      .select(`
+        id,
+        sale_date,
+        price_before_tax,
+        finance_type,
+        contract_support_no,
+        contract_talad_no,
+        client_id,
+        unit_id,
+        reservation_id,
+
+        client:clients!sales_client_id_fkey(name),
+        unit:units!sales_unit_id_fkey(unit_code),
+        employee:employees!sales_sales_employee_id_fkey(name)
+      `)
       .order('created_at', { ascending: false });
 
-    setReservations(allReservations || []);
-
-    // الحجز الحالي
-    const { data: r } = await supabase
-      .from('reservations')
-      .select('*')
-      .eq('id', reservationId)
-      .maybeSingle();
-
-    if (!r) {
-      setLoading(false);
-      return;
-    }
-
-    setReservation(r);
-
-    // العميل
-    const { data: c } = await supabase
-      .from('clients')
-      .select('name, mobile, identity_no, status')
-      .eq('id', r.client_id)
-      .maybeSingle();
-
-    setClient(c || null);
-
-    // الوحدة
-    const { data: u } = await supabase
-      .from('units')
-      .select('unit_code, block_no')
-      .eq('id', r.unit_id)
-      .maybeSingle();
-
-    setUnit(u || null);
-
-    // موظف الحجز
-    if (r.employee_id) {
-      const { data } = await supabase
-        .from('employees')
-        .select('name')
-        .eq('id', r.employee_id)
-        .maybeSingle();
-
-      setSalesEmployee(data || null);
+    if (error) {
+      console.error(error);
+      setSales([]);
     } else {
-      setSalesEmployee(null);
-    }
-
-    // موظف المتابعة
-    if (r.follow_employee_id) {
-      const { data } = await supabase
-        .from('employees')
-        .select('name')
-        .eq('id', r.follow_employee_id)
-        .maybeSingle();
-
-      setFollowEmployee(data || null);
-    } else {
-      setFollowEmployee(null);
+      setSales((data ?? []) as Sale[]);
     }
 
     setLoading(false);
   }
 
   /* =====================
-     Delete Reservation
+     Delete Sale
   ===================== */
 
-  async function deleteReservation() {
-    if (!reservation) return;
+  async function deleteSale(sale: Sale) {
+    const ok = confirm('هل أنت متأكد من حذف التنفيذ؟ سيتم إرجاع حالة العميل والوحدة.');
+    if (!ok) return;
 
-    if (!confirm('هل أنت متأكد من حذف الحجز؟')) return;
+    setLoading(true);
 
-    // 1️⃣ حذف الحجز
-    await supabase
-      .from('reservations')
+    // 1️⃣ حذف التنفيذ
+    const { error: deleteError } = await supabase
+      .from('sales')
       .delete()
-      .eq('id', reservation.id);
+      .eq('id', sale.id);
 
-    // 2️⃣ إعادة الوحدة Available
-    await supabase
-      .from('units')
-      .update({ status: 'available' })
-      .eq('id', reservation.unit_id);
-
-    // 3️⃣ هل للعميل حجوزات أخرى؟
-    const { data: otherReservations } = await supabase
-      .from('reservations')
-      .select('id')
-      .eq('client_id', reservation.client_id)
-      .limit(1);
-
-    // لو مفيش حجوزات تانية → نرجع حالة العميل
-    if (!otherReservations || otherReservations.length === 0) {
-      await supabase
-        .from('clients')
-        .update({ status: 'new' }) // عدلها لو عندك status تانية
-        .eq('id', reservation.client_id);
+    if (deleteError) {
+      alert(deleteError.message);
+      setLoading(false);
+      return;
     }
 
-    alert('تم حذف الحجز بنجاح');
-    router.push(`/dashboard/clients/${clientId}`);
+    // 2️⃣ إرجاع حالة الوحدة
+    await supabase
+      .from('units')
+      .update({ status: 'reserved' })
+      .eq('id', sale.unit_id);
+
+    // 3️⃣ إرجاع حالة العميل
+    await supabase
+      .from('clients')
+      .update({ status: 'reserved' })
+      .eq('id', sale.client_id);
+
+    // 4️⃣ إرجاع حالة الحجز (لو موجود)
+    if (sale.reservation_id) {
+      await supabase
+        .from('reservations')
+        .update({ status: 'active' })
+        .eq('id', sale.reservation_id);
+    }
+
+    fetchSales();
+    setLoading(false);
   }
 
   /* =====================
-     UI
+     Filter
   ===================== */
 
+  const filteredSales = useMemo(() => {
+    const q = filter.trim();
+    if (!q) return sales;
+
+    return sales.filter(s =>
+      s.client?.[0]?.name?.includes(q) ||
+      s.unit?.[0]?.unit_code?.includes(q)
+    );
+  }, [sales, filter]);
+
   if (loading) return <div className="page">جاري التحميل...</div>;
-  if (!reservation || !client) return <div className="page">الحجز غير موجود</div>;
 
   return (
     <div className="page">
 
-      {/* ===== TOP ACTIONS ===== */}
-      <div className="tabs" style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>
-          رجوع للعميل
+      {/* ===== Tabs ===== */}
+      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+        <Button variant="primary">التنفيذات</Button>
+        <Button onClick={() => router.push('/dashboard/sales/new')}>
+          تنفيذ جديد
         </Button>
-
-        <Button onClick={() => window.print()}>
-          طباعة PDF
-        </Button>
-
-        <Button variant="danger" onClick={deleteReservation}>
-          حذف الحجز
-        </Button>
-
-        {/* Dropdown الحجوزات */}
-        {reservations.length > 1 && (
-          <select
-            value={reservationId}
-            onChange={e =>
-              router.push(
-                `/dashboard/clients/${clientId}/reservation/${e.target.value}`
-              )
-            }
-          >
-            {reservations.map(r => (
-              <option key={r.id} value={r.id}>
-                حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString()}
-              </option>
-            ))}
-          </select>
-        )}
+        <Button onClick={fetchSales}>تحديث</Button>
       </div>
 
-      {/* ================= CLIENT ================= */}
-      <Card title="بيانات العميل">
-        <div className="details-grid">
-          <Detail label="اسم العميل" value={client.name} />
-          <Detail label="رقم الجوال" value={client.mobile} />
-          <Detail label="رقم الهوية" value={client.identity_no || '-'} />
-          <Detail label="حالة العميل" value={client.status} badge />
-        </div>
-      </Card>
+      <div className="details-layout">
+        <Card title="قائمة التنفيذات">
 
-      {/* ================= RESERVATION ================= */}
-      <Card title="بيانات الحجز">
-        <div className="details-grid">
-          <Detail label="رقم الوحدة" value={unit?.unit_code || '-'} />
-          <Detail label="رقم البلوك" value={unit?.block_no || '-'} />
-          <Detail
-            label="تاريخ الحجز"
-            value={new Date(reservation.reservation_date).toLocaleDateString()}
-          />
-          <Detail label="حالة الحجز" value={reservation.status} badge />
-        </div>
-      </Card>
+          {/* ===== Filter ===== */}
+          <div style={{ marginBottom: 15 }}>
+            <input
+              placeholder="بحث باسم العميل أو رقم الوحدة"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+            />
+          </div>
 
-      {/* ================= BANK ================= */}
-      <Card title="بيانات البنك">
-        <div className="details-grid">
-          <Detail label="اسم البنك" value={reservation.bank_name || '-'} />
-          <Detail label="اسم موظف البنك" value={reservation.bank_employee_name || '-'} />
-          <Detail label="رقم موظف البنك" value={reservation.bank_employee_mobile || '-'} />
-        </div>
-      </Card>
+          {filteredSales.length === 0 ? (
+            <div>لا توجد عمليات تنفيذ</div>
+          ) : (
+            <div className="units-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>العميل</th>
+                    <th>الوحدة</th>
+                    <th>تاريخ البيع</th>
+                    <th>السعر</th>
+                    <th>عقد الدعم</th>
+                    <th>عقد تلاد</th>
+                    <th>الموظف</th>
+                    <th>إجراءات</th>
+                  </tr>
+                </thead>
 
-      {/* ================= NOTES ================= */}
-      <Card title="ملاحظات">
-        <div>{reservation.notes || '-'}</div>
-      </Card>
+                <tbody>
+                  {filteredSales.map(sale => (
+                    <tr key={sale.id}>
+                      <td>{sale.client?.[0]?.name || '-'}</td>
+                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
+                      <td>
+                        {sale.sale_date
+                          ? new Date(sale.sale_date).toLocaleDateString()
+                          : '-'}
+                      </td>
+                      <td>
+                        {sale.price_before_tax != null
+                          ? sale.price_before_tax.toLocaleString()
+                          : '-'}
+                      </td>
+                      <td>{sale.contract_support_no || '-'}</td>
+                      <td>{sale.contract_talad_no || '-'}</td>
+                      <td>{sale.employee?.[0]?.name || '-'}</td>
+                      <td style={{ display: 'flex', gap: 6 }}>
+                        <Button
+                          onClick={() =>
+                            router.push(`/dashboard/sales/${sale.id}`)
+                          }
+                        >
+                          عرض
+                        </Button>
 
-      {/* ================= EMPLOYEES ================= */}
-      <Card title="بيانات الموظفين">
-        <div className="details-grid">
-          <Detail label="الموظف القائم بالحجز" value={salesEmployee?.name || '-'} />
-          <Detail
-            label="تاريخ آخر متابعة"
-            value={
-              reservation.last_follow_up_at
-                ? new Date(reservation.last_follow_up_at).toLocaleDateString()
-                : '-'
-            }
-          />
-          <Detail label="موظف المتابعة" value={followEmployee?.name || '-'} />
-        </div>
-      </Card>
+                        <Button
+                          variant="danger"
+                          onClick={() => deleteSale(sale)}
+                        >
+                          حذف
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* ================= FOLLOW DETAILS ================= */}
-      <Card title="تفاصيل المتابعة">
-        <div>{reservation.follow_up_details || '-'}</div>
-      </Card>
-
-    </div>
-  );
-}
-
-/* =====================
-   Small UI Component
-===================== */
-
-function Detail({
-  label,
-  value,
-  badge,
-}: {
-  label: string;
-  value: string;
-  badge?: boolean;
-}) {
-  return (
-    <div className="detail-row">
-      <span className="label">{label}</span>
-      <span className={badge ? 'value badge' : 'value'}>{value}</span>
+        </Card>
+      </div>
     </div>
   );
 }

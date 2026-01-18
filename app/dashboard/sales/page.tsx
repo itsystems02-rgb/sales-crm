@@ -37,6 +37,10 @@ export default function SalesPage() {
     fetchSales();
   }, []);
 
+  /* =====================
+     Fetch Sales
+  ===================== */
+
   async function fetchSales() {
     setLoading(true);
 
@@ -47,14 +51,15 @@ export default function SalesPage() {
         sale_date,
         price_before_tax,
         finance_type,
-        client:clients(name),
-        unit:units(unit_code),
-        employee:employees(name)
+
+        client:clients!sales_client_id_fkey(name),
+        unit:units!sales_unit_id_fkey(unit_code),
+        employee:employees!sales_sales_employee_id_fkey(name)
       `)
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error(error);
+      console.error('FETCH SALES ERROR:', error);
     } else {
       setSales(data || []);
     }
@@ -62,12 +67,9 @@ export default function SalesPage() {
     setLoading(false);
   }
 
-  async function deleteSale(sale: Sale) {
-    if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
-
-    await supabase.from('sales').delete().eq('id', sale.id);
-    fetchSales();
-  }
+  /* =====================
+     Filter
+  ===================== */
 
   const filteredSales = sales.filter(s =>
     s.client?.[0]?.name?.includes(filter) ||
@@ -110,7 +112,6 @@ export default function SalesPage() {
                     <th>السعر</th>
                     <th>نوع التمويل</th>
                     <th>الموظف</th>
-                    <th>إجراءات</th>
                   </tr>
                 </thead>
 
@@ -131,11 +132,6 @@ export default function SalesPage() {
                       </td>
                       <td>{sale.finance_type || '-'}</td>
                       <td>{sale.employee?.[0]?.name || '-'}</td>
-                      <td>
-                        <Button onClick={() => deleteSale(sale)} variant="danger">
-                          حذف
-                        </Button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

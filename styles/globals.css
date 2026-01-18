@@ -155,3 +155,24 @@ table tbody tr {
 .card-no-padding .card-body {
   padding: 0;
 }
+
+.input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.input-error {
+  border-color: var(--danger) !important;
+}
+
+.input-error-text {
+  font-size: 12px;
+  color: var(--danger);
+}

@@ -125,21 +125,43 @@ export default function NewSalePage() {
 
     setLoading(true);
 
-    /* === Insert Sale === */
-    await supabase.from('sales').insert({
-      client_id: clientId,
-      unit_id: unitId,
-      contract_support_no: form.contract_support_no,
-      contract_talad_no: form.contract_talad_no,
-      contract_type: form.contract_type,
-      finance_type: form.finance_type,
-      finance_entity: form.finance_entity,
-      sale_date: form.sale_date,
-      price_before_tax: Number(form.price_before_tax),
-      sales_employee_id: employeeId,
-    });
+    /* =====================
+       1️⃣ Insert Sale
+    ===================== */
 
-    /* === Update Statuses === */
+    const { data: sale, error: saleError } = await supabase
+      .from('sales')
+      .insert({
+        client_id: clientId,
+        unit_id: unitId,
+
+        contract_support_no: form.contract_support_no || null,
+        contract_talad_no: form.contract_talad_no || null,
+        contract_type: form.contract_type || null,
+        finance_type: form.finance_type || null,
+        finance_entity: form.finance_entity || null,
+
+        sale_date: form.sale_date || null,
+        price_before_tax: form.price_before_tax
+          ? Number(form.price_before_tax)
+          : null,
+
+        sales_employee_id: employeeId,
+      })
+      .select('id')
+      .single();
+
+    if (saleError) {
+      console.error('SALE INSERT ERROR:', saleError);
+      alert(`خطأ أثناء حفظ التنفيذ: ${saleError.message}`);
+      setLoading(false);
+      return; // ❗ مهم
+    }
+
+    /* =====================
+       2️⃣ Update statuses
+    ===================== */
+
     await supabase
       .from('reservations')
       .update({ status: 'converted' })
@@ -168,10 +190,10 @@ export default function NewSalePage() {
 
       {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
-        <Button onClick={() => router.push('/dashboard/clients')}>
-          العملاء
+        <Button onClick={() => router.push('/dashboard/sales')}>
+          التنفيذات
         </Button>
-        <Button variant="primary">تنفيذ</Button>
+        <Button variant="primary">تنفيذ جديد</Button>
       </div>
 
       <div className="details-layout">
@@ -233,39 +255,73 @@ export default function NewSalePage() {
 
             <div className="form-field">
               <label>رقم عقد الدعم</label>
-              <input onChange={e => setForm({ ...form, contract_support_no: e.target.value })} />
+              <input
+                value={form.contract_support_no}
+                onChange={e =>
+                  setForm({ ...form, contract_support_no: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>رقم عقد تلاد</label>
-              <input onChange={e => setForm({ ...form, contract_talad_no: e.target.value })} />
+              <input
+                value={form.contract_talad_no}
+                onChange={e =>
+                  setForm({ ...form, contract_talad_no: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>نوع العقد</label>
-              <input onChange={e => setForm({ ...form, contract_type: e.target.value })} />
+              <input
+                value={form.contract_type}
+                onChange={e =>
+                  setForm({ ...form, contract_type: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>نوع التمويل</label>
-              <input onChange={e => setForm({ ...form, finance_type: e.target.value })} />
+              <input
+                value={form.finance_type}
+                onChange={e =>
+                  setForm({ ...form, finance_type: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>الجهة التمويلية</label>
-              <input onChange={e => setForm({ ...form, finance_entity: e.target.value })} />
+              <input
+                value={form.finance_entity}
+                onChange={e =>
+                  setForm({ ...form, finance_entity: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>تاريخ البيع</label>
-              <input type="date" onChange={e => setForm({ ...form, sale_date: e.target.value })} />
+              <input
+                type="date"
+                value={form.sale_date}
+                onChange={e =>
+                  setForm({ ...form, sale_date: e.target.value })
+                }
+              />
             </div>
 
             <div className="form-field">
               <label>سعر البيع قبل الضريبة</label>
               <input
                 type="number"
-                onChange={e => setForm({ ...form, price_before_tax: e.target.value })}
+                value={form.price_before_tax}
+                onChange={e =>
+                  setForm({ ...form, price_before_tax: e.target.value })
+                }
               />
             </div>
 

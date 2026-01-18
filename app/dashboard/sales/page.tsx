@@ -1,0 +1,137 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+
+/* =====================
+   Types
+===================== */
+
+type Sale = {
+  id: string;
+  sale_date: string | null;
+  price_before_tax: number | null;
+  finance_type: string | null;
+
+  client: {
+    name: string;
+  } | null;
+
+  unit: {
+    unit_code: string;
+  } | null;
+
+  employee: {
+    name: string;
+  } | null;
+};
+
+/* =====================
+   Page
+===================== */
+
+export default function SalesPage() {
+  const router = useRouter();
+
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchSales();
+  }, []);
+
+  async function fetchSales() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from('sales')
+      .select(`
+        id,
+        sale_date,
+        price_before_tax,
+        finance_type,
+        client:clients(name),
+        unit:units(unit_code),
+        employee:employees(name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (!error) setSales(data || []);
+    setLoading(false);
+  }
+
+  if (loading) return <div className="page">جاري التحميل...</div>;
+
+  return (
+    <div className="page">
+
+      {/* ===== HEADER ===== */}
+      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+        <Button variant="primary">التنفيذات</Button>
+        <Button onClick={() => router.push('/dashboard/sales/new')}>
+          تنفيذ جديد
+        </Button>
+      </div>
+
+      <div className="details-layout">
+        <Card title="قائمة التنفيذات">
+
+          {sales.length === 0 ? (
+            <div>لا توجد عمليات تنفيذ حتى الآن</div>
+          ) : (
+            <div className="units-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>العميل</th>
+                    <th>الوحدة</th>
+                    <th>تاريخ البيع</th>
+                    <th>سعر البيع</th>
+                    <th>نوع التمويل</th>
+                    <th>الموظف</th>
+                    <th></th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sales.map(sale => (
+                    <tr key={sale.id}>
+                      <td>{sale.client?.name || '-'}</td>
+                      <td>{sale.unit?.unit_code || '-'}</td>
+                      <td>
+                        {sale.sale_date
+                          ? new Date(sale.sale_date).toLocaleDateString()
+                          : '-'}
+                      </td>
+                      <td>
+                        {sale.price_before_tax
+                          ? sale.price_before_tax.toLocaleString()
+                          : '-'}
+                      </td>
+                      <td>{sale.finance_type || '-'}</td>
+                      <td>{sale.employee?.name || '-'}</td>
+                      <td>
+                        <Button
+                          onClick={() =>
+                            router.push(`/dashboard/sales/${sale.id}`)
+                          }
+                        >
+                          عرض
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+        </Card>
+      </div>
+    </div>
+  );
+}

@@ -1,57 +1,38 @@
-'use client';
+type Option = {
+  value: string;
+  label: string;
+};
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+type Props = {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
 
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
+  options: Option[];
 
-export default function Home() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  placeholder?: string;
+  disabled?: boolean;
+};
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  async function checkAuth() {
-    const { data } = await supabase.auth.getSession();
-
-    // لو مسجل دخول → روح الداشبورد
-    if (data.session) {
-      router.replace('/dashboard');
-      return;
-    }
-
-    // مش مسجل
-    setLoading(false);
-  }
-
-  if (loading) {
-    return <div className="page">جاري التحميل...</div>;
-  }
-
+export default function Select({
+  value,
+  onChange,
+  options,
+  placeholder = 'اختر',
+  disabled = false,
+}: Props) {
   return (
-    <div className="page" style={{ maxWidth: 520, margin: '80px auto' }}>
-      <Card title="Sales CRM 🚀">
-        <p style={{ marginBottom: 20, color: '#64748b' }}>
-          نظام إدارة مبيعات احترافي لإدارة المشاريع، الوحدات، العملاء والتنفيذات.
-        </p>
+    <select value={value} onChange={onChange} disabled={disabled}>
+      {/* Placeholder */}
+      <option value="" disabled>
+        {placeholder}
+      </option>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Button onClick={() => router.push('/login')}>
-            تسجيل الدخول
-          </Button>
-
-          <Button
-            variant="danger"
-            onClick={() => router.push('/register')}
-          >
-            إنشاء حساب
-          </Button>
-        </div>
-      </Card>
-    </div>
+      {/* Options */}
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 }

@@ -36,17 +36,17 @@ export default function ProjectsPage() {
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form (admin فقط)
+  /* ===== Form (admin فقط) ===== */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [location, setLocation] = useState('');
 
   /* =====================
-     LOAD
+     INIT
   ===================== */
 
   useEffect(() => {
@@ -55,19 +55,18 @@ export default function ProjectsPage() {
 
   async function init() {
     const emp = await getCurrentEmployee();
-
-    if (!emp) {
-      router.push('/login');
-      return;
-    }
+    if (!emp) return; // RequireAuth هيعمل redirect
 
     setEmployee(emp);
     await loadProjects(emp);
+    setLoading(false);
   }
 
-  async function loadProjects(emp: Employee) {
-    setLoading(true);
+  /* =====================
+     LOAD PROJECTS
+  ===================== */
 
+  async function loadProjects(emp: Employee) {
     // 👑 admin → كل المشاريع
     if (emp.role === 'admin') {
       const { data } = await supabase
@@ -76,21 +75,27 @@ export default function ProjectsPage() {
         .order('created_at', { ascending: false });
 
       setProjects(data || []);
-      setLoading(false);
       return;
     }
 
-    // 🧑‍💻 sales → المشاريع المسموح بها فقط
-    const { data: rows } = await supabase
+    // 🧑‍💻 sales → المشاريع المربوط بيها فقط
+    const { data } = await supabase
       .from('employee_projects')
-      .select('project:projects(id,name,code,location)')
+      .select(`
+        project:projects (
+          id,
+          name,
+          code,
+          location
+        )
+      `)
       .eq('employee_id', emp.id);
 
-    const allowedProjects =
-      rows?.map((r: any) => r.project).filter(Boolean) || [];
+    const allowed = (data || [])
+      .map((r: any) => r.project)
+      .filter(Boolean);
 
-    setProjects(allowedProjects);
-    setLoading(false);
+    setProjects(allowed);
   }
 
   /* =====================
@@ -105,12 +110,12 @@ export default function ProjectsPage() {
   }
 
   async function handleSubmit() {
+    if (employee?.role !== 'admin') return;
+
     if (!name.trim() || !code.trim()) {
       alert('اسم المشروع والكود مطلوبين');
       return;
     }
-
-    setLoading(true);
 
     if (editingId) {
       await supabase
@@ -129,12 +134,13 @@ export default function ProjectsPage() {
       });
     }
 
-    setLoading(false);
     resetForm();
     if (employee) loadProjects(employee);
   }
 
   function startEdit(p: Project) {
+    if (employee?.role !== 'admin') return;
+
     setEditingId(p.id);
     setName(p.name);
     setCode(p.code);
@@ -142,6 +148,8 @@ export default function ProjectsPage() {
   }
 
   async function deleteProject(id: string) {
+    if (employee?.role !== 'admin') return;
+
     if (!confirm('هل أنت متأكد من حذف المشروع؟')) return;
 
     const { count } = await supabase
@@ -169,7 +177,7 @@ export default function ProjectsPage() {
     <RequireAuth>
       <div className="page">
 
-        {/* 👑 الفورم يظهر للـ admin فقط */}
+        {/* 👑 admin فقط */}
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
             <div className="form-row">
@@ -189,11 +197,13 @@ export default function ProjectsPage() {
                 onChange={(e) => setLocation(e.target.value)}
               />
 
-              <Button onClick={handleSubmit} disabled={loading}>
+              <Button onClick={handleSubmit}>
                 {editingId ? 'تعديل' : 'حفظ'}
               </Button>
 
-              {editingId && <Button onClick={resetForm}>إلغاء</Button>}
+              {editingId && (
+                <Button onClick={resetForm}>إلغاء</Button>
+              )}
             </div>
           </Card>
         )}
@@ -201,7 +211,13 @@ export default function ProjectsPage() {
         {/* ===== LIST ===== */}
         <Card title="قائمة المشاريع">
           <Table headers={['اسم المشروع', 'الكود', 'الموقع', 'إجراء']}>
-            {projects.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center' }}>
+                  جاري التحميل...
+                </td>
+              </tr>
+            ) : projects.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center' }}>
                   لا توجد مشاريع
@@ -210,16 +226,16 @@ export default function ProjectsPage() {
             ) : (
               projects.map((p) => (
                 <tr key={p.id}>
-                  <td data-label="اسم المشروع">{p.name}</td>
-                  <td data-label="الكود">{p.code}</td>
-                  <td data-label="الموقع">{p.location || '-'}</td>
-                  <td data-label="إجراء">
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-
-                      {/* 👑 أزرار admin فقط */}
-                      {employee?.role === 'admin' && (
+                  <td>{p.name}</td>
+                  <td>{p.code}</td>
+                  <td>{p.location || '-'}</td>
+                  <td>
+                    <div className="actions">
+                      {employee?.role === 'admin' ? (
                         <>
-                          <Button onClick={() => startEdit(p)}>تعديل</Button>
+                          <Button onClick={() => startEdit(p)}>
+                            تعديل
+                          </Button>
 
                           <Button
                             onClick={() =>
@@ -237,10 +253,9 @@ export default function ProjectsPage() {
                             حذف
                           </Button>
                         </>
+                      ) : (
+                        <span>-</span>
                       )}
-
-                      {/* 🧑‍💻 sales → مفيش أزرار */}
-                      {employee?.role === 'sales' && <span>-</span>}
                     </div>
                   </td>
                 </tr>

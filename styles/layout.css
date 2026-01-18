@@ -80,3 +80,154 @@
   .content { padding: 16px; }
   .card { padding: 16px; }
 }
+
+/* =====================
+   Pro Header
+===================== */
+
+.pro-header {
+  box-shadow: var(--shadow-sm);
+}
+
+.header-breadcrumb {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.icon-btn {
+  height: 40px;
+  width: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  transition: 0.2s ease;
+}
+
+.icon-btn:hover {
+  background: var(--bg);
+}
+
+/* =====================
+   Pro Sidebar
+===================== */
+
+.pro-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-brand {
+  margin-bottom: 32px;
+}
+
+.sidebar-brand .logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.sidebar-brand .sub {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.sidebar nav a {
+  position: relative;
+}
+
+.sidebar nav a.active::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  background: var(--primary);
+  border-radius: 4px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+  padding-top: 16px;
+}
+
+/* =====================
+   Pro Sidebar
+===================== */
+
+.pro-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-brand {
+  margin-bottom: 32px;
+}
+
+.sidebar-brand .logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-brand .sub {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+/* Links */
+.sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  position: relative;
+}
+
+.sidebar nav a .icon {
+  font-size: 16px;
+}
+
+.sidebar nav a.active {
+  background: rgba(255,255,255,0.14);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* خط جانبي Active */
+.sidebar nav a.active::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  background: var(--primary);
+  border-radius: 6px;
+}
+
+/* Footer */
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+}

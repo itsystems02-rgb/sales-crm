@@ -9,6 +9,8 @@ const TITLES: Record<string, string> = {
   '/dashboard/units': 'الوحدات',
   '/dashboard/clients': 'العملاء',
   '/dashboard/employees': 'الموظفين',
+  '/dashboard/reservations': 'الحجوزات',
+  '/dashboard/sales': 'التنفيذات',
 };
 
 export default function Header() {
@@ -25,17 +27,33 @@ export default function Header() {
     TITLES[Object.keys(TITLES).find((key) => pathname.startsWith(key))!];
 
   return (
-    <header className="header">
+    <header className="header pro-header">
       <div className="header-left">
-        {/* زر الموبايل (هنفعّله بعدين لو حبيت) */}
+        {/* زر الموبايل */}
         <button className="menu-btn">☰</button>
 
-        <h1 className="header-title">{title || 'Dashboard'}</h1>
+        <div>
+          <div className="header-breadcrumb">Dashboard</div>
+          <h1 className="header-title">{title || 'لوحة التحكم'}</h1>
+        </div>
       </div>
 
-      <Button variant="danger" onClick={logout}>
-        تسجيل خروج
-      </Button>
+      <div className="header-actions">
+        {/* Dark mode */}
+        <button
+          className="icon-btn"
+          onClick={() =>
+            document.documentElement.classList.toggle('dark')
+          }
+          title="الوضع الليلي"
+        >
+          🌙
+        </button>
+
+        <Button variant="danger" onClick={logout}>
+          تسجيل خروج
+        </Button>
+      </div>
     </header>
   );
 }

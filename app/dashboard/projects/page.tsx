@@ -168,12 +168,7 @@ export default function ProjectsPage() {
 
     if (employee) loadProjects(employee);
   }
-const { data, error } = await supabase
-  .from('employee_projects')
-  .select('*')
-  .eq('employee_id', emp.id);
 
-console.log({ data, error });
   /* =====================
      UI
   ===================== */

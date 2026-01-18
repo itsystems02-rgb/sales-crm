@@ -86,3 +86,42 @@ body {
   .tabs, button { display: none !important; }
   .page { padding: 0; }
 }
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card,
+.detail-row,
+table tbody tr {
+  animation: fadeUp 0.25s ease;
+}
+
+@media (max-width: 768px) {
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .tabs button {
+    flex: 1;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .actions button {
+    width: 100%;
+  }
+
+  .detail-row {
+    padding: 10px;
+  }
+}

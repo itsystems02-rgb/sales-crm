@@ -39,7 +39,7 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  /* ===== Form (admin فقط) ===== */
+  // form (admin فقط)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -55,7 +55,7 @@ export default function ProjectsPage() {
 
   async function init() {
     const emp = await getCurrentEmployee();
-    if (!emp) return; // RequireAuth هيعمل redirect
+    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
 
     setEmployee(emp);
     await loadProjects(emp);

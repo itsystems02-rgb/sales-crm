@@ -36,11 +36,14 @@ export default function NewSalePage() {
 
   const [clients, setClients] = useState<Client[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
+  const [unit, setUnit] = useState<Unit | null>(null);
 
   const [clientId, setClientId] = useState('');
   const [reservationId, setReservationId] = useState('');
   const [unitId, setUnitId] = useState('');
+
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
     contract_support_no: '',
@@ -52,16 +55,13 @@ export default function NewSalePage() {
     price_before_tax: '',
   });
 
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
   /* =====================
-     Fetch initial data
+     Initial Load
   ===================== */
 
   useEffect(() => {
     fetchClients();
-    fetchEmployee();
+    fetchCurrentEmployee();
   }, []);
 
   async function fetchClients() {
@@ -73,12 +73,17 @@ export default function NewSalePage() {
     setClients(data || []);
   }
 
-  async function fetchEmployee() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  async function fetchCurrentEmployee() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) return;
 
-    if (user) setEmployeeId(user.id);
+    const { data } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('email', user.email)
+      .maybeSingle();
+
+    if (data?.id) setEmployeeId(data.id);
   }
 
   async function fetchReservations(clientId: string) {
@@ -89,6 +94,9 @@ export default function NewSalePage() {
       .eq('status', 'active');
 
     setReservations(data || []);
+    setReservationId('');
+    setUnit(null);
+    setUnitId('');
   }
 
   async function fetchUnit(unitId: string) {
@@ -98,15 +106,22 @@ export default function NewSalePage() {
       .eq('id', unitId)
       .maybeSingle();
 
-    setUnits(data ? [data] : []);
+    setUnit(data || null);
   }
 
   /* =====================
      Submit
   ===================== */
 
+  const canSubmit =
+    clientId &&
+    reservationId &&
+    unitId &&
+    employeeId &&
+    reservations.length > 0;
+
   async function handleSubmit() {
-    if (!clientId || !reservationId || !unitId || !employeeId) return;
+    if (!canSubmit) return;
 
     setLoading(true);
 
@@ -124,82 +139,152 @@ export default function NewSalePage() {
       sales_employee_id: employeeId,
     });
 
-    /* === Update statuses === */
+    /* === Update Statuses === */
     await supabase
       .from('reservations')
       .update({ status: 'converted' })
       .eq('id', reservationId);
 
     await supabase
-      .from('clients')
-      .update({ status: 'converted' })
-      .eq('id', clientId);
-
-    await supabase
       .from('units')
       .update({ status: 'sold' })
       .eq('id', unitId);
+
+    await supabase
+      .from('clients')
+      .update({ status: 'converted' })
+      .eq('id', clientId);
 
     setLoading(false);
     router.push('/dashboard/sales');
   }
 
+  /* =====================
+     UI
+  ===================== */
+
   return (
     <div className="page">
-      <Card title="تنفيذ بيع وحدة">
 
-        {/* العميل */}
-        <label>العميل</label>
-        <select
-          value={clientId}
-          onChange={e => {
-            setClientId(e.target.value);
-            fetchReservations(e.target.value);
-          }}
+      {/* ===== TABS ===== */}
+      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+        <Button onClick={() => router.push('/dashboard/clients')}>
+          العملاء
+        </Button>
+        <Button variant="primary">تنفيذ</Button>
+      </div>
+
+      <div className="details-layout">
+
+        <Card title="تنفيذ بيع وحدة">
+          <div className="details-grid">
+
+            <div className="form-field">
+              <label>العميل</label>
+              <select
+                value={clientId}
+                onChange={e => {
+                  setClientId(e.target.value);
+                  fetchReservations(e.target.value);
+                }}
+              >
+                <option value="">اختر العميل</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-field">
+              <label>الحجز</label>
+              <select
+                value={reservationId}
+                disabled={reservations.length === 0}
+                onChange={e => {
+                  const r = reservations.find(x => x.id === e.target.value);
+                  setReservationId(e.target.value);
+                  if (r) {
+                    setUnitId(r.unit_id);
+                    fetchUnit(r.unit_id);
+                  }
+                }}
+              >
+                <option value="">اختر الحجز</option>
+                {reservations.map(r => (
+                  <option key={r.id} value={r.id}>
+                    حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+
+              {clientId && reservations.length === 0 && (
+                <small style={{ color: '#c00' }}>
+                  هذا العميل لا يمتلك حجوزات نشطة
+                </small>
+              )}
+            </div>
+
+            <div className="form-field">
+              <label>الوحدة</label>
+              <input value={unit?.unit_code || ''} disabled />
+            </div>
+
+            <div className="form-field">
+              <label>رقم عقد الدعم</label>
+              <input onChange={e => setForm({ ...form, contract_support_no: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>رقم عقد تلاد</label>
+              <input onChange={e => setForm({ ...form, contract_talad_no: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>نوع العقد</label>
+              <input onChange={e => setForm({ ...form, contract_type: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>نوع التمويل</label>
+              <input onChange={e => setForm({ ...form, finance_type: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>الجهة التمويلية</label>
+              <input onChange={e => setForm({ ...form, finance_entity: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>تاريخ البيع</label>
+              <input type="date" onChange={e => setForm({ ...form, sale_date: e.target.value })} />
+            </div>
+
+            <div className="form-field">
+              <label>سعر البيع قبل الضريبة</label>
+              <input
+                type="number"
+                onChange={e => setForm({ ...form, price_before_tax: e.target.value })}
+              />
+            </div>
+
+          </div>
+        </Card>
+
+      </div>
+
+      {/* ===== ACTIONS ===== */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button
+          variant="primary"
+          onClick={handleSubmit}
+          disabled={!canSubmit || loading}
         >
-          <option value="">اختر العميل</option>
-          {clients.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        {/* الحجز */}
-        <label>الحجز</label>
-        <select
-          value={reservationId}
-          onChange={e => {
-            const r = reservations.find(x => x.id === e.target.value);
-            setReservationId(e.target.value);
-            if (r) {
-              setUnitId(r.unit_id);
-              fetchUnit(r.unit_id);
-            }
-          }}
-        >
-          <option value="">اختر الحجز</option>
-          {reservations.map(r => (
-            <option key={r.id} value={r.id}>
-              حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString()}
-            </option>
-          ))}
-        </select>
-
-        {/* بيانات العقد */}
-        <input placeholder="رقم عقد الدعم" onChange={e => setForm({ ...form, contract_support_no: e.target.value })} />
-        <input placeholder="رقم عقد تلاد" onChange={e => setForm({ ...form, contract_talad_no: e.target.value })} />
-        <input placeholder="نوع العقد" onChange={e => setForm({ ...form, contract_type: e.target.value })} />
-        <input placeholder="نوع التمويل" onChange={e => setForm({ ...form, finance_type: e.target.value })} />
-        <input placeholder="الجهة التمويلية" onChange={e => setForm({ ...form, finance_entity: e.target.value })} />
-        <input type="date" onChange={e => setForm({ ...form, sale_date: e.target.value })} />
-        <input type="number" placeholder="سعر البيع قبل الضريبة" onChange={e => setForm({ ...form, price_before_tax: e.target.value })} />
-
-        <Button onClick={handleSubmit} disabled={loading}>
           {loading ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
         </Button>
+      </div>
 
-      </Card>
     </div>
   );
 }

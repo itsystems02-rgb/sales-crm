@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
+import Header from '@/components/layout/Header';
+import Sidebar from '@/components/layout/Sidebar';
+
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -100,7 +103,6 @@ export default function EmployeesPage() {
     setLoading(true);
 
     if (editingId) {
-      // تعديل موظف
       const { error } = await supabase
         .from('employees')
         .update({
@@ -115,7 +117,6 @@ export default function EmployeesPage() {
 
       if (error) alert(error.message);
     } else {
-      // إنشاء موظف + auth
       const res = await fetch('/api/employees/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,64 +177,123 @@ export default function EmployeesPage() {
      UI
   ========================= */
   return (
-    <div className="page">
-      <Card title={editingId ? 'تعديل موظف' : 'إضافة موظف'}>
-        <div className="form-col">
-          <Input placeholder="اسم الموظف" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input placeholder="المسمى الوظيفي" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-          <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
+    <div className="app-layout">
+      {/* ===== SIDEBAR ===== */}
+      <Sidebar />
 
-          {!editingId && (
-            <Input
-              type="password"
-              placeholder="كلمة المرور"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          )}
+      {/* ===== MAIN ===== */}
+      <div className="dashboard-content">
+        <Header />
 
-          <select value={role} onChange={(e) => setRole(e.target.value as any)}>
-            <option value="sales">مبيعات</option>
-            <option value="admin">مدير</option>
-          </select>
+        <div className="content">
+          <div className="page">
 
-          <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
-            <option value="active">نشط</option>
-            <option value="inactive">غير نشط</option>
-          </select>
+            {/* ===== FORM ===== */}
+            <Card title={editingId ? 'تعديل موظف' : 'إضافة موظف'}>
+              <div className="form-col">
+                <Input
+                  placeholder="اسم الموظف"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
 
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button onClick={handleSubmit} disabled={loading}>
-              {editingId ? 'تعديل' : 'حفظ'}
-            </Button>
-            {editingId && <Button onClick={resetForm}>إلغاء</Button>}
+                <Input
+                  placeholder="المسمى الوظيفي"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                />
+
+                <Input
+                  placeholder="رقم الجوال"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                />
+
+                <Input
+                  placeholder="الإيميل"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+
+                {!editingId && (
+                  <Input
+                    type="password"
+                    placeholder="كلمة المرور"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                )}
+
+                <select value={role} onChange={(e) => setRole(e.target.value as any)}>
+                  <option value="sales">مبيعات</option>
+                  <option value="admin">مدير</option>
+                </select>
+
+                <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+                  <option value="active">نشط</option>
+                  <option value="inactive">غير نشط</option>
+                </select>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button onClick={handleSubmit} disabled={loading}>
+                    {editingId ? 'تعديل' : 'حفظ'}
+                  </Button>
+
+                  {editingId && (
+                    <Button onClick={resetForm}>
+                      إلغاء
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            {/* ===== TABLE ===== */}
+            <Card title="قائمة الموظفين">
+              <div className="units-scroll">
+                <Table headers={['الاسم', 'الوظيفة', 'الجوال', 'الإيميل', 'الدور', 'الحالة', 'إجراء']}>
+                  {employees.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.name}</td>
+                      <td>{e.job_title || '-'}</td>
+                      <td>{e.mobile || '-'}</td>
+                      <td>{e.email}</td>
+                      <td>{e.role === 'admin' ? 'مدير' : 'مبيعات'}</td>
+                      <td>
+                        <span className={`badge ${e.status}`}>
+                          {e.status === 'active' ? 'نشط' : 'غير نشط'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="actions">
+                          <Button onClick={() => startEdit(e)}>تعديل</Button>
+
+                          {/* 🔥 زر المشاريع */}
+                          <Button
+                            onClick={() =>
+                              router.push(`/dashboard/employees/${e.id}/projects`)
+                            }
+                          >
+                            المشاريع
+                          </Button>
+
+                          <button
+                            className="btn-danger"
+                            onClick={() => deleteEmployee(e.id)}
+                          >
+                            حذف
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </Table>
+              </div>
+            </Card>
+
           </div>
         </div>
-      </Card>
-
-      <Card title="قائمة الموظفين">
-        <Table headers={['الاسم', 'الوظيفة', 'الجوال', 'الإيميل', 'الدور', 'الحالة', 'إجراء']}>
-          {employees.map((e) => (
-            <tr key={e.id}>
-              <td>{e.name}</td>
-              <td>{e.job_title || '-'}</td>
-              <td>{e.mobile || '-'}</td>
-              <td>{e.email}</td>
-              <td>{e.role === 'admin' ? 'مدير' : 'مبيعات'}</td>
-              <td>{e.status === 'active' ? 'نشط' : 'غير نشط'}</td>
-              <td>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Button onClick={() => startEdit(e)}>تعديل</Button>
-                  <button className="btn-danger" onClick={() => deleteEmployee(e.id)}>
-                    حذف
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </Card>
+      </div>
     </div>
   );
 }

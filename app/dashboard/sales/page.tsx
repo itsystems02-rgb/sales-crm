@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { name: string } | null;
-  unit: { unit_code: string } | null;
-  employee: { name: string } | null;
+  client: { name: string }[] | null;
+  unit: { unit_code: string }[] | null;
+  employee: { name: string }[] | null;
 };
 
 /* =====================
@@ -37,10 +37,6 @@ export default function SalesPage() {
     fetchSales();
   }, []);
 
-  /* =====================
-     Fetch Sales
-  ===================== */
-
   async function fetchSales() {
     setLoading(true);
 
@@ -53,7 +49,7 @@ export default function SalesPage() {
         finance_type,
         client:clients(name),
         unit:units(unit_code),
-        employee:employees!sales_sales_employee_id_fkey(name)
+        employee:employees(name)
       `)
       .order('created_at', { ascending: false });
 
@@ -66,39 +62,16 @@ export default function SalesPage() {
     setLoading(false);
   }
 
-  /* =====================
-     Delete Sale
-  ===================== */
-
   async function deleteSale(sale: Sale) {
     if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
 
     await supabase.from('sales').delete().eq('id', sale.id);
-
-    if (sale.unit) {
-      await supabase
-        .from('units')
-        .update({ status: 'reserved' })
-        .eq('unit_code', sale.unit.unit_code);
-    }
-
-    if (sale.client) {
-      await supabase
-        .from('clients')
-        .update({ status: 'reserved' })
-        .eq('name', sale.client.name);
-    }
-
     fetchSales();
   }
 
-  /* =====================
-     Filter
-  ===================== */
-
   const filteredSales = sales.filter(s =>
-    s.client?.name?.includes(filter) ||
-    s.unit?.unit_code?.includes(filter)
+    s.client?.[0]?.name?.includes(filter) ||
+    s.unit?.[0]?.unit_code?.includes(filter)
   );
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -106,7 +79,6 @@ export default function SalesPage() {
   return (
     <div className="page">
 
-      {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button variant="primary">التنفيذات</Button>
         <Button onClick={() => router.push('/dashboard/sales/new')}>
@@ -117,7 +89,6 @@ export default function SalesPage() {
       <div className="details-layout">
         <Card title="قائمة التنفيذات">
 
-          {/* ===== FILTER ===== */}
           <div style={{ marginBottom: 15 }}>
             <input
               placeholder="بحث باسم العميل أو رقم الوحدة"
@@ -146,8 +117,8 @@ export default function SalesPage() {
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.name || '-'}</td>
-                      <td>{sale.unit?.unit_code || '-'}</td>
+                      <td>{sale.client?.[0]?.name || '-'}</td>
+                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
                       <td>
                         {sale.sale_date
                           ? new Date(sale.sale_date).toLocaleDateString()
@@ -159,20 +130,9 @@ export default function SalesPage() {
                           : '-'}
                       </td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.name || '-'}</td>
-                      <td style={{ display: 'flex', gap: 6 }}>
-                        <Button
-                          onClick={() =>
-                            router.push(`/dashboard/sales/${sale.id}`)
-                          }
-                        >
-                          عرض
-                        </Button>
-
-                        <Button
-                          variant="danger"
-                          onClick={() => deleteSale(sale)}
-                        >
+                      <td>{sale.employee?.[0]?.name || '-'}</td>
+                      <td>
+                        <Button onClick={() => deleteSale(sale)} variant="danger">
                           حذف
                         </Button>
                       </td>

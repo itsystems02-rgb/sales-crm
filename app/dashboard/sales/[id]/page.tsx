@@ -51,7 +51,8 @@ export default function SaleViewPage() {
   const params = useParams();
   const router = useRouter();
 
-  const saleId = params.saleId as string;
+  // ✅ الصح
+  const saleId = params.id as string;
 
   const [sale, setSale] = useState<Sale | null>(null);
   const [client, setClient] = useState<Client | null>(null);
@@ -80,6 +81,7 @@ export default function SaleViewPage() {
       .maybeSingle();
 
     if (!s) {
+      setSale(null);
       setLoading(false);
       return;
     }
@@ -125,19 +127,30 @@ export default function SaleViewPage() {
     if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
 
     // 1️⃣ حذف التنفيذ
-    await supabase.from('sales').delete().eq('id', sale.id);
+    await supabase
+      .from('sales')
+      .delete()
+      .eq('id', sale.id);
 
-    // 2️⃣ رجوع الوحدة Available
+    // 2️⃣ رجوع حالة الوحدة
     await supabase
       .from('units')
       .update({ status: 'available' })
       .eq('id', sale.unit_id);
 
-    // 3️⃣ رجوع العميل Active / New
-    await supabase
-      .from('clients')
-      .update({ status: 'active' }) // عدلها حسب نظامك
-      .eq('id', sale.client_id);
+    // 3️⃣ هل للعميل تنفيذات أخرى؟
+    const { data: otherSales } = await supabase
+      .from('sales')
+      .select('id')
+      .eq('client_id', sale.client_id)
+      .limit(1);
+
+    if (!otherSales || otherSales.length === 0) {
+      await supabase
+        .from('clients')
+        .update({ status: 'active' }) // عدلها حسب نظامك
+        .eq('id', sale.client_id);
+    }
 
     alert('تم حذف التنفيذ بنجاح');
     router.push('/dashboard/sales');

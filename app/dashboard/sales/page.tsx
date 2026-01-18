@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { name: string }[];
-  unit: { unit_code: string }[];
-  employee: { name: string }[];
+  client: { name: string }[] | null;
+  unit: { unit_code: string }[] | null;
+  employee: { name: string }[] | null;
 };
 
 /* =====================
@@ -31,10 +31,15 @@ export default function SalesPage() {
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     fetchSales();
   }, []);
+
+  /* =====================
+     Fetch Sales
+  ===================== */
 
   async function fetchSales() {
     setLoading(true);
@@ -56,11 +61,48 @@ export default function SalesPage() {
     setLoading(false);
   }
 
+  /* =====================
+     Delete Sale
+  ===================== */
+
+  async function deleteSale(sale: Sale) {
+    if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
+
+    await supabase.from('sales').delete().eq('id', sale.id);
+
+    // تحديث الحالات (اختياري بس مهم)
+    if (sale.unit?.[0]?.unit_code) {
+      await supabase
+        .from('units')
+        .update({ status: 'reserved' })
+        .eq('unit_code', sale.unit[0].unit_code);
+    }
+
+    if (sale.client?.[0]?.name) {
+      await supabase
+        .from('clients')
+        .update({ status: 'reserved' })
+        .eq('name', sale.client[0].name);
+    }
+
+    fetchSales();
+  }
+
+  /* =====================
+     Filtered Sales
+  ===================== */
+
+  const filteredSales = sales.filter(s =>
+    s.client?.[0]?.name?.includes(filter) ||
+    s.unit?.[0]?.unit_code?.includes(filter)
+  );
+
   if (loading) return <div className="page">جاري التحميل...</div>;
 
   return (
     <div className="page">
 
+      {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button variant="primary">التنفيذات</Button>
         <Button onClick={() => router.push('/dashboard/sales/new')}>
@@ -71,7 +113,16 @@ export default function SalesPage() {
       <div className="details-layout">
         <Card title="قائمة التنفيذات">
 
-          {sales.length === 0 ? (
+          {/* ===== FILTER ===== */}
+          <div style={{ marginBottom: 15 }}>
+            <input
+              placeholder="بحث باسم العميل أو رقم الوحدة"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+            />
+          </div>
+
+          {filteredSales.length === 0 ? (
             <div>لا توجد عمليات تنفيذ</div>
           ) : (
             <div className="units-scroll">
@@ -84,12 +135,12 @@ export default function SalesPage() {
                     <th>السعر</th>
                     <th>نوع التمويل</th>
                     <th>الموظف</th>
-                    <th></th>
+                    <th>إجراءات</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {sales.map(sale => (
+                  {filteredSales.map(sale => (
                     <tr key={sale.id}>
                       <td>{sale.client?.[0]?.name || '-'}</td>
                       <td>{sale.unit?.[0]?.unit_code || '-'}</td>
@@ -105,13 +156,20 @@ export default function SalesPage() {
                       </td>
                       <td>{sale.finance_type || '-'}</td>
                       <td>{sale.employee?.[0]?.name || '-'}</td>
-                      <td>
+                      <td style={{ display: 'flex', gap: 6 }}>
                         <Button
                           onClick={() =>
                             router.push(`/dashboard/sales/${sale.id}`)
                           }
                         >
                           عرض
+                        </Button>
+
+                        <Button
+                          variant="danger"
+                          onClick={() => deleteSale(sale)}
+                        >
+                          حذف
                         </Button>
                       </td>
                     </tr>

@@ -12,15 +12,25 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
 }
+
+/* Tabs */
 .tabs {
   display: flex;
   gap: 8px;
   margin-bottom: 20px;
 }
 
+.tabs button {
+  background: #eef2ff;
+  color: var(--primary);
+}
+
+.tabs button:hover {
+  background: #e0e7ff;
+}
+
+/* Details */
 .details-layout {
   display: grid;
   gap: 16px;
@@ -33,148 +43,46 @@ body {
 }
 
 .detail-row {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   padding: 12px;
 }
 
 .detail-row .label {
-  display: block;
   font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
+  color: var(--muted);
 }
 
 .detail-row .value {
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
 }
 
-.detail-row .badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
-  font-size: 12px;
-}
-/* =========================
-   Scroll ONLY inside table
-========================= */
-
+/* Table Scroll */
 .units-scroll {
-  max-height: 60vh;        /* 👈 الجدول بس اللي يتمدد */
-  overflow-x: auto;        /* scroll يمين / شمال */
-  overflow-y: auto;        /* scroll فوق / تحت */
-  position: relative;
-  border-radius: 10px;
+  max-height: 60vh;
+  overflow: auto;
 }
 
-/* الجدول نفسه */
 .units-scroll table {
-  min-width: 1400px;       /* مساحة مريحة للأعمدة */
-  border-collapse: separate;
-  border-spacing: 0;
+  min-width: 1400px;
 }
 
-/* الخلايا */
-.units-scroll th,
-.units-scroll td {
-  white-space: nowrap;
-  text-align: center;
-  background: #fff;
-}
-
-/* =========================
-   Sticky columns
-========================= */
-
-/* أول عمود (الكود) */
-.units-scroll th:first-child,
-.units-scroll td.sticky-left {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  background: #fff;
-  box-shadow: 8px 0 18px rgba(0, 0, 0, 0.04);
-  font-weight: 700;
-}
-
-/* آخر عمود (الإجراء) */
-.units-scroll th:last-child,
-.units-scroll td.sticky-right {
-  position: sticky;
-  right: 0;
-  z-index: 3;
-  background: #fff;
-  box-shadow: -8px 0 18px rgba(0, 0, 0, 0.04);
-}
-
-/* =========================
-   Extras
-========================= */
-
+/* Actions */
 .actions {
   display: flex;
   gap: 8px;
   justify-content: center;
 }
 
-.price {
-  font-weight: 800;
-  color: #1f6feb;
+.actions button {
+  height: 36px;
+  font-size: 13px;
 }
 
-/* Scrollbar جمال */
-.units-scroll::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
-}
-
-.units-scroll::-webkit-scrollbar-thumb {
-  background: #cfd6df;
-  border-radius: 999px;
-}
-
-.units-scroll::-webkit-scrollbar-track {
-  background: #eef1f5;
-  border-radius: 999px;
-}
-
-/* =========================
-   Lock page scrolling
-========================= */
-
-.units-page {
-  height: calc(100vh - 64px); /* حسب ارتفاع الهيدر عندك */
-  overflow: hidden;           /* ❌ امنع السكرول من الصفحة */
-  display: flex;
-  flex-direction: column;
-}
-
-/* الكارت بتاع الجدول يتمدد */
-.units-page .card {
-  flex: 1;
-  min-height: 0; /* مهم جدًا */
-}
-
+/* Print */
 @media print {
-  body {
-    direction: rtl;
-  }
-
-  .tabs,
-  button {
-    display: none !important;
-  }
-
-  .page {
-    padding: 0;
-  }
-
-  .card {
-    break-inside: avoid;
-  }
+  .tabs, button { display: none !important; }
+  .page { padding: 0; }
 }

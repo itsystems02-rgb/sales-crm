@@ -5,12 +5,11 @@ table {
 }
 
 th {
-  text-align: left;
+  text-align: center;
   color: var(--muted);
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
   border-bottom: 1px solid var(--border);
   padding: 14px 12px;
 }
@@ -18,78 +17,25 @@ th {
 td {
   padding: 14px 12px;
   border-bottom: 1px solid var(--border);
+  text-align: center;
 }
 
-tbody tr {
-  transition: background 0.15s ease;
+tbody tr:nth-child(even) {
+  background: #f8fafc;
 }
 
 tbody tr:hover {
-  background: #f1f5f9;
+  background: #eef2ff;
 }
 
-/* ===== Status Badge ===== */
+/* Badges */
 .badge {
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  display: inline-block;
-  white-space: nowrap;
-  line-height: 1;
 }
 
-/* حالات */
-.badge.available {
-  background: #ecfeff;
-  color: #0369a1;
-}
-
-.badge.reserved {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.badge.sold {
-  background: #fef2f2;
-  color: #b91c1c;
-}
-/* =====================
-   Responsive Tables
-===================== */
-
-@media (max-width: 768px) {
-  table {
-    border: none;
-  }
-
-  thead {
-    display: none;
-  }
-
-  tbody tr {
-    display: block;
-    margin-bottom: 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: #fff;
-  }
-
-  tbody td {
-    display: flex;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-  }
-
-  tbody td:last-child {
-    border-bottom: none;
-  }
-
-  tbody td::before {
-    content: attr(data-label);
-    font-weight: 600;
-    color: var(--muted);
-  }
-}
+.badge.available { background: #ecfeff; color: #0369a1; }
+.badge.reserved { background: #fff7ed; color: #c2410c; }
+.badge.sold { background: #fef2f2; color: #b91c1c; }

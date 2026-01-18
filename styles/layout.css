@@ -1,7 +1,3 @@
-/* =====================
-   Page & Layout
-===================== */
-
 .page {
   padding: 32px;
 }
@@ -13,27 +9,16 @@
   background: var(--bg);
 }
 
-/* =====================
-   Sidebar
-===================== */
-
+/* Sidebar */
 .sidebar {
   background: linear-gradient(180deg, #0f172a, #020617);
   color: #e5e7eb;
   padding: 24px 18px;
-  transition: transform 0.3s ease;
 }
 
 .sidebar h2 {
-  margin: 0 0 28px;
-  font-size: 20px;
-  font-weight: 700;
+  margin-bottom: 28px;
   color: #fff;
-}
-
-.sidebar nav {
-  display: flex;
-  flex-direction: column;
 }
 
 .sidebar a {
@@ -44,26 +29,16 @@
   color: #cbd5f5;
   text-decoration: none;
   border-radius: var(--radius-sm);
-  margin-bottom: 6px;
   font-size: 14px;
-  transition: background 0.2s ease, color 0.2s ease;
 }
 
-.sidebar a:hover {
-  background: rgba(255,255,255,0.08);
-  color: #fff;
-}
-
+.sidebar a:hover,
 .sidebar a.active {
-  background: rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.12);
   color: #fff;
-  font-weight: 600;
 }
 
-/* =====================
-   Header
-===================== */
-
+/* Header */
 .header {
   background: #fff;
   border-bottom: 1px solid var(--border);
@@ -73,39 +48,13 @@
   align-items: center;
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.menu-btn {
-  display: none;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-}
-
-/* =====================
-   Content
-===================== */
-
+/* Content */
 .content {
   background: var(--bg);
   padding: 28px;
 }
 
-/* =====================
-   Card
-===================== */
-
+/* Card */
 .card {
   background: var(--card);
   border-radius: var(--radius);
@@ -113,7 +62,6 @@
   margin-bottom: 24px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.25s ease;
 }
 
 .card:hover {
@@ -126,55 +74,9 @@
   margin-bottom: 18px;
 }
 
-/* =====================
-   Responsive
-===================== */
-
-@media (max-width: 1024px) {
-  .app-layout {
-    grid-template-columns: 220px 1fr;
-  }
-}
-
+/* Responsive */
 @media (max-width: 768px) {
-  .app-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    display: none;
-  }
-
-  .menu-btn {
-    display: block;
-  }
-
-  .header {
-    padding: 14px 16px;
-  }
-
-  .content {
-    padding: 16px;
-  }
-
-  .page {
-    padding: 16px;
-  }
-
-  .card {
-    padding: 16px;
-  }
-
-  .card-title {
-    font-size: 16px;
-  }
-
-  .card:hover {
-    box-shadow: var(--shadow-sm);
-  }
-}
-
-.dashboard-content {
-  height: 100vh;
-  overflow: hidden;
+  .page { padding: 16px; }
+  .content { padding: 16px; }
+  .card { padding: 16px; }
 }

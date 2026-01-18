@@ -2,13 +2,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
-  margin-bottom: 16px;
-}
-
-.form-col {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
 }
 
 input,
@@ -20,7 +13,6 @@ textarea {
   border: 1px solid var(--border);
   font-size: 14px;
   background: #fff;
-  transition: 0.2s ease;
 }
 
 textarea {
@@ -36,8 +28,7 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
 }
 
-/* ===== Buttons ===== */
-
+/* Buttons */
 button {
   height: 44px;
   background: var(--primary);
@@ -46,9 +37,7 @@ button {
   padding: 0 18px;
   border-radius: var(--radius-sm);
   font-weight: 600;
-  font-size: 14px;
   cursor: pointer;
-  transition: 0.2s ease;
 }
 
 button:hover {
@@ -66,25 +55,4 @@ button:disabled {
 
 .btn-danger:hover {
   background: var(--danger-hover);
-}
-
-/* =====================
-   Responsive Forms
-===================== */
-
-@media (max-width: 768px) {
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-
-  .form-col {
-    gap: 12px;
-  }
-
-  input,
-  select,
-  textarea,
-  button {
-    width: 100%;
-  }
 }

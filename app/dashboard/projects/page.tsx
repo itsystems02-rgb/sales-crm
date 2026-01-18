@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
@@ -21,6 +22,11 @@ type Project = {
   location: string | null;
 };
 
+type Employee = {
+  id: string;
+  role: 'admin' | 'sales';
+};
+
 /* =====================
    Page
 ===================== */
@@ -28,10 +34,12 @@ type Project = {
 export default function ProjectsPage() {
   const router = useRouter();
 
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // form (admin فقط)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -41,21 +49,52 @@ export default function ProjectsPage() {
      LOAD
   ===================== */
 
-  async function loadProjects() {
-    const { data } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    setProjects(data || []);
-  }
-
   useEffect(() => {
-    loadProjects();
+    init();
   }, []);
 
+  async function init() {
+    const emp = await getCurrentEmployee();
+
+    if (!emp) {
+      router.push('/login');
+      return;
+    }
+
+    setEmployee(emp);
+    await loadProjects(emp);
+  }
+
+  async function loadProjects(emp: Employee) {
+    setLoading(true);
+
+    // 👑 admin → كل المشاريع
+    if (emp.role === 'admin') {
+      const { data } = await supabase
+        .from('projects')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      setProjects(data || []);
+      setLoading(false);
+      return;
+    }
+
+    // 🧑‍💻 sales → المشاريع المسموح بها فقط
+    const { data: rows } = await supabase
+      .from('employee_projects')
+      .select('project:projects(id,name,code,location)')
+      .eq('employee_id', emp.id);
+
+    const allowedProjects =
+      rows?.map((r: any) => r.project).filter(Boolean) || [];
+
+    setProjects(allowedProjects);
+    setLoading(false);
+  }
+
   /* =====================
-     FORM
+     FORM (admin فقط)
   ===================== */
 
   function resetForm() {
@@ -92,7 +131,7 @@ export default function ProjectsPage() {
 
     setLoading(false);
     resetForm();
-    loadProjects();
+    if (employee) loadProjects(employee);
   }
 
   function startEdit(p: Project) {
@@ -118,7 +157,8 @@ export default function ProjectsPage() {
     setDeletingId(id);
     await supabase.from('projects').delete().eq('id', id);
     setDeletingId(null);
-    loadProjects();
+
+    if (employee) loadProjects(employee);
   }
 
   /* =====================
@@ -128,34 +168,37 @@ export default function ProjectsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* Add / Edit */}
-        <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
-          <div className="form-row">
-            <Input
-              placeholder="اسم المشروع"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <Input
-              placeholder="كود المشروع"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-            <Input
-              placeholder="الموقع"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            />
 
-            <Button onClick={handleSubmit} disabled={loading}>
-              {editingId ? 'تعديل' : 'حفظ'}
-            </Button>
+        {/* 👑 الفورم يظهر للـ admin فقط */}
+        {employee?.role === 'admin' && (
+          <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
+            <div className="form-row">
+              <Input
+                placeholder="اسم المشروع"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <Input
+                placeholder="كود المشروع"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <Input
+                placeholder="الموقع"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+              />
 
-            {editingId && <Button onClick={resetForm}>إلغاء</Button>}
-          </div>
-        </Card>
+              <Button onClick={handleSubmit} disabled={loading}>
+                {editingId ? 'تعديل' : 'حفظ'}
+              </Button>
 
-        {/* List */}
+              {editingId && <Button onClick={resetForm}>إلغاء</Button>}
+            </div>
+          </Card>
+        )}
+
+        {/* ===== LIST ===== */}
         <Card title="قائمة المشاريع">
           <Table headers={['اسم المشروع', 'الكود', 'الموقع', 'إجراء']}>
             {projects.length === 0 ? (
@@ -172,24 +215,32 @@ export default function ProjectsPage() {
                   <td data-label="الموقع">{p.location || '-'}</td>
                   <td data-label="إجراء">
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <Button onClick={() => startEdit(p)}>تعديل</Button>
 
-                      {/* زر النماذج */}
-                      <Button
-                        onClick={() =>
-                          router.push(`/dashboard/projects/${p.id}/models`)
-                        }
-                      >
-                        النماذج
-                      </Button>
+                      {/* 👑 أزرار admin فقط */}
+                      {employee?.role === 'admin' && (
+                        <>
+                          <Button onClick={() => startEdit(p)}>تعديل</Button>
 
-                      <Button
-                        variant="danger"
-                        disabled={deletingId === p.id}
-                        onClick={() => deleteProject(p.id)}
-                      >
-                        حذف
-                      </Button>
+                          <Button
+                            onClick={() =>
+                              router.push(`/dashboard/projects/${p.id}/models`)
+                            }
+                          >
+                            النماذج
+                          </Button>
+
+                          <Button
+                            variant="danger"
+                            disabled={deletingId === p.id}
+                            onClick={() => deleteProject(p.id)}
+                          >
+                            حذف
+                          </Button>
+                        </>
+                      )}
+
+                      {/* 🧑‍💻 sales → مفيش أزرار */}
+                      {employee?.role === 'sales' && <span>-</span>}
                     </div>
                   </td>
                 </tr>

@@ -59,16 +59,19 @@ function normalizeRel<T>(val: any): T | null {
 ===================== */
 
 export default function SaleViewPage() {
-  const { id } = useParams();
+  const params = useParams();
   const router = useRouter();
+
+  // ✅ أهم سطر في القصة كلها
+  const saleId =
+    Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [sale, setSale] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadSale();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    if (saleId) loadSale();
+  }, [saleId]);
 
   async function loadSale() {
     setLoading(true);
@@ -101,23 +104,17 @@ export default function SaleViewPage() {
           name
         )
       `)
-      .eq('id', id)
+      .eq('id', saleId)
       .maybeSingle();
 
-    if (error) {
+    if (error || !data) {
       console.error(error);
       setSale(null);
       setLoading(false);
       return;
     }
 
-    if (!data) {
-      setSale(null);
-      setLoading(false);
-      return;
-    }
-
-    const normalized: Sale = {
+    setSale({
       id: data.id,
       sale_date: data.sale_date,
       price_before_tax: Number(data.price_before_tax),
@@ -130,9 +127,8 @@ export default function SaleViewPage() {
       client: normalizeRel<Client>(data.client),
       unit: normalizeRel<Unit>(data.unit),
       employee: normalizeRel<Employee>(data.employee),
-    };
+    });
 
-    setSale(normalized);
     setLoading(false);
   }
 
@@ -142,16 +138,15 @@ export default function SaleViewPage() {
   return (
     <div className="page">
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
-        <Button onClick={() => router.push('/dashboard/sales')}>رجوع</Button>
-
-        {/* PDF لاحقًا */}
+        <Button onClick={() => router.push('/dashboard/sales')}>
+          رجوع
+        </Button>
         <Button onClick={() => window.print()}>
           طباعة
         </Button>
       </div>
 
       <div className="details-layout">
-
         <Card title="بيانات التنفيذ">
           <p>تاريخ البيع: {new Date(sale.sale_date).toLocaleDateString()}</p>
           <p>السعر: {sale.price_before_tax.toLocaleString()}</p>
@@ -162,26 +157,23 @@ export default function SaleViewPage() {
           <p>رقم الطالاد: {sale.contract_talad_no || '-'}</p>
         </Card>
 
-        <Card title="بيانات العميل">
-          <p>الاسم: {sale.client?.name || '-'}</p>
-          <p>الهاتف: {sale.client?.phone || '-'}</p>
+        <Card title="العميل">
+          <p>{sale.client?.name}</p>
+          <p>{sale.client?.phone || '-'}</p>
         </Card>
 
-        <Card title="بيانات الوحدة">
-          <p>كود الوحدة: {sale.unit?.unit_code || '-'}</p>
-          <p>النوع: {sale.unit?.unit_type || '-'}</p>
+        <Card title="الوحدة">
+          <p>كود الوحدة: {sale.unit?.unit_code}</p>
+          <p>النوع: {sale.unit?.unit_type}</p>
           <p>
             السعر المعتمد:{' '}
-            {sale.unit?.supported_price
-              ? sale.unit.supported_price.toLocaleString()
-              : '-'}
+            {sale.unit?.supported_price?.toLocaleString()}
           </p>
         </Card>
 
         <Card title="الموظف">
-          <p>{sale.employee?.name || '-'}</p>
+          <p>{sale.employee?.name}</p>
         </Card>
-
       </div>
     </div>
   );

@@ -125,3 +125,33 @@ table tbody tr {
     padding: 10px;
   }
 }
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.card-body {
+  display: block;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.card-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.card-no-padding {
+  padding: 0;
+}
+
+.card-no-padding .card-body {
+  padding: 0;
+}

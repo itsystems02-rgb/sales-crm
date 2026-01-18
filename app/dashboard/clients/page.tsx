@@ -86,7 +86,7 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'saudi') {
+    if (nationality !== 'non_saudi') {
       setResidencyType('');
     }
   }, [nationality]);

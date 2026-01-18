@@ -18,7 +18,7 @@ export default function LoginPage() {
 
   async function login() {
     if (!email || !password) {
-      setError('من فضلك أدخل الإيميل وكلمة المرور');
+      setError('من فضلك أدخل البريد الإلكتروني وكلمة المرور');
       return;
     }
 
@@ -31,7 +31,7 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setError(error.message);
+      setError('بيانات الدخول غير صحيحة');
       setLoading(false);
       return;
     }
@@ -51,18 +51,41 @@ export default function LoginPage() {
     >
       <div style={{ width: '100%', maxWidth: 420 }}>
         <Card>
-          {/* ===== Title ===== */}
-          <div style={{ marginBottom: 24, textAlign: 'center' }}>
-            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>
+          {/* ===== Header ===== */}
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 32,
+            }}
+          >
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 24,
+                fontWeight: 800,
+              }}
+            >
               تسجيل دخول الموظفين
             </h2>
-            <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: 14 }}>
+
+            <p
+              style={{
+                marginTop: 8,
+                fontSize: 14,
+                color: '#64748b',
+              }}
+            >
               أدخل بياناتك للوصول إلى لوحة التحكم
             </p>
           </div>
 
           {/* ===== Form ===== */}
-          <div className="form-col">
+          <div
+            className="form-col"
+            style={{
+              gap: 20, // 👈 حل مشكلة اللزق
+            }}
+          >
             <Input
               placeholder="البريد الإلكتروني"
               value={email}
@@ -81,7 +104,7 @@ export default function LoginPage() {
                 style={{
                   background: '#fef2f2',
                   color: '#b91c1c',
-                  padding: '10px 12px',
+                  padding: '12px 14px',
                   borderRadius: 8,
                   fontSize: 13,
                   border: '1px solid #fecaca',

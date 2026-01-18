@@ -25,6 +25,7 @@ type Reservation = {
 type Unit = {
   id: string;
   unit_code: string;
+  project_id: string;
 };
 
 /* =====================
@@ -74,7 +75,10 @@ export default function NewSalePage() {
   }
 
   async function fetchCurrentEmployee() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user?.email) return;
 
     const { data } = await supabase
@@ -102,7 +106,7 @@ export default function NewSalePage() {
   async function fetchUnit(unitId: string) {
     const { data } = await supabase
       .from('units')
-      .select('id, unit_code')
+      .select('id, unit_code, project_id')
       .eq('id', unitId)
       .maybeSingle();
 
@@ -117,6 +121,7 @@ export default function NewSalePage() {
     clientId &&
     reservationId &&
     unitId &&
+    unit?.project_id &&
     employeeId &&
     reservations.length > 0;
 
@@ -125,15 +130,13 @@ export default function NewSalePage() {
 
     setLoading(true);
 
-    /* =====================
-       1️⃣ Insert Sale
-    ===================== */
-
+    /* ========= INSERT SALE ========= */
     const { data: sale, error: saleError } = await supabase
       .from('sales')
       .insert({
         client_id: clientId,
         unit_id: unitId,
+        project_id: unit!.project_id, // ✅ مهم جدًا
 
         contract_support_no: form.contract_support_no || null,
         contract_talad_no: form.contract_talad_no || null,
@@ -152,16 +155,13 @@ export default function NewSalePage() {
       .single();
 
     if (saleError) {
-      console.error('SALE INSERT ERROR:', saleError);
+      console.error(saleError);
       alert(`خطأ أثناء حفظ التنفيذ: ${saleError.message}`);
       setLoading(false);
-      return; // ❗ مهم
+      return;
     }
 
-    /* =====================
-       2️⃣ Update statuses
-    ===================== */
-
+    /* ========= UPDATE STATUSES ========= */
     await supabase
       .from('reservations')
       .update({ status: 'converted' })
@@ -197,7 +197,6 @@ export default function NewSalePage() {
       </div>
 
       <div className="details-layout">
-
         <Card title="تنفيذ بيع وحدة">
           <div className="details-grid">
 
@@ -327,10 +326,8 @@ export default function NewSalePage() {
 
           </div>
         </Card>
-
       </div>
 
-      {/* ===== ACTIONS ===== */}
       <div style={{ display: 'flex', gap: 10 }}>
         <Button
           variant="primary"

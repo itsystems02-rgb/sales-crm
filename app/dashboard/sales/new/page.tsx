@@ -42,10 +42,11 @@ export default function NewSalePage() {
   const [clientId, setClientId] = useState('');
   const [reservationId, setReservationId] = useState('');
   const [unitId, setUnitId] = useState('');
-
   const [employeeId, setEmployeeId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
 
+  /* ✅ form state ثابت */
   const [form, setForm] = useState({
     contract_support_no: '',
     contract_talad_no: '',
@@ -55,6 +56,20 @@ export default function NewSalePage() {
     sale_date: '',
     price_before_tax: '',
   });
+
+  /* =====================
+     Helpers
+  ===================== */
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const { name, value } = e.target;
+    setForm(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+  }
 
   /* =====================
      Initial Load
@@ -75,10 +90,7 @@ export default function NewSalePage() {
   }
 
   async function fetchCurrentEmployee() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
 
     const { data } = await supabase
@@ -120,60 +132,47 @@ export default function NewSalePage() {
   const canSubmit =
     clientId &&
     reservationId &&
-    unitId &&
-    unit?.project_id &&
-    employeeId &&
-    reservations.length > 0;
+    unit &&
+    employeeId;
 
   async function handleSubmit() {
     if (!canSubmit) return;
 
     setLoading(true);
 
-    /* ========= INSERT SALE ========= */
-    const { data: sale, error: saleError } = await supabase
-      .from('sales')
-      .insert({
-        client_id: clientId,
-        unit_id: unitId,
-        project_id: unit!.project_id, // ✅ مهم جدًا
+    const { error } = await supabase.from('sales').insert({
+      client_id: clientId,
+      unit_id: unit!.id,
+      project_id: unit!.project_id,
 
-        contract_support_no: form.contract_support_no || null,
-        contract_talad_no: form.contract_talad_no || null,
-        contract_type: form.contract_type || null,
-        finance_type: form.finance_type || null,
-        finance_entity: form.finance_entity || null,
+      contract_support_no: form.contract_support_no || null,
+      contract_talad_no: form.contract_talad_no || null,
+      contract_type: form.contract_type || null,
+      finance_type: form.finance_type || null,
+      finance_entity: form.finance_entity || null,
+      sale_date: form.sale_date || null,
+      price_before_tax: form.price_before_tax
+        ? Number(form.price_before_tax)
+        : null,
 
-        sale_date: form.sale_date || null,
-        price_before_tax: form.price_before_tax
-          ? Number(form.price_before_tax)
-          : null,
+      sales_employee_id: employeeId,
+    });
 
-        sales_employee_id: employeeId,
-      })
-      .select('id')
-      .single();
-
-    if (saleError) {
-      console.error(saleError);
-      alert(`خطأ أثناء حفظ التنفيذ: ${saleError.message}`);
+    if (error) {
+      alert(error.message);
       setLoading(false);
       return;
     }
 
-    /* ========= UPDATE STATUSES ========= */
-    await supabase
-      .from('reservations')
+    await supabase.from('reservations')
       .update({ status: 'converted' })
       .eq('id', reservationId);
 
-    await supabase
-      .from('units')
+    await supabase.from('units')
       .update({ status: 'sold' })
-      .eq('id', unitId);
+      .eq('id', unit!.id);
 
-    await supabase
-      .from('clients')
+    await supabase.from('clients')
       .update({ status: 'converted' })
       .eq('id', clientId);
 
@@ -188,7 +187,6 @@ export default function NewSalePage() {
   return (
     <div className="page">
 
-      {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push('/dashboard/sales')}>
           التنفيذات
@@ -211,9 +209,7 @@ export default function NewSalePage() {
               >
                 <option value="">اختر العميل</option>
                 {clients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
@@ -222,7 +218,7 @@ export default function NewSalePage() {
               <label>الحجز</label>
               <select
                 value={reservationId}
-                disabled={reservations.length === 0}
+                disabled={!reservations.length}
                 onChange={e => {
                   const r = reservations.find(x => x.id === e.target.value);
                   setReservationId(e.target.value);
@@ -239,12 +235,6 @@ export default function NewSalePage() {
                   </option>
                 ))}
               </select>
-
-              {clientId && reservations.length === 0 && (
-                <small style={{ color: '#c00' }}>
-                  هذا العميل لا يمتلك حجوزات نشطة
-                </small>
-              )}
             </div>
 
             <div className="form-field">
@@ -252,92 +242,53 @@ export default function NewSalePage() {
               <input value={unit?.unit_code || ''} disabled />
             </div>
 
+            {/* ✅ inputs شغالة */}
             <div className="form-field">
               <label>رقم عقد الدعم</label>
-              <input
-                value={form.contract_support_no}
-                onChange={e =>
-                  setForm({ ...form, contract_support_no: e.target.value })
-                }
-              />
+              <input name="contract_support_no" value={form.contract_support_no} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>رقم عقد تلاد</label>
-              <input
-                value={form.contract_talad_no}
-                onChange={e =>
-                  setForm({ ...form, contract_talad_no: e.target.value })
-                }
-              />
+              <input name="contract_talad_no" value={form.contract_talad_no} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>نوع العقد</label>
-              <input
-                value={form.contract_type}
-                onChange={e =>
-                  setForm({ ...form, contract_type: e.target.value })
-                }
-              />
+              <input name="contract_type" value={form.contract_type} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>نوع التمويل</label>
-              <input
-                value={form.finance_type}
-                onChange={e =>
-                  setForm({ ...form, finance_type: e.target.value })
-                }
-              />
+              <input name="finance_type" value={form.finance_type} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>الجهة التمويلية</label>
-              <input
-                value={form.finance_entity}
-                onChange={e =>
-                  setForm({ ...form, finance_entity: e.target.value })
-                }
-              />
+              <input name="finance_entity" value={form.finance_entity} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>تاريخ البيع</label>
-              <input
-                type="date"
-                value={form.sale_date}
-                onChange={e =>
-                  setForm({ ...form, sale_date: e.target.value })
-                }
-              />
+              <input type="date" name="sale_date" value={form.sale_date} onChange={handleChange} />
             </div>
 
             <div className="form-field">
               <label>سعر البيع قبل الضريبة</label>
-              <input
-                type="number"
-                value={form.price_before_tax}
-                onChange={e =>
-                  setForm({ ...form, price_before_tax: e.target.value })
-                }
-              />
+              <input type="number" name="price_before_tax" value={form.price_before_tax} onChange={handleChange} />
             </div>
 
           </div>
         </Card>
       </div>
 
-      <div style={{ display: 'flex', gap: 10 }}>
-        <Button
-          variant="primary"
-          onClick={handleSubmit}
-          disabled={!canSubmit || loading}
-        >
-          {loading ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
-        </Button>
-      </div>
-
+      <Button
+        variant="primary"
+        onClick={handleSubmit}
+        disabled={!canSubmit || loading}
+      >
+        {loading ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
+      </Button>
     </div>
   );
 }

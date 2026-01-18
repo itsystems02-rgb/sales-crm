@@ -86,7 +86,7 @@ export default function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    if (nationality !== 'non_saudi') {
+    if (nationality !== 'saudi') {
       setResidencyType('');
     }
   }, [nationality]);
@@ -150,7 +150,7 @@ export default function ClientsPage() {
       identity_no: identityNo || null,
       eligible,
       nationality,
-      residency_type: nationality === 'saudi' ? residencyType || null : null,
+      residency_type: nationality === 'non_saudi' ? residencyType || null : null,
       salary_bank_id: salaryBankId || null,
       finance_bank_id: financeBankId || null,
       job_sector_id: jobSectorId || null,

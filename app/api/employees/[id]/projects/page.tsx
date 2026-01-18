@@ -1,0 +1,483 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
+
+import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
+
+/* =====================
+   Types
+===================== */
+
+type Project = {
+  id: string;
+  name: string;
+  code: string | null;
+};
+
+/* =====================
+   Page
+===================== */
+
+export default function EmployeeProjectsPage() {
+  const params = useParams();
+  const router = useRouter();
+  const employeeId = params.id as string;
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  /* =====================
+     ACCESS CONTROL
+  ===================== */
+
+  useEffect(() => {
+    init();
+  }, []);
+
+  async function init() {
+    const emp = await getCurrentEmployee();
+
+    if (!emp) {
+      router.push('/login');
+      return;
+    }
+
+    if (emp.role !== 'admin') {
+      alert('غير مسموح');
+      router.push('/dashboard');
+      return;
+    }
+
+    await Promise.all([
+      fetchProjects(),
+      fetchEmployeeProjects(),
+    ]);
+
+    setLoading(false);
+  }
+
+  /* =====================
+     DATA
+  ===================== */
+
+  async function fetchProjects() {
+    const { data } = await supabase
+      .from('projects')
+      .select('id, name, code')
+      .order('name');
+
+    setProjects(data || []);
+  }
+
+  async function fetchEmployeeProjects() {
+    const { data } = await supabase
+      .from('employee_projects')
+      .select('project_id')
+      .eq('employee_id', employeeId);
+
+    setSelected((data || []).map((r) => r.project_id));
+  }
+
+  /* =====================
+     SAVE
+  ===================== */
+
+  async function saveProjects() {
+    setSaving(true);
+
+    // 1️⃣ مسح القديم
+    await supabase
+      .from('employee_projects')
+      .delete()
+      .eq('employee_id', employeeId);
+
+    // 2️⃣ إضافة الجديد
+    if (selected.length > 0) {
+      const rows = selected.map((pid) => ({
+        employee_id: employeeId,
+        project_id: pid,
+      }));
+
+      await supabase
+        .from('employee_projects')
+        .insert(rows);
+    }
+
+    setSaving(false);
+    alert('تم حفظ المشاريع بنجاح');
+    router.push('/dashboard/employees');
+  }
+
+  /* =====================
+     UI
+  ===================== */
+
+  if (loading) {
+    return <div className="page">جاري التحميل...</div>;
+  }
+
+  return (
+    <div className="page">
+
+      {/* ===== TOP ACTIONS ===== */}
+      <div className="tabs">
+        <Button onClick={() => router.push('/dashboard/employees')}>
+          رجوع
+        </Button>
+
+        <Button onClick={saveProjects} disabled={saving}>
+          {saving ? 'جاري الحفظ...' : 'حفظ'}
+        </Button>
+      </div>
+
+      <Card title="تحديد المشاريع المسموح بها للموظف">
+        <div className="details-grid">
+          {projects.map((p) => {
+            const checked = selected.includes(p.id);
+
+            return (
+              <label
+                key={p.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: 12,
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  background: checked ? '#eff6ff' : '#fff',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelected([...selected, p.id]);
+                    } else {
+                      setSelected(selected.filter((x) => x !== p.id));
+                    }
+                  }}
+                />
+
+                <div>
+                  <strong>{p.name}</strong>
+                  {p.code && (
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>
+                      {p.code}
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
+
+import Header from '@/components/layout/Header';
+import Sidebar from '@/components/layout/Sidebar';
+
+import Card from '@/components/ui/Card';
+import Input from '@/components/ui/Input';
+import Button from '@/components/ui/Button';
+import Table from '@/components/ui/Table';
+
+type Employee = {
+  id: string;
+  name: string;
+  job_title: string | null;
+  mobile: string | null;
+  email: string;
+  status: 'active' | 'inactive';
+  role: 'admin' | 'sales';
+};
+
+export default function EmployeesPage() {
+  const router = useRouter();
+
+  /* =========================
+     STATE
+  ========================= */
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // form
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<'active' | 'inactive'>('active');
+  const [role, setRole] = useState<'admin' | 'sales'>('sales');
+
+  /* =========================
+     ACCESS CONTROL
+  ========================= */
+  useEffect(() => {
+    init();
+  }, []);
+
+  async function init() {
+    const emp = await getCurrentEmployee();
+
+    if (!emp) {
+      router.push('/login');
+      return;
+    }
+
+    if (emp.role !== 'admin') {
+      alert('غير مسموح لك بالدخول');
+      router.push('/dashboard');
+      return;
+    }
+
+    await fetchEmployees();
+    setCheckingAccess(false);
+  }
+
+  /* =========================
+     DATA
+  ========================= */
+  async function fetchEmployees() {
+    const { data } = await supabase
+      .from('employees')
+      .select('id,name,job_title,mobile,email,status,role')
+      .order('created_at', { ascending: false });
+
+    setEmployees((data as Employee[]) || []);
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setName('');
+    setJobTitle('');
+    setMobile('');
+    setEmail('');
+    setPassword('');
+    setStatus('active');
+    setRole('sales');
+  }
+
+  /* =========================
+     SUBMIT
+  ========================= */
+  async function handleSubmit() {
+    if (!name || !email || (!editingId && !password)) {
+      alert('الاسم والإيميل وكلمة المرور مطلوبة');
+      return;
+    }
+
+    setLoading(true);
+
+    if (editingId) {
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          name,
+          job_title: jobTitle || null,
+          mobile: mobile || null,
+          email,
+          status,
+          role,
+        })
+        .eq('id', editingId);
+
+      if (error) alert(error.message);
+    } else {
+      const res = await fetch('/api/employees/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          job_title: jobTitle,
+          mobile,
+          role,
+        }),
+      });
+
+      const result = await res.json();
+      if (!res.ok) {
+        alert(result.error);
+        setLoading(false);
+        return;
+      }
+    }
+
+    setLoading(false);
+    resetForm();
+    fetchEmployees();
+  }
+
+  function startEdit(e: Employee) {
+    setEditingId(e.id);
+    setName(e.name);
+    setJobTitle(e.job_title || '');
+    setMobile(e.mobile || '');
+    setEmail(e.email);
+    setStatus(e.status);
+    setRole(e.role);
+    setPassword('');
+  }
+
+  async function deleteEmployee(id: string) {
+    if (!confirm('هل أنت متأكد من الحذف؟')) return;
+
+    const { error } = await supabase
+      .from('employees')
+      .delete()
+      .eq('id', id);
+
+    if (error) alert(error.message);
+    fetchEmployees();
+  }
+
+  /* =========================
+     LOADING
+  ========================= */
+  if (checkingAccess) {
+    return <div className="page">جاري التحقق من الصلاحيات...</div>;
+  }
+
+  /* =========================
+     UI
+  ========================= */
+  return (
+    <div className="app-layout">
+      {/* ===== SIDEBAR ===== */}
+      <Sidebar />
+
+      {/* ===== MAIN ===== */}
+      <div className="dashboard-content">
+        <Header />
+
+        <div className="content">
+          <div className="page">
+
+            {/* ===== FORM ===== */}
+            <Card title={editingId ? 'تعديل موظف' : 'إضافة موظف'}>
+              <div className="form-col">
+                <Input
+                  placeholder="اسم الموظف"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+
+                <Input
+                  placeholder="المسمى الوظيفي"
+                  value={jobTitle}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                />
+
+                <Input
+                  placeholder="رقم الجوال"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                />
+
+                <Input
+                  placeholder="الإيميل"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+
+                {!editingId && (
+                  <Input
+                    type="password"
+                    placeholder="كلمة المرور"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                )}
+
+                <select value={role} onChange={(e) => setRole(e.target.value as any)}>
+                  <option value="sales">مبيعات</option>
+                  <option value="admin">مدير</option>
+                </select>
+
+                <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+                  <option value="active">نشط</option>
+                  <option value="inactive">غير نشط</option>
+                </select>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button onClick={handleSubmit} disabled={loading}>
+                    {editingId ? 'تعديل' : 'حفظ'}
+                  </Button>
+
+                  {editingId && (
+                    <Button onClick={resetForm}>
+                      إلغاء
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            {/* ===== TABLE ===== */}
+            <Card title="قائمة الموظفين">
+              <div className="units-scroll">
+                <Table headers={['الاسم', 'الوظيفة', 'الجوال', 'الإيميل', 'الدور', 'الحالة', 'إجراء']}>
+                  {employees.map((e) => (
+                    <tr key={e.id}>
+                      <td>{e.name}</td>
+                      <td>{e.job_title || '-'}</td>
+                      <td>{e.mobile || '-'}</td>
+                      <td>{e.email}</td>
+                      <td>{e.role === 'admin' ? 'مدير' : 'مبيعات'}</td>
+                      <td>
+                        <span className={`badge ${e.status}`}>
+                          {e.status === 'active' ? 'نشط' : 'غير نشط'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="actions">
+                          <Button onClick={() => startEdit(e)}>تعديل</Button>
+
+                          {/* 🔥 زر المشاريع */}
+                          <Button
+                            onClick={() =>
+                              router.push(`/api/employees/${e.id}/projects`)
+                            }
+                          >
+                            المشاريع
+                          </Button>
+
+                          <button
+                            className="btn-danger"
+                            onClick={() => deleteEmployee(e.id)}
+                          >
+                            حذف
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </Table>
+              </div>
+            </Card>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

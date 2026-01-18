@@ -73,7 +73,7 @@ export default function Header() {
       
         <div className="header-text">
           <span className="header-breadcrumb">Dashboard</span>
-          <h1 className="header-title">{title || 'لوحة التحكم'}</h1>
+          
         </div>
       </div>
 

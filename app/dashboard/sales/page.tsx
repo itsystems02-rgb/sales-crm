@@ -8,7 +8,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
-   Types
+   Types (✔️ مصححة)
 ===================== */
 
 type Sale = {
@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { name: string }[] | null;
-  unit: { unit_code: string }[] | null;
-  employee: { name: string }[] | null;
+  client: { name: string } | null;
+  unit: { unit_code: string } | null;
+  employee: { name: string } | null;
 };
 
 /* =====================
@@ -61,7 +61,7 @@ export default function SalesPage() {
     if (error) {
       console.error('FETCH SALES ERROR:', error);
     } else {
-      setSales(data || []);
+      setSales((data as Sale[]) || []);
     }
 
     setLoading(false);
@@ -72,8 +72,8 @@ export default function SalesPage() {
   ===================== */
 
   const filteredSales = sales.filter(s =>
-    s.client?.[0]?.name?.includes(filter) ||
-    s.unit?.[0]?.unit_code?.includes(filter)
+    s.client?.name?.includes(filter) ||
+    s.unit?.unit_code?.includes(filter)
   );
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -81,6 +81,7 @@ export default function SalesPage() {
   return (
     <div className="page">
 
+      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button variant="primary">التنفيذات</Button>
         <Button onClick={() => router.push('/dashboard/sales/new')}>
@@ -91,6 +92,7 @@ export default function SalesPage() {
       <div className="details-layout">
         <Card title="قائمة التنفيذات">
 
+          {/* ===== Filter ===== */}
           <div style={{ marginBottom: 15 }}>
             <input
               placeholder="بحث باسم العميل أو رقم الوحدة"
@@ -118,8 +120,8 @@ export default function SalesPage() {
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.[0]?.name || '-'}</td>
-                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
+                      <td>{sale.client?.name || '-'}</td>
+                      <td>{sale.unit?.unit_code || '-'}</td>
                       <td>
                         {sale.sale_date
                           ? new Date(sale.sale_date).toLocaleDateString()
@@ -131,7 +133,7 @@ export default function SalesPage() {
                           : '-'}
                       </td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.[0]?.name || '-'}</td>
+                      <td>{sale.employee?.name || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

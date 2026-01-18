@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { name: string }[] | null;
-  unit: { unit_code: string }[] | null;
-  employee: { name: string }[] | null;
+  client: { name: string } | null;
+  unit: { unit_code: string } | null;
+  employee: { name: string } | null;
 };
 
 /* =====================
@@ -53,11 +53,16 @@ export default function SalesPage() {
         finance_type,
         client:clients(name),
         unit:units(unit_code),
-        employee:employees(name)
+        employee:employees!sales_sales_employee_id_fkey(name)
       `)
       .order('created_at', { ascending: false });
 
-    if (!error) setSales(data || []);
+    if (error) {
+      console.error(error);
+    } else {
+      setSales(data || []);
+    }
+
     setLoading(false);
   }
 
@@ -70,31 +75,30 @@ export default function SalesPage() {
 
     await supabase.from('sales').delete().eq('id', sale.id);
 
-    // تحديث الحالات (اختياري بس مهم)
-    if (sale.unit?.[0]?.unit_code) {
+    if (sale.unit) {
       await supabase
         .from('units')
         .update({ status: 'reserved' })
-        .eq('unit_code', sale.unit[0].unit_code);
+        .eq('unit_code', sale.unit.unit_code);
     }
 
-    if (sale.client?.[0]?.name) {
+    if (sale.client) {
       await supabase
         .from('clients')
         .update({ status: 'reserved' })
-        .eq('name', sale.client[0].name);
+        .eq('name', sale.client.name);
     }
 
     fetchSales();
   }
 
   /* =====================
-     Filtered Sales
+     Filter
   ===================== */
 
   const filteredSales = sales.filter(s =>
-    s.client?.[0]?.name?.includes(filter) ||
-    s.unit?.[0]?.unit_code?.includes(filter)
+    s.client?.name?.includes(filter) ||
+    s.unit?.unit_code?.includes(filter)
   );
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -142,8 +146,8 @@ export default function SalesPage() {
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.[0]?.name || '-'}</td>
-                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
+                      <td>{sale.client?.name || '-'}</td>
+                      <td>{sale.unit?.unit_code || '-'}</td>
                       <td>
                         {sale.sale_date
                           ? new Date(sale.sale_date).toLocaleDateString()
@@ -155,7 +159,7 @@ export default function SalesPage() {
                           : '-'}
                       </td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.[0]?.name || '-'}</td>
+                      <td>{sale.employee?.name || '-'}</td>
                       <td style={{ display: 'flex', gap: 6 }}>
                         <Button
                           onClick={() =>

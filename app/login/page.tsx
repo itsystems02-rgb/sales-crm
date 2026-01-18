@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 
@@ -40,85 +39,46 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      className="page"
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <div style={{ width: '100%', maxWidth: 420 }}>
-        <Card>
-          {/* ===== Header ===== */}
-          <div
-            style={{
-              textAlign: 'center',
-              marginBottom: 32,
-            }}
-          >
-            <h2
+    <div className="auth-page">
+      <div className="auth-card">
+        <h1 className="auth-title">Sales CRM</h1>
+        <p className="auth-subtitle">
+          تسجيل دخول الموظفين للوصول إلى لوحة التحكم
+        </p>
+
+        <div className="auth-form">
+          <Input
+            placeholder="البريد الإلكتروني"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <Input
+            type="password"
+            placeholder="كلمة المرور"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          {error && (
+            <div
               style={{
-                margin: 0,
-                fontSize: 24,
-                fontWeight: 800,
+                background: '#fef2f2',
+                color: '#b91c1c',
+                padding: '12px',
+                borderRadius: 8,
+                fontSize: 13,
+                border: '1px solid #fecaca',
               }}
             >
-              تسجيل دخول الموظفين
-            </h2>
+              {error}
+            </div>
+          )}
 
-            <p
-              style={{
-                marginTop: 8,
-                fontSize: 14,
-                color: '#64748b',
-              }}
-            >
-              أدخل بياناتك للوصول إلى لوحة التحكم
-            </p>
-          </div>
-
-          {/* ===== Form ===== */}
-          <div
-            className="form-col"
-            style={{
-              gap: 20, // 👈 حل مشكلة اللزق
-            }}
-          >
-            <Input
-              placeholder="البريد الإلكتروني"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-
-            <Input
-              type="password"
-              placeholder="كلمة المرور"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-
-            {error && (
-              <div
-                style={{
-                  background: '#fef2f2',
-                  color: '#b91c1c',
-                  padding: '12px 14px',
-                  borderRadius: 8,
-                  fontSize: 13,
-                  border: '1px solid #fecaca',
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            <Button onClick={login} disabled={loading}>
-              {loading ? 'جاري تسجيل الدخول...' : 'دخول'}
-            </Button>
-          </div>
-        </Card>
+          <Button onClick={login} disabled={loading}>
+            {loading ? 'جاري الدخول...' : 'دخول'}
+          </Button>
+        </div>
       </div>
     </div>
   );

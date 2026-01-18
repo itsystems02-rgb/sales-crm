@@ -8,19 +8,34 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
-   Types (✔️ مطابق لـ Supabase)
+   Types
 ===================== */
+
+type ClientRef = { name: string };
+type UnitRef = { unit_code: string };
+type EmployeeRef = { name: string };
 
 type Sale = {
   id: string;
-  sale_date: string;
-  price_before_tax: number;
+  sale_date: string | null;
+  price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { id: string; name: string }[] | null;
-  unit: { id: string; unit_code: string }[] | null;
-  employee: { id: string; name: string }[] | null;
+  client: ClientRef | null;
+  unit: UnitRef | null;
+  employee: EmployeeRef | null;
 };
+
+/* =====================
+   Helpers (نفس الوحدات)
+===================== */
+
+function normalizeRel<T>(val: unknown): T | null {
+  if (!val) return null;
+  if (Array.isArray(val)) return (val[0] ?? null) as T | null;
+  if (typeof val === 'object') return val as T;
+  return null;
+}
 
 /* =====================
    Page
@@ -38,7 +53,7 @@ export default function SalesPage() {
   }, []);
 
   /* =====================
-     Fetch Sales (✔️ ثابت)
+     Fetch Sales
   ===================== */
 
   async function fetchSales() {
@@ -53,15 +68,12 @@ export default function SalesPage() {
         finance_type,
 
         client:clients!sales_client_id_fkey (
-          id,
           name
         ),
         unit:units!sales_unit_id_fkey (
-          id,
           unit_code
         ),
         employee:employees!sales_sales_employee_id_fkey (
-          id,
           name
         )
       `)
@@ -70,40 +82,24 @@ export default function SalesPage() {
     if (error) {
       console.error('FETCH SALES ERROR:', error);
       setSales([]);
-    } else {
-      setSales(data || []);
+      setLoading(false);
+      return;
     }
 
+    const normalized: Sale[] = (data || []).map((r: any) => ({
+      id: r.id,
+      sale_date: r.sale_date,
+      price_before_tax:
+        r.price_before_tax === null ? null : Number(r.price_before_tax),
+      finance_type: r.finance_type,
+
+      client: normalizeRel<ClientRef>(r.client),
+      unit: normalizeRel<UnitRef>(r.unit),
+      employee: normalizeRel<EmployeeRef>(r.employee),
+    }));
+
+    setSales(normalized);
     setLoading(false);
-  }
-
-  /* =====================
-     Delete Sale
-  ===================== */
-
-  async function deleteSale(sale: Sale) {
-    if (!confirm('هل أنت متأكد من حذف التنفيذ؟')) return;
-
-    await supabase.from('sales').delete().eq('id', sale.id);
-
-    const unitId = sale.unit?.[0]?.id;
-    const clientId = sale.client?.[0]?.id;
-
-    if (unitId) {
-      await supabase
-        .from('units')
-        .update({ status: 'reserved' })
-        .eq('id', unitId);
-    }
-
-    if (clientId) {
-      await supabase
-        .from('clients')
-        .update({ status: 'reserved' })
-        .eq('id', clientId);
-    }
-
-    fetchSales();
   }
 
   /* =====================
@@ -111,13 +107,13 @@ export default function SalesPage() {
   ===================== */
 
   const filteredSales = useMemo(() => {
-    if (!filter.trim()) return sales;
+    const q = filter.trim();
+    if (!q) return sales;
 
-    return sales.filter(s => {
-      const clientName = s.client?.[0]?.name ?? '';
-      const unitCode = s.unit?.[0]?.unit_code ?? '';
-      return clientName.includes(filter) || unitCode.includes(filter);
-    });
+    return sales.filter(s =>
+      (s.client?.name ?? '').includes(q) ||
+      (s.unit?.unit_code ?? '').includes(q)
+    );
   }, [sales, filter]);
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -125,19 +121,19 @@ export default function SalesPage() {
   return (
     <div className="page">
 
+      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button variant="primary">التنفيذات</Button>
-
         <Button onClick={() => router.push('/dashboard/sales/new')}>
           تنفيذ جديد
         </Button>
-
         <Button onClick={fetchSales}>تحديث</Button>
       </div>
 
       <div className="details-layout">
         <Card title="قائمة التنفيذات">
 
+          {/* Filter */}
           <div style={{ marginBottom: 15 }}>
             <input
               placeholder="بحث باسم العميل أو رقم الوحدة"
@@ -159,34 +155,47 @@ export default function SalesPage() {
                     <th>السعر</th>
                     <th>نوع التمويل</th>
                     <th>الموظف</th>
-                    <th>إجراءات</th>
+                    <th>إجراء</th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.[0]?.name || '-'}</td>
-                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
-                      <td>{new Date(sale.sale_date).toLocaleDateString()}</td>
-                      <td>{sale.price_before_tax.toLocaleString()}</td>
+                      <td>{sale.client?.name || '-'}</td>
+                      <td>{sale.unit?.unit_code || '-'}</td>
+                      <td>
+                        {sale.sale_date
+                          ? new Date(sale.sale_date).toLocaleDateString()
+                          : '-'}
+                      </td>
+                      <td>
+                        {sale.price_before_tax !== null
+                          ? sale.price_before_tax.toLocaleString()
+                          : '-'}
+                      </td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.[0]?.name || '-'}</td>
-                      <td style={{ display: 'flex', gap: 6 }}>
-                        <Button
-                          onClick={() =>
-                            router.push(`/dashboard/sales/${sale.id}`)
-                          }
-                        >
-                          عرض
-                        </Button>
+                      <td>{sale.employee?.name || '-'}</td>
 
-                        <Button
-                          variant="danger"
-                          onClick={() => deleteSale(sale)}
-                        >
-                          حذف
-                        </Button>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <Button
+                            onClick={() =>
+                              router.push(`/dashboard/sales/${sale.id}`)
+                            }
+                          >
+                            عرض
+                          </Button>
+
+                          <Button
+                            variant="danger"
+                            onClick={() =>
+                              router.push(`/dashboard/sales/${sale.id}/delete`)
+                            }
+                          >
+                            حذف
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

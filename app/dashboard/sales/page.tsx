@@ -8,7 +8,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
-   Types (✔️ مصححة)
+   Types (✔️ صح 100%)
 ===================== */
 
 type Sale = {
@@ -17,9 +17,9 @@ type Sale = {
   price_before_tax: number | null;
   finance_type: string | null;
 
-  client: { name: string } | null;
-  unit: { unit_code: string } | null;
-  employee: { name: string } | null;
+  client: { name: string }[] | null;
+  unit: { unit_code: string }[] | null;
+  employee: { name: string }[] | null;
 };
 
 /* =====================
@@ -52,16 +52,17 @@ export default function SalesPage() {
         price_before_tax,
         finance_type,
 
-        client:clients!sales_client_id_fkey(name),
-        unit:units!sales_unit_id_fkey(unit_code),
-        employee:employees!sales_sales_employee_id_fkey(name)
+        client:clients(name),
+        unit:units(unit_code),
+        employee:employees(name)
       `)
       .order('created_at', { ascending: false });
 
     if (error) {
       console.error('FETCH SALES ERROR:', error);
+      setSales([]);
     } else {
-      setSales((data as Sale[]) || []);
+      setSales(data ?? []);
     }
 
     setLoading(false);
@@ -72,8 +73,8 @@ export default function SalesPage() {
   ===================== */
 
   const filteredSales = sales.filter(s =>
-    s.client?.name?.includes(filter) ||
-    s.unit?.unit_code?.includes(filter)
+    s.client?.[0]?.name?.includes(filter) ||
+    s.unit?.[0]?.unit_code?.includes(filter)
   );
 
   if (loading) return <div className="page">جاري التحميل...</div>;
@@ -120,8 +121,8 @@ export default function SalesPage() {
                 <tbody>
                   {filteredSales.map(sale => (
                     <tr key={sale.id}>
-                      <td>{sale.client?.name || '-'}</td>
-                      <td>{sale.unit?.unit_code || '-'}</td>
+                      <td>{sale.client?.[0]?.name || '-'}</td>
+                      <td>{sale.unit?.[0]?.unit_code || '-'}</td>
                       <td>
                         {sale.sale_date
                           ? new Date(sale.sale_date).toLocaleDateString()
@@ -133,7 +134,7 @@ export default function SalesPage() {
                           : '-'}
                       </td>
                       <td>{sale.finance_type || '-'}</td>
-                      <td>{sale.employee?.name || '-'}</td>
+                      <td>{sale.employee?.[0]?.name || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

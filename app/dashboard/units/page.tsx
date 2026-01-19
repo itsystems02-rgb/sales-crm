@@ -95,7 +95,6 @@ export default function UnitsPage() {
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
-
   const [unitCode, setUnitCode] = useState('');
   const [blockNo, setBlockNo] = useState('');
   const [unitNo, setUnitNo] = useState('');
@@ -104,7 +103,6 @@ export default function UnitsPage() {
   const [price, setPrice] = useState('');
   const [landArea, setLandArea] = useState('');
   const [buildArea, setBuildArea] = useState('');
-
   const [projectId, setProjectId] = useState('');
   const [modelId, setModelId] = useState('');
 
@@ -113,7 +111,6 @@ export default function UnitsPage() {
   /* =====================
      INIT
   ===================== */
-
   useEffect(() => {
     init();
   }, []);
@@ -132,7 +129,6 @@ export default function UnitsPage() {
   /* =====================
      LOAD
   ===================== */
-
   async function loadProjects() {
     const { data, error } = await supabase
       .from('projects')
@@ -182,13 +178,8 @@ export default function UnitsPage() {
           supported_price,
           land_area,
           build_area,
-          project:projects!units_project_id_fkey (
-            name,
-            code
-          ),
-          model:project_models!units_model_id_fkey (
-            name
-          )
+          project:projects!units_project_id_fkey (name,code),
+          model:project_models!units_model_id_fkey (name)
         `)
         .order('created_at', { ascending: false });
 
@@ -237,7 +228,6 @@ export default function UnitsPage() {
       setModelId('');
       return;
     }
-
     (async () => {
       await loadModels(projectId);
       if (!prefillingRef.current) setModelId('');
@@ -247,7 +237,6 @@ export default function UnitsPage() {
   /* =====================
      FORM
   ===================== */
-
   function resetForm() {
     setEditingId(null);
     setUnitCode('');
@@ -350,48 +339,47 @@ export default function UnitsPage() {
   /* =====================
      UI
   ===================== */
-
   return (
     <RequireAuth>
       <div className="page units-page">
         {/* FORM */}
-        <Card title={editingId ? 'تعديل وحدة' : 'إضافة وحدة'}>
-          <div className="form-row">
-            <Input placeholder="كود الوحدة" value={unitCode} onChange={(e) => setUnitCode(e.target.value)} />
-            <Input placeholder="رقم البلوك" value={blockNo} onChange={(e) => setBlockNo(e.target.value)} />
-            <Input placeholder="رقم الوحدة" value={unitNo} onChange={(e) => setUnitNo(e.target.value)} />
-            <select value={unitType} onChange={(e) => setUnitType(e.target.value as any)}>
-              {UNIT_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-            <Input type="number" placeholder="مساحة الأرض" value={landArea} onChange={(e) => setLandArea(e.target.value)} />
-            <Input type="number" placeholder="مسطح البناء" value={buildArea} onChange={(e) => setBuildArea(e.target.value)} />
-            <Input type="number" placeholder="السعر المعتمد" value={price} onChange={(e) => setPrice(e.target.value)} />
-            <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
-              <option value="available">متاحة</option>
-              <option value="reserved">محجوزة</option>
-              <option value="sold">مباعة</option>
-            </select>
+        {employee?.role === 'admin' && (
+          <Card title={editingId ? 'تعديل وحدة' : 'إضافة وحدة'}>
+            <div className="form-row">
+              <Input placeholder="كود الوحدة" value={unitCode} onChange={(e) => setUnitCode(e.target.value)} />
+              <Input placeholder="رقم البلوك" value={blockNo} onChange={(e) => setBlockNo(e.target.value)} />
+              <Input placeholder="رقم الوحدة" value={unitNo} onChange={(e) => setUnitNo(e.target.value)} />
+              <select value={unitType} onChange={(e) => setUnitType(e.target.value as any)}>
+                {UNIT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+              <Input type="number" placeholder="مساحة الأرض" value={landArea} onChange={(e) => setLandArea(e.target.value)} />
+              <Input type="number" placeholder="مسطح البناء" value={buildArea} onChange={(e) => setBuildArea(e.target.value)} />
+              <Input type="number" placeholder="السعر المعتمد" value={price} onChange={(e) => setPrice(e.target.value)} />
+              <select value={status} onChange={(e) => setStatus(e.target.value as any)}>
+                <option value="available">متاحة</option>
+                <option value="reserved">محجوزة</option>
+                <option value="sold">مباعة</option>
+              </select>
 
-            {/* المشروع */}
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">اختر المشروع</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>
-              ))}
-            </select>
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                <option value="">اختر المشروع</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.code ? ` (${p.code})` : ''}</option>
+                ))}
+              </select>
 
-            {/* النموذج */}
-            <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!projectId}>
-              <option value="">{projectId ? 'اختر النموذج' : 'اختر المشروع أولاً'}</option>
-              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+              <select value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={!projectId}>
+                <option value="">{projectId ? 'اختر النموذج' : 'اختر المشروع أولاً'}</option>
+                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
 
-            <Button onClick={handleSubmit} disabled={saving}>{saving ? 'جاري الحفظ...' : editingId ? 'تعديل الوحدة' : 'إضافة وحدة'}</Button>
-            {editingId && <Button variant="danger" onClick={resetForm}>إلغاء</Button>}
-          </div>
-        </Card>
+              <Button onClick={handleSubmit} disabled={saving}>{saving ? 'جاري الحفظ...' : editingId ? 'تعديل الوحدة' : 'إضافة وحدة'}</Button>
+              {editingId && <Button variant="danger" onClick={resetForm}>إلغاء</Button>}
+            </div>
+          </Card>
+        )}
 
         {/* TABLE */}
         <Card title="قائمة الوحدات">
@@ -414,10 +402,14 @@ export default function UnitsPage() {
                     <td data-label="النموذج">{u.model?.name || '-'}</td>
                     <td className="sticky-right" data-label="إجراء">
                       <div className="actions">
-                        <Button onClick={() => startEdit(u)}>تعديل</Button>
-                        <Button variant="danger" disabled={deletingId === u.id} onClick={() => deleteUnit(u)}>
-                          {deletingId === u.id ? '...' : 'حذف'}
-                        </Button>
+                        {employee?.role === 'admin' && (
+                          <>
+                            <Button onClick={() => startEdit(u)}>تعديل</Button>
+                            <Button variant="danger" disabled={deletingId === u.id} onClick={() => deleteUnit(u)}>
+                              {deletingId === u.id ? '...' : 'حذف'}
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

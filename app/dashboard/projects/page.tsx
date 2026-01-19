@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';

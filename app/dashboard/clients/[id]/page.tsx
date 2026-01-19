@@ -11,7 +11,6 @@ import FollowUps from './followups';
 /* =====================
    Types
 ===================== */
-
 type Client = {
   id: string;
   name: string;
@@ -31,12 +30,12 @@ type Client = {
 
   status: string;
   created_at: string;
+  saved_by: string | null; // id الموظف اللي حفظ العميل
 };
 
 /* =====================
    Page
 ===================== */
-
 export default function ClientPage() {
   const params = useParams();
   const router = useRouter();
@@ -49,6 +48,7 @@ export default function ClientPage() {
   const [salaryBankName, setSalaryBankName] = useState<string | null>(null);
   const [financeBankName, setFinanceBankName] = useState<string | null>(null);
   const [jobSectorName, setJobSectorName] = useState<string | null>(null);
+  const [savedByName, setSavedByName] = useState<string | null>(null);
 
   // 🔥 آخر حجز
   const [reservationId, setReservationId] = useState<string | null>(null);
@@ -115,6 +115,19 @@ export default function ClientPage() {
       setJobSectorName(null);
     }
 
+    /* ========= Employee who saved ========= */
+    if (c.saved_by) {
+      const { data } = await supabase
+        .from('employees')
+        .select('name')
+        .eq('id', c.saved_by)
+        .maybeSingle();
+
+      setSavedByName(data?.name ?? null);
+    } else {
+      setSavedByName(null);
+    }
+
     /* ========= Last Reservation ========= */
     const { data: reservation } = await supabase
       .from('reservations')
@@ -132,11 +145,20 @@ export default function ClientPage() {
   if (loading) return <div className="page">جاري التحميل...</div>;
   if (!client) return <div className="page">العميل غير موجود</div>;
 
+  function translateStatus(status: string) {
+    switch (status) {
+      case 'lead': return 'متابعة';
+      case 'reserved': return 'محجوز';
+      case 'visited': return 'تمت الزيارة';
+      default: return status;
+    }
+  }
+
   return (
     <div className="page">
 
       {/* ================= TOP BUTTONS ================= */}
-      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+      <div className="tabs" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Button
           variant={tab === 'details' ? 'primary' : undefined}
           onClick={() => setTab('details')}
@@ -159,13 +181,10 @@ export default function ClientPage() {
           حجز
         </Button>
 
-        {/* 🔥 عرض الحجز (المسار الصح) */}
         {reservationId && (
           <Button
             onClick={() =>
-              router.push(
-                `/dashboard/clients/${clientId}/reservation/${reservationId}`
-              )
+              router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)
             }
           >
             عرض الحجز
@@ -182,21 +201,16 @@ export default function ClientPage() {
               <Detail label="الاسم" value={client.name} />
               <Detail label="الجوال" value={client.mobile} />
               <Detail label="الإيميل" value={client.email || '-'} />
-              <Detail label="الحالة" value={client.status} badge />
-              <Detail
-                label="تاريخ التسجيل"
-                value={new Date(client.created_at).toLocaleDateString()}
-              />
+              <Detail label="الحالة" value={translateStatus(client.status)} badge />
+              <Detail label="تاريخ التسجيل" value={new Date(client.created_at).toLocaleDateString()} />
+              <Detail label="مسجل بواسطة" value={savedByName || '-'} />
             </div>
           </Card>
 
           <Card title="الهوية والاستحقاق">
             <div className="details-grid">
               <Detail label="مستحق" value={client.eligible ? 'نعم' : 'لا'} badge />
-              <Detail
-                label="الجنسية"
-                value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
-              />
+              <Detail label="الجنسية" value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'} />
               <Detail label="نوع الهوية" value={client.identity_type || '-'} />
               <Detail label="رقم الهوية" value={client.identity_no || '-'} />
               <Detail label="نوع الإقامة" value={client.residency_type || '-'} />
@@ -223,16 +237,7 @@ export default function ClientPage() {
 /* =====================
    Small UI Component
 ===================== */
-
-function Detail({
-  label,
-  value,
-  badge,
-}: {
-  label: string;
-  value: string;
-  badge?: boolean;
-}) {
+function Detail({ label, value, badge }: { label: string; value: string; badge?: boolean }) {
   return (
     <div className="detail-row">
       <span className="label">{label}</span>

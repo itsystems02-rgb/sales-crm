@@ -5,13 +5,15 @@ export async function getCurrentEmployee() {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (!session?.user?.email) return null;
+  if (!session?.user?.id) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('employees')
     .select('*')
-    .eq('email', session.user.email)
+    .eq('auth_user_id', session.user.id) // 🔥 استخدم user.id بدل email
     .single();
+
+  if (error) console.error('getCurrentEmployee error:', error);
 
   return data;
 }

@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 
 /* =====================
    Types
 ===================== */
+
 type Unit = {
   id: string;
   unit_code: string;
@@ -27,8 +30,6 @@ type FollowUp = {
   notes: string | null;
 };
 
-type ReservationStatus = 'active' | 'cancelled' | 'converted';
-
 type Employee = {
   id: string;
   role: 'admin' | 'sales';
@@ -37,11 +38,12 @@ type Employee = {
 /* =====================
    Page
 ===================== */
+
 export default function ReservationPage() {
   const params = useParams();
   const router = useRouter();
   const clientId = params.id as string;
-  const projectId = params.projectId as string; // لازم يجي مع params
+  const projectId = params.projectId as string;
 
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -49,32 +51,25 @@ export default function ReservationPage() {
   const [employee, setEmployee] = useState<Employee | null>(null);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
-
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
   const [bankEmployeeName, setBankEmployeeName] = useState('');
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
-  const [status, setStatus] = useState<ReservationStatus | ''>('');
+  const [status, setStatus] = useState<'active' | 'cancelled' | 'converted' | ''>('');
   const [notes, setNotes] = useState('');
-
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   /* =====================
      INIT
-  ====================== */
+  ===================== */
   useEffect(() => {
     fetchCurrentEmployee();
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (employee) fetchData();
-  }, [employee]);
-
-  /* =====================
-     Current Employee
-  ====================== */
   async function fetchCurrentEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
@@ -85,18 +80,14 @@ export default function ReservationPage() {
       .eq('email', user.email)
       .maybeSingle();
 
-    if (data) {
+    if (data?.id) {
       setEmployee(data);
       setEmployeeId(data.id);
     }
   }
 
-  /* =====================
-     Fetch Data
-  ====================== */
   async function fetchData() {
-    if (!employee) return;
-
+    // الوحدات حسب المشروع واللي متاحة فقط
     let query = supabase
       .from('units')
       .select('id, unit_code, project_id, status')
@@ -104,33 +95,25 @@ export default function ReservationPage() {
       .not('status', 'in', `('reserved','sold')`)
       .order('unit_code');
 
-    // لو الموظف sales → وحداته فقط
-    if (employee.role === 'sales') {
+    // لو الموظف sales → فلتر حسب وحداته فقط
+    if (employee?.role === 'sales' && employee?.id) {
       const { data: empProjects } = await supabase
         .from('employee_projects')
         .select('project_id')
         .eq('employee_id', employee.id);
 
-      const allowedProjectIds = (empProjects || []).map(p => p.project_id);
-      if (allowedProjectIds.length > 0) {
-        query = query.in('project_id', allowedProjectIds);
-      } else {
-        query = query.in('project_id', ['']);
-      }
+      const allowedIds = (empProjects || []).map(p => p.project_id);
+      if (allowedIds.length > 0) query = query.in('project_id', allowedIds);
     }
 
     const { data: u } = await query;
     setUnits(u || []);
 
     // البنوك
-    const { data: b } = await supabase
-      .from('banks')
-      .select('id, name')
-      .order('name');
-
+    const { data: b } = await supabase.from('banks').select('id,name').order('name');
     setBanks(b || []);
 
-    // آخر متابعة للعميل
+    // آخر متابعة تلقائية
     const { data: follow } = await supabase
       .from('client_followups')
       .select('employee_id, created_at, notes')
@@ -144,12 +127,13 @@ export default function ReservationPage() {
 
   /* =====================
      Submit Reservation
-  ====================== */
+  ===================== */
   async function submit() {
     if (!unitId || !reservationDate) {
       alert('من فضلك اختر الوحدة وتاريخ الحجز');
       return;
     }
+
     if (!employeeId) {
       alert('لم يتم تحديد الموظف الحالي');
       return;
@@ -182,7 +166,7 @@ export default function ReservationPage() {
       return;
     }
 
-    // تحديث حالة العميل والوحدة
+    // تحديث العميل والوحدة
     await supabase.from('clients').update({ status: 'reserved' }).eq('id', clientId);
     await supabase.from('units').update({ status: 'reserved' }).eq('id', unitId);
 
@@ -192,10 +176,11 @@ export default function ReservationPage() {
 
   /* =====================
      UI
-  ====================== */
+  ===================== */
   return (
     <div className="page">
 
+      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
@@ -203,6 +188,7 @@ export default function ReservationPage() {
       </div>
 
       <div className="details-layout">
+
         <Card title="بيانات الحجز">
           <div className="details-grid" style={{ gap: 12 }}>
             <div className="form-field">
@@ -230,12 +216,12 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              <input value={bankEmployeeName} onChange={e => setBankEmployeeName(e.target.value)} />
+              <Input value={bankEmployeeName} onChange={e => setBankEmployeeName(e.target.value)} />
             </div>
 
             <div className="form-field">
               <label>رقم موظف البنك</label>
-              <input value={bankEmployeeMobile} onChange={e => setBankEmployeeMobile(e.target.value)} />
+              <Input value={bankEmployeeMobile} onChange={e => setBankEmployeeMobile(e.target.value)} />
             </div>
 
             <div className="form-field">
@@ -274,12 +260,11 @@ export default function ReservationPage() {
           </Button>
         )}
         {reservationId && (
-          <Button onClick={() => router.push(`/dashboard/clients/${clientId}/reservations/${reservationId}`)}>
+          <Button onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}>
             عرض الحجز
           </Button>
         )}
       </div>
-
     </div>
   );
 }

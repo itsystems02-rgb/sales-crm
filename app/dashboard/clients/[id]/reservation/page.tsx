@@ -9,7 +9,6 @@ import Button from '@/components/ui/Button';
 /* =====================
    Types
 ===================== */
-
 type Unit = {
   id: string;
   unit_code: string;
@@ -38,7 +37,6 @@ type Employee = {
 /* =====================
    Page
 ===================== */
-
 export default function ReservationPage() {
   const params = useParams();
   const router = useRouter();
@@ -68,12 +66,10 @@ export default function ReservationPage() {
   ====================== */
   useEffect(() => {
     fetchCurrentEmployee();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (employee) fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee]);
 
   /* =====================
@@ -119,7 +115,7 @@ export default function ReservationPage() {
       if (allowedProjectIds.length > 0) {
         query = query.in('project_id', allowedProjectIds);
       } else {
-        query = query.in('project_id', ['']); // مش هتشوف أي وحدات
+        query = query.in('project_id', ['']);
       }
     }
 
@@ -131,6 +127,7 @@ export default function ReservationPage() {
       .from('banks')
       .select('id, name')
       .order('name');
+
     setBanks(b || []);
 
     // آخر متابعة للعميل
@@ -141,6 +138,7 @@ export default function ReservationPage() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
     setLastFollowUp(follow || null);
   }
 
@@ -152,7 +150,6 @@ export default function ReservationPage() {
       alert('من فضلك اختر الوحدة وتاريخ الحجز');
       return;
     }
-
     if (!employeeId) {
       alert('لم يتم تحديد الموظف الحالي');
       return;
@@ -198,7 +195,7 @@ export default function ReservationPage() {
   ====================== */
   return (
     <div className="page">
-      {/* ===== TABS ===== */}
+
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
@@ -208,7 +205,6 @@ export default function ReservationPage() {
       <div className="details-layout">
         <Card title="بيانات الحجز">
           <div className="details-grid" style={{ gap: 12 }}>
-            {/* الوحدة */}
             <div className="form-field">
               <label>الوحدة</label>
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
@@ -219,13 +215,11 @@ export default function ReservationPage() {
               </select>
             </div>
 
-            {/* التاريخ */}
             <div className="form-field">
               <label>تاريخ الحجز</label>
               <input type="date" value={reservationDate} onChange={e => setReservationDate(e.target.value)} />
             </div>
 
-            {/* البنك */}
             <div className="form-field">
               <label>اسم البنك</label>
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
@@ -261,7 +255,6 @@ export default function ReservationPage() {
           </div>
         </Card>
 
-        {/* آخر متابعة */}
         <Card title="آخر متابعة تلقائية">
           {lastFollowUp ? (
             <div className="detail-row">
@@ -274,7 +267,6 @@ export default function ReservationPage() {
         </Card>
       </div>
 
-      {/* أزرار حفظ وعرض */}
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         {!reservationId && (
           <Button variant="primary" onClick={submit} disabled={saving}>
@@ -287,6 +279,7 @@ export default function ReservationPage() {
           </Button>
         )}
       </div>
+
     </div>
   );
 }

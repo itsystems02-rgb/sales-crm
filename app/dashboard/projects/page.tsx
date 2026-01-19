@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient'; // ✅ هنا
+import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import RequireAuth from '@/components/auth/RequireAuth';
@@ -10,10 +10,6 @@ import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
-
-/* =====================
-   Types
-===================== */
 
 type Project = {
   id: string;
@@ -26,10 +22,6 @@ type Employee = {
   id: string;
   role: 'admin' | 'sales';
 };
-
-/* =====================
-   Page
-===================== */
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -45,39 +37,38 @@ export default function ProjectsPage() {
   const [code, setCode] = useState('');
   const [location, setLocation] = useState('');
 
-  /* =====================
-     INIT
-  ===================== */
-
   useEffect(() => {
     init();
   }, []);
 
   async function init() {
     const emp = await getCurrentEmployee();
-    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
+    console.log('Current employee:', emp);
+
+    if (!emp) return; // RequireAuth يعمل redirect تلقائي
 
     setEmployee(emp);
     await loadProjects(emp);
     setLoading(false);
   }
 
-  /* =====================
-     LOAD PROJECTS
-  ===================== */
-
   async function loadProjects(emp: Employee) {
+    console.log('Loading projects for employee:', emp);
+
     if (emp.role === 'admin') {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
+
+      console.log('Admin projects data:', data, 'error:', error);
 
       setProjects(data || []);
       return;
     }
 
-    const { data } = await supabase
+    // sales → المشاريع المربوطة بيه فقط
+    const { data, error } = await supabase
       .from('employee_projects')
       .select(`
         project:projects (
@@ -89,16 +80,16 @@ export default function ProjectsPage() {
       `)
       .eq('employee_id', emp.id);
 
+    console.log('Sales allowed projects raw data:', data, 'error:', error);
+
     const allowed = (data || [])
       .map((r: any) => r.project)
       .filter(Boolean);
 
+    console.log('Sales allowed projects after map/filter:', allowed);
+
     setProjects(allowed);
   }
-
-  /* =====================
-     FORM (admin فقط)
-  ===================== */
 
   function resetForm() {
     setEditingId(null);
@@ -116,7 +107,7 @@ export default function ProjectsPage() {
     }
 
     if (editingId) {
-      await supabase
+      const { error } = await supabase
         .from('projects')
         .update({
           name: name.trim(),
@@ -124,12 +115,16 @@ export default function ProjectsPage() {
           location: location.trim() || null,
         })
         .eq('id', editingId);
+
+      console.log('Update project error:', error);
     } else {
-      await supabase.from('projects').insert({
+      const { error } = await supabase.from('projects').insert({
         name: name.trim(),
         code: code.trim(),
         location: location.trim() || null,
       });
+
+      console.log('Insert project error:', error);
     }
 
     resetForm();
@@ -148,8 +143,6 @@ export default function ProjectsPage() {
   async function deleteProject(id: string) {
     if (employee?.role !== 'admin') return;
 
-    if (!confirm('هل أنت متأكد من حذف المشروع؟')) return;
-
     const { count } = await supabase
       .from('units')
       .select('id', { count: 'exact', head: true })
@@ -161,20 +154,16 @@ export default function ProjectsPage() {
     }
 
     setDeletingId(id);
-    await supabase.from('projects').delete().eq('id', id);
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+    console.log('Delete project error:', error);
     setDeletingId(null);
 
     if (employee) loadProjects(employee);
   }
 
-  /* =====================
-     UI
-  ===================== */
-
   return (
     <RequireAuth>
       <div className="page">
-
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
             <div className="form-row">
@@ -198,9 +187,7 @@ export default function ProjectsPage() {
                 {editingId ? 'تعديل' : 'حفظ'}
               </Button>
 
-              {editingId && (
-                <Button onClick={resetForm}>إلغاء</Button>
-              )}
+              {editingId && <Button onClick={resetForm}>إلغاء</Button>}
             </div>
           </Card>
         )}
@@ -229,9 +216,7 @@ export default function ProjectsPage() {
                     <div className="actions">
                       {employee?.role === 'admin' ? (
                         <>
-                          <Button onClick={() => startEdit(p)}>
-                            تعديل
-                          </Button>
+                          <Button onClick={() => startEdit(p)}>تعديل</Button>
 
                           <Button
                             onClick={() =>

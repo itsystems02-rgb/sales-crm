@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -13,7 +12,6 @@ import Table from '@/components/ui/Table';
 /* =====================
    Types
 ===================== */
-
 type ClientListItem = {
   id: string;
   name: string;
@@ -27,10 +25,14 @@ type Option = {
   name: string;
 };
 
+type Employee = {
+  id: string;
+  role: 'admin' | 'sales';
+};
+
 /* =====================
    Constants
 ===================== */
-
 const IDENTITY_TYPES = [
   { value: '', label: 'اختر نوع الهوية' },
   { value: 'national_id', label: 'الهوية' },
@@ -47,50 +49,51 @@ const RESIDENCY_TYPES = [
 /* =====================
    Page
 ===================== */
-
 export default function ClientsPage() {
-  const router = useRouter();
-
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [banks, setBanks] = useState<Option[]>([]);
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 🔴 مهم للتعديل
-  const [editingId, setEditingId] = useState<string | null>(null);
-
   // form
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [email, setEmail] = useState('');
-
   const [identityType, setIdentityType] = useState('');
   const [identityNo, setIdentityNo] = useState('');
-
   const [eligible, setEligible] = useState(true);
   const [nationality, setNationality] = useState<'saudi' | 'non_saudi'>('saudi');
   const [residencyType, setResidencyType] = useState('');
-
   const [salaryBankId, setSalaryBankId] = useState('');
   const [financeBankId, setFinanceBankId] = useState('');
   const [jobSectorId, setJobSectorId] = useState('');
 
   /* =====================
-     LOAD
+     INIT
   ===================== */
-
   useEffect(() => {
+    init();
+  }, []);
+
+  async function init() {
+    const emp = await getCurrentEmployee();
+    setEmployee(emp);
     fetchClients();
     fetchBanks();
     fetchJobSectors();
-  }, []);
+  }
 
   useEffect(() => {
-    if (nationality !== 'saudi') {
+    if (nationality !== 'non_saudi') {
       setResidencyType('');
     }
   }, [nationality]);
 
+  /* =====================
+     LOAD DATA
+  ===================== */
   async function fetchClients() {
     const { data, error } = await supabase
       .from('clients')
@@ -101,7 +104,6 @@ export default function ClientsPage() {
       alert(error.message);
       return;
     }
-
     setClients(data || []);
   }
 
@@ -116,9 +118,8 @@ export default function ClientsPage() {
   }
 
   /* =====================
-     FORM
+     FORM HANDLERS
   ===================== */
-
   function resetForm() {
     setEditingId(null);
     setName('');
@@ -150,17 +151,14 @@ export default function ClientsPage() {
       identity_no: identityNo || null,
       eligible,
       nationality,
-      residency_type: nationality === 'saudi' ? residencyType || null : null,
+      residency_type: nationality === 'non_saudi' ? residencyType || null : null,
       salary_bank_id: salaryBankId || null,
       finance_bank_id: financeBankId || null,
       job_sector_id: jobSectorId || null,
       status: 'lead',
     };
 
-    const res = editingId
-      ? await supabase.from('clients').update(payload).eq('id', editingId)
-      : await supabase.from('clients').insert(payload);
-
+    const res = await supabase.from('clients').insert(payload);
     if (res.error) {
       alert(res.error.message);
       setLoading(false);
@@ -172,130 +170,73 @@ export default function ClientsPage() {
     fetchClients();
   }
 
-  // 🟢 تحميل بيانات العميل للتعديل
-  async function startEdit(id: string) {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !data) {
-      alert('فشل تحميل بيانات العميل');
-      return;
-    }
-
-    setEditingId(data.id);
-    setName(data.name);
-    setMobile(data.mobile);
-    setEmail(data.email || '');
-    setIdentityType(data.identity_type || '');
-    setIdentityNo(data.identity_no || '');
-    setEligible(data.eligible);
-    setNationality(data.nationality);
-    setResidencyType(data.residency_type || '');
-    setSalaryBankId(data.salary_bank_id || '');
-    setFinanceBankId(data.finance_bank_id || '');
-    setJobSectorId(data.job_sector_id || '');
-  }
-
-  async function deleteClient(id: string) {
-    if (!confirm('هل أنت متأكد من الحذف؟')) return;
-    await supabase.from('clients').delete().eq('id', id);
-    fetchClients();
-  }
-
   /* =====================
      UI
   ===================== */
-
   return (
     <RequireAuth>
       <div className="page">
-        <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
+        {/* FORM: Sales/Admin يمكنه الإضافة فقط */}
+        <Card title="إضافة عميل">
           <div className="form-col">
-            <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
-            <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input placeholder="اسم العميل" value={name} onChange={e => setName(e.target.value)} />
+            <Input placeholder="رقم الجوال" value={mobile} onChange={e => setMobile(e.target.value)} />
+            <Input placeholder="الإيميل" value={email} onChange={e => setEmail(e.target.value)} />
 
-            <select value={identityType} onChange={(e) => setIdentityType(e.target.value)}>
-              {IDENTITY_TYPES.map(i => (
-                <option key={i.value} value={i.value}>{i.label}</option>
-              ))}
+            <select value={identityType} onChange={e => setIdentityType(e.target.value)}>
+              {IDENTITY_TYPES.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
             </select>
 
-            <Input placeholder="رقم الهوية" value={identityNo} onChange={(e) => setIdentityNo(e.target.value)} />
+            <Input placeholder="رقم الهوية" value={identityNo} onChange={e => setIdentityNo(e.target.value)} />
 
-            <select value={eligible ? 'yes' : 'no'} onChange={(e) => setEligible(e.target.value === 'yes')}>
+            <select value={eligible ? 'yes' : 'no'} onChange={e => setEligible(e.target.value === 'yes')}>
               <option value="yes">مستحق</option>
               <option value="no">غير مستحق</option>
             </select>
 
-            <select value={nationality} onChange={(e) => setNationality(e.target.value as any)}>
+            <select value={nationality} onChange={e => setNationality(e.target.value as any)}>
               <option value="saudi">سعودي</option>
               <option value="non_saudi">غير سعودي</option>
             </select>
 
-            {nationality === 'saudi' && (
-              <select value={residencyType} onChange={(e) => setResidencyType(e.target.value)}>
+            {nationality === 'non_saudi' && (
+              <select value={residencyType} onChange={e => setResidencyType(e.target.value)}>
                 <option value="">نوع الإقامة</option>
-                {RESIDENCY_TYPES.map(r => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
+                {RESIDENCY_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             )}
 
-            <select value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)}>
+            <select value={salaryBankId} onChange={e => setSalaryBankId(e.target.value)}>
               <option value="">بنك الراتب</option>
               {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
 
-            <select value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)}>
+            <select value={financeBankId} onChange={e => setFinanceBankId(e.target.value)}>
               <option value="">بنك التمويل</option>
               {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
 
-            <select value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)}>
+            <select value={jobSectorId} onChange={e => setJobSectorId(e.target.value)}>
               <option value="">القطاع الوظيفي</option>
               {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
             </select>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button onClick={handleSubmit} disabled={loading}>
-                {editingId ? 'تعديل' : 'حفظ'}
-              </Button>
-
-              {editingId && (
-                <Button onClick={resetForm}>
-                  إلغاء
-                </Button>
-              )}
-            </div>
+            <Button onClick={handleSubmit} disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ'}</Button>
           </div>
         </Card>
 
+        {/* TABLE: الجميع يرى العملاء لكن لا تعديل أو حذف للـ Sales */}
         <Card title="قائمة العملاء">
-          <Table headers={['الاسم', 'مستحق', 'الحالة', 'إجراء']}>
+          <Table headers={['الاسم','مستحق','الحالة']}>
             {clients.length === 0 ? (
-              <tr>
-                <td colSpan={4} style={{ textAlign: 'center' }}>لا يوجد عملاء</td>
+              <tr><td colSpan={3} style={{textAlign:'center'}}>لا يوجد عملاء</td></tr>
+            ) : clients.map(c => (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                <td>{c.status}</td>
               </tr>
-            ) : (
-              clients.map(c => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                  <td>{c.status}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                      <Button onClick={() => startEdit(c.id)}>تعديل</Button>
-                      <button className="btn-danger" onClick={() => deleteClient(c.id)}>حذف</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
+            ))}
           </Table>
         </Card>
       </div>

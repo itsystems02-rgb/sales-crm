@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import RequireAuth from '@/components/auth/RequireAuth';
@@ -50,7 +51,9 @@ const RESIDENCY_TYPES = [
    Page
 ===================== */
 export default function ClientsPage() {
+  const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
+
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [banks, setBanks] = useState<Option[]>([]);
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
@@ -74,16 +77,15 @@ export default function ClientsPage() {
      INIT
   ===================== */
   useEffect(() => {
+    async function init() {
+      const emp = await getCurrentEmployee();
+      setEmployee(emp);
+      fetchClients();
+      fetchBanks();
+      fetchJobSectors();
+    }
     init();
   }, []);
-
-  async function init() {
-    const emp = await getCurrentEmployee();
-    setEmployee(emp);
-    fetchClients();
-    fetchBanks();
-    fetchJobSectors();
-  }
 
   useEffect(() => {
     if (nationality !== 'non_saudi') {
@@ -99,11 +101,7 @@ export default function ClientsPage() {
       .from('clients')
       .select('id,name,eligible,status,created_at')
       .order('created_at', { ascending: false });
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
+    if (error) { alert(error.message); return; }
     setClients(data || []);
   }
 
@@ -136,12 +134,7 @@ export default function ClientsPage() {
   }
 
   async function handleSubmit() {
-    if (!name || !mobile) {
-      alert('الاسم ورقم الجوال مطلوبين');
-      return;
-    }
-
-    setLoading(true);
+    if (!name || !mobile) { alert('الاسم ورقم الجوال مطلوبين'); return; }
 
     const payload = {
       name,
@@ -159,13 +152,8 @@ export default function ClientsPage() {
     };
 
     const res = await supabase.from('clients').insert(payload);
-    if (res.error) {
-      alert(res.error.message);
-      setLoading(false);
-      return;
-    }
+    if (res.error) { alert(res.error.message); return; }
 
-    setLoading(false);
     resetForm();
     fetchClients();
   }
@@ -176,65 +164,67 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* FORM: Sales/Admin يمكنه الإضافة فقط */}
-        <Card title="إضافة عميل">
-          <div className="form-col">
-            <Input placeholder="اسم العميل" value={name} onChange={e => setName(e.target.value)} />
-            <Input placeholder="رقم الجوال" value={mobile} onChange={e => setMobile(e.target.value)} />
-            <Input placeholder="الإيميل" value={email} onChange={e => setEmail(e.target.value)} />
-
-            <select value={identityType} onChange={e => setIdentityType(e.target.value)}>
-              {IDENTITY_TYPES.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
-            </select>
-
-            <Input placeholder="رقم الهوية" value={identityNo} onChange={e => setIdentityNo(e.target.value)} />
-
-            <select value={eligible ? 'yes' : 'no'} onChange={e => setEligible(e.target.value === 'yes')}>
-              <option value="yes">مستحق</option>
-              <option value="no">غير مستحق</option>
-            </select>
-
-            <select value={nationality} onChange={e => setNationality(e.target.value as any)}>
-              <option value="saudi">سعودي</option>
-              <option value="non_saudi">غير سعودي</option>
-            </select>
-
-            {nationality === 'non_saudi' && (
-              <select value={residencyType} onChange={e => setResidencyType(e.target.value)}>
-                <option value="">نوع الإقامة</option>
-                {RESIDENCY_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        {/* فقط يمكن إضافة عملاء */}
+        {employee?.role === 'admin' || employee?.role === 'sales' ? (
+          <Card title="إضافة عميل">
+            <div className="form-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input placeholder="رقم الجوال" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+              <Input placeholder="الإيميل" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <select value={identityType} onChange={(e) => setIdentityType(e.target.value)}>
+                {IDENTITY_TYPES.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
               </select>
-            )}
+              <Input placeholder="رقم الهوية" value={identityNo} onChange={(e) => setIdentityNo(e.target.value)} />
+              <select value={eligible ? 'yes' : 'no'} onChange={(e) => setEligible(e.target.value === 'yes')}>
+                <option value="yes">مستحق</option>
+                <option value="no">غير مستحق</option>
+              </select>
+              <select value={nationality} onChange={(e) => setNationality(e.target.value as any)}>
+                <option value="saudi">سعودي</option>
+                <option value="non_saudi">غير سعودي</option>
+              </select>
+              {nationality === 'non_saudi' && (
+                <select value={residencyType} onChange={(e) => setResidencyType(e.target.value)}>
+                  <option value="">نوع الإقامة</option>
+                  {RESIDENCY_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              )}
+              <select value={salaryBankId} onChange={(e) => setSalaryBankId(e.target.value)}>
+                <option value="">بنك الراتب</option>
+                {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <select value={financeBankId} onChange={(e) => setFinanceBankId(e.target.value)}>
+                <option value="">بنك التمويل</option>
+                {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <select value={jobSectorId} onChange={(e) => setJobSectorId(e.target.value)}>
+                <option value="">القطاع الوظيفي</option>
+                {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
+              </select>
+              <Button onClick={handleSubmit}>حفظ</Button>
+            </div>
+          </Card>
+        ) : null}
 
-            <select value={salaryBankId} onChange={e => setSalaryBankId(e.target.value)}>
-              <option value="">بنك الراتب</option>
-              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-
-            <select value={financeBankId} onChange={e => setFinanceBankId(e.target.value)}>
-              <option value="">بنك التمويل</option>
-              {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-
-            <select value={jobSectorId} onChange={e => setJobSectorId(e.target.value)}>
-              <option value="">القطاع الوظيفي</option>
-              {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
-            </select>
-
-            <Button onClick={handleSubmit} disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ'}</Button>
-          </div>
-        </Card>
-
-        {/* TABLE: الجميع يرى العملاء لكن لا تعديل أو حذف للـ Sales */}
+        {/* جدول العملاء */}
         <Card title="قائمة العملاء">
-          <Table headers={['الاسم','مستحق','الحالة']}>
+          <Table headers={['الاسم','مستحق','الحالة','إجراء']}>
             {clients.length === 0 ? (
-              <tr><td colSpan={3} style={{textAlign:'center'}}>لا يوجد عملاء</td></tr>
+              <tr><td colSpan={4} style={{textAlign:'center'}}>لا يوجد عملاء</td></tr>
             ) : clients.map(c => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
                 <td>{c.status}</td>
+                <td>
+                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                  {employee?.role === 'admin' && (
+                    <>
+                      <Button onClick={() => alert('Admin: تعديل العميل')}>تعديل</Button>
+                      <Button onClick={() => alert('Admin: حذف العميل')} variant="danger">حذف</Button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </Table>

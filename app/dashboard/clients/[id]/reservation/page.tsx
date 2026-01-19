@@ -35,6 +35,8 @@ type Employee = {
   role: 'admin' | 'sales';
 };
 
+type ReservationStatus = 'active' | 'cancelled' | 'converted';
+
 /* =====================
    Page
 ===================== */
@@ -56,7 +58,7 @@ export default function ReservationPage() {
   const [bankName, setBankName] = useState('');
   const [bankEmployeeName, setBankEmployeeName] = useState('');
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
-  const [status, setStatus] = useState<'active' | 'cancelled' | 'converted' | ''>('');
+  const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -66,10 +68,16 @@ export default function ReservationPage() {
   ===================== */
   useEffect(() => {
     fetchCurrentEmployee();
-    fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (employee) fetchData();
+  }, [employee]);
+
+  /* =====================
+     Current Employee
+  ===================== */
   async function fetchCurrentEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
@@ -86,43 +94,51 @@ export default function ReservationPage() {
     }
   }
 
+  /* =====================
+     Fetch Data
+  ===================== */
   async function fetchData() {
-    // الوحدات حسب المشروع واللي متاحة فقط
-    let query = supabase
-      .from('units')
-      .select('id, unit_code, project_id, status')
-      .eq('project_id', projectId)
-      .not('status', 'in', `('reserved','sold')`)
-      .order('unit_code');
+    try {
+      // الوحدات المتاحة للمشروع فقط
+      let query = supabase
+        .from('units')
+        .select('id, unit_code, project_id, status')
+        .eq('project_id', projectId)
+        .not('status', 'in', `('reserved','sold')`)
+        .order('unit_code');
 
-    // لو الموظف sales → فلتر حسب وحداته فقط
-    if (employee?.role === 'sales' && employee?.id) {
-      const { data: empProjects } = await supabase
-        .from('employee_projects')
-        .select('project_id')
-        .eq('employee_id', employee.id);
+      // لو الموظف sales → فلتر حسب مشاريع الموظف
+      if (employee?.role === 'sales') {
+        const { data: empProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', employee.id);
 
-      const allowedIds = (empProjects || []).map(p => p.project_id);
-      if (allowedIds.length > 0) query = query.in('project_id', allowedIds);
+        const allowedIds = (empProjects || []).map(p => p.project_id);
+        if (allowedIds.length > 0) query = query.in('project_id', allowedIds);
+      }
+
+      const { data: u } = await query;
+      setUnits(u || []);
+
+      // البنوك
+      const { data: b } = await supabase.from('banks').select('id,name').order('name');
+      setBanks(b || []);
+
+      // آخر متابعة تلقائية للعميل
+      const { data: follow } = await supabase
+        .from('client_followups')
+        .select('employee_id, created_at, notes')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      setLastFollowUp(follow || null);
+
+    } catch (err) {
+      console.error('خطأ في تحميل البيانات:', err);
     }
-
-    const { data: u } = await query;
-    setUnits(u || []);
-
-    // البنوك
-    const { data: b } = await supabase.from('banks').select('id,name').order('name');
-    setBanks(b || []);
-
-    // آخر متابعة تلقائية
-    const { data: follow } = await supabase
-      .from('client_followups')
-      .select('employee_id, created_at, notes')
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    setLastFollowUp(follow || null);
   }
 
   /* =====================
@@ -166,7 +182,7 @@ export default function ReservationPage() {
       return;
     }
 
-    // تحديث العميل والوحدة
+    // تحديث حالة العميل والوحدة
     await supabase.from('clients').update({ status: 'reserved' }).eq('id', clientId);
     await supabase.from('units').update({ status: 'reserved' }).eq('id', unitId);
 
@@ -188,7 +204,6 @@ export default function ReservationPage() {
       </div>
 
       <div className="details-layout">
-
         <Card title="بيانات الحجز">
           <div className="details-grid" style={{ gap: 12 }}>
             <div className="form-field">
@@ -203,7 +218,7 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>تاريخ الحجز</label>
-              <input type="date" value={reservationDate} onChange={e => setReservationDate(e.target.value)} />
+              <Input type="date" value={reservationDate} onChange={e => setReservationDate(e.target.value)} />
             </div>
 
             <div className="form-field">

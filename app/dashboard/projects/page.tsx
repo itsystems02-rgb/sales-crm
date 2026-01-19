@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient'; // ✅ هنا
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
+
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -31,7 +33,6 @@ type Employee = {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -53,22 +54,11 @@ export default function ProjectsPage() {
   }, []);
 
   async function init() {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const emp = await getCurrentEmployee();
+    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
 
-    if (!user) return; // RequireAuth هيعمل redirect تلقائي
-
-    // جلب employee info من جدول employees
-    const { data: empData, error } = await supabase
-      .from('employees')
-      .select('id, role')
-      .eq('id', user.id)
-      .single();
-
-    if (error || !empData) return;
-
-    setEmployee(empData);
-    await loadProjects(empData);
+    setEmployee(emp);
+    await loadProjects(emp);
     setLoading(false);
   }
 
@@ -77,35 +67,33 @@ export default function ProjectsPage() {
   ===================== */
 
   async function loadProjects(emp: Employee) {
-    setLoading(true);
-
     if (emp.role === 'admin') {
-      // admin → كل المشاريع
       const { data } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
 
       setProjects(data || []);
-    } else {
-      // sales → المشاريع المربوط بيها فقط
-      const { data } = await supabase
-        .from('employee_projects')
-        .select(`
-          project:projects (
-            id,
-            name,
-            code,
-            location
-          )
-        `)
-        .eq('employee_id', emp.id);
-
-      const allowed = (data || []).map((r: any) => r.project).filter(Boolean);
-      setProjects(allowed);
+      return;
     }
 
-    setLoading(false);
+    const { data } = await supabase
+      .from('employee_projects')
+      .select(`
+        project:projects (
+          id,
+          name,
+          code,
+          location
+        )
+      `)
+      .eq('employee_id', emp.id);
+
+    const allowed = (data || [])
+      .map((r: any) => r.project)
+      .filter(Boolean);
+
+    setProjects(allowed);
   }
 
   /* =====================
@@ -187,7 +175,6 @@ export default function ProjectsPage() {
     <RequireAuth>
       <div className="page">
 
-        {/* 👑 admin فقط */}
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
             <div className="form-row">
@@ -218,7 +205,6 @@ export default function ProjectsPage() {
           </Card>
         )}
 
-        {/* ===== LIST ===== */}
         <Card title="قائمة المشاريع">
           <Table headers={['اسم المشروع', 'الكود', 'الموقع', 'إجراء']}>
             {loading ? (

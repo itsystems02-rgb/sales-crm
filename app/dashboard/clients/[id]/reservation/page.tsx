@@ -15,8 +15,6 @@ import Input from '@/components/ui/Input';
 type Unit = {
   id: string;
   unit_code: string;
-  project_id: string;
-  status: 'available' | 'reserved' | 'sold';
 };
 
 type Bank = {
@@ -30,11 +28,7 @@ type FollowUp = {
   notes: string | null;
 };
 
-type Employee = {
-  id: string;
-  role: 'admin' | 'sales';
-};
-
+// ✅ النوع ده بس عشان TypeScript
 type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
 /* =====================
@@ -45,14 +39,13 @@ export default function ReservationPage() {
   const params = useParams();
   const router = useRouter();
   const clientId = params.id as string;
-  const projectId = params.projectId as string;
 
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
-  const [employee, setEmployee] = useState<Employee | null>(null);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
+
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
@@ -60,6 +53,7 @@ export default function ReservationPage() {
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
   const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
+
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -67,13 +61,10 @@ export default function ReservationPage() {
      INIT
   ===================== */
   useEffect(() => {
+    fetchData();
     fetchCurrentEmployee();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (employee) fetchData();
-  }, [employee]);
 
   /* =====================
      Current Employee
@@ -84,61 +75,40 @@ export default function ReservationPage() {
 
     const { data } = await supabase
       .from('employees')
-      .select('id, role')
+      .select('id')
       .eq('email', user.email)
       .maybeSingle();
 
-    if (data?.id) {
-      setEmployee(data);
-      setEmployeeId(data.id);
-    }
+    if (data?.id) setEmployeeId(data.id);
   }
 
   /* =====================
      Fetch Data
   ===================== */
   async function fetchData() {
-    try {
-      // الوحدات المتاحة للمشروع فقط
-      let query = supabase
-        .from('units')
-        .select('id, unit_code, project_id, status')
-        .eq('project_id', projectId)
-        .not('status', 'in', `('reserved','sold')`)
-        .order('unit_code');
+    const { data: u } = await supabase
+      .from('units')
+      .select('id, unit_code')
+      .neq('status', 'reserved'); // الوحدات المتاحة فقط
 
-      // لو الموظف sales → فلتر حسب مشاريع الموظف
-      if (employee?.role === 'sales') {
-        const { data: empProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', employee.id);
+    setUnits(u || []);
 
-        const allowedIds = (empProjects || []).map(p => p.project_id);
-        if (allowedIds.length > 0) query = query.in('project_id', allowedIds);
-      }
+    const { data: b } = await supabase
+      .from('banks')
+      .select('id, name')
+      .order('name');
 
-      const { data: u } = await query;
-      setUnits(u || []);
+    setBanks(b || []);
 
-      // البنوك
-      const { data: b } = await supabase.from('banks').select('id,name').order('name');
-      setBanks(b || []);
+    const { data: follow } = await supabase
+      .from('client_followups')
+      .select('employee_id, created_at, notes')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      // آخر متابعة تلقائية للعميل
-      const { data: follow } = await supabase
-        .from('client_followups')
-        .select('employee_id, created_at, notes')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      setLastFollowUp(follow || null);
-
-    } catch (err) {
-      console.error('خطأ في تحميل البيانات:', err);
-    }
+    setLastFollowUp(follow || null);
   }
 
   /* =====================
@@ -182,7 +152,6 @@ export default function ReservationPage() {
       return;
     }
 
-    // تحديث حالة العميل والوحدة
     await supabase.from('clients').update({ status: 'reserved' }).eq('id', clientId);
     await supabase.from('units').update({ status: 'reserved' }).eq('id', unitId);
 
@@ -196,7 +165,6 @@ export default function ReservationPage() {
   return (
     <div className="page">
 
-      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
@@ -205,7 +173,8 @@ export default function ReservationPage() {
 
       <div className="details-layout">
         <Card title="بيانات الحجز">
-          <div className="details-grid" style={{ gap: 12 }}>
+          <div className="details-grid">
+
             <div className="form-field">
               <label>الوحدة</label>
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
@@ -253,6 +222,7 @@ export default function ReservationPage() {
               <label>ملاحظات</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
+
           </div>
         </Card>
 

@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
@@ -15,7 +14,7 @@ type Unit = {
   id: string;
   unit_code: string;
   project_id: string;
-  status: string; // active, reserved, sold
+  status: 'available' | 'reserved' | 'sold';
 };
 
 type Bank = {
@@ -31,6 +30,11 @@ type FollowUp = {
 
 type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
+type Employee = {
+  id: string;
+  role: 'admin' | 'sales';
+};
+
 /* =====================
    Page
 ===================== */
@@ -44,6 +48,7 @@ export default function ReservationPage() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
 
@@ -58,40 +63,67 @@ export default function ReservationPage() {
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  /* =====================
+     INIT
+  ====================== */
   useEffect(() => {
-    fetchData();
     fetchCurrentEmployee();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (employee) fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee]);
+
   /* =====================
      Current Employee
-  ===================== */
+  ====================== */
   async function fetchCurrentEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
 
     const { data } = await supabase
       .from('employees')
-      .select('id')
+      .select('id, role')
       .eq('email', user.email)
       .maybeSingle();
 
-    if (data?.id) setEmployeeId(data.id);
+    if (data) {
+      setEmployee(data);
+      setEmployeeId(data.id);
+    }
   }
 
   /* =====================
      Fetch Data
-  ===================== */
+  ====================== */
   async function fetchData() {
-    // كل الوحدات الخاصة بالمشروع واللي مش محجوزة أو مباعة
-    const { data: u } = await supabase
+    if (!employee) return;
+
+    let query = supabase
       .from('units')
       .select('id, unit_code, project_id, status')
       .eq('project_id', projectId)
       .not('status', 'in', `('reserved','sold')`)
       .order('unit_code');
 
+    // لو الموظف sales → وحداته فقط
+    if (employee.role === 'sales') {
+      const { data: empProjects } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', employee.id);
+
+      const allowedProjectIds = (empProjects || []).map(p => p.project_id);
+      if (allowedProjectIds.length > 0) {
+        query = query.in('project_id', allowedProjectIds);
+      } else {
+        query = query.in('project_id', ['']); // مش هتشوف أي وحدات
+      }
+    }
+
+    const { data: u } = await query;
     setUnits(u || []);
 
     // البنوك
@@ -99,7 +131,6 @@ export default function ReservationPage() {
       .from('banks')
       .select('id, name')
       .order('name');
-
     setBanks(b || []);
 
     // آخر متابعة للعميل
@@ -110,13 +141,12 @@ export default function ReservationPage() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-
     setLastFollowUp(follow || null);
   }
 
   /* =====================
-     Submit
-  ===================== */
+     Submit Reservation
+  ====================== */
   async function submit() {
     if (!unitId || !reservationDate) {
       alert('من فضلك اختر الوحدة وتاريخ الحجز');
@@ -165,10 +195,10 @@ export default function ReservationPage() {
 
   /* =====================
      UI
-  ===================== */
+  ====================== */
   return (
     <div className="page">
-
+      {/* ===== TABS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
@@ -176,10 +206,9 @@ export default function ReservationPage() {
       </div>
 
       <div className="details-layout">
-
         <Card title="بيانات الحجز">
           <div className="details-grid" style={{ gap: 12 }}>
-
+            {/* الوحدة */}
             <div className="form-field">
               <label>الوحدة</label>
               <select value={unitId} onChange={e => setUnitId(e.target.value)}>
@@ -190,11 +219,13 @@ export default function ReservationPage() {
               </select>
             </div>
 
+            {/* التاريخ */}
             <div className="form-field">
               <label>تاريخ الحجز</label>
               <input type="date" value={reservationDate} onChange={e => setReservationDate(e.target.value)} />
             </div>
 
+            {/* البنك */}
             <div className="form-field">
               <label>اسم البنك</label>
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
@@ -227,10 +258,10 @@ export default function ReservationPage() {
               <label>ملاحظات</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} />
             </div>
-
           </div>
         </Card>
 
+        {/* آخر متابعة */}
         <Card title="آخر متابعة تلقائية">
           {lastFollowUp ? (
             <div className="detail-row">
@@ -241,9 +272,9 @@ export default function ReservationPage() {
             <div>لا توجد متابعات سابقة</div>
           )}
         </Card>
-
       </div>
 
+      {/* أزرار حفظ وعرض */}
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         {!reservationId && (
           <Button variant="primary" onClick={submit} disabled={saving}>
@@ -251,12 +282,11 @@ export default function ReservationPage() {
           </Button>
         )}
         {reservationId && (
-          <Button onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}>
+          <Button onClick={() => router.push(`/dashboard/clients/${clientId}/reservations/${reservationId}`)}>
             عرض الحجز
           </Button>
         )}
       </div>
-
     </div>
   );
 }

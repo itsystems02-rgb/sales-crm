@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient'; // ✅ هنا
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import RequireAuth from '@/components/auth/RequireAuth';
@@ -10,6 +10,10 @@ import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
+
+/* =====================
+   Types
+===================== */
 
 type Project = {
   id: string;
@@ -23,18 +27,27 @@ type Employee = {
   role: 'admin' | 'sales';
 };
 
+/* =====================
+   Page
+===================== */
+
 export default function ProjectsPage() {
   const router = useRouter();
+
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form admin
+  // form (admin فقط)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [location, setLocation] = useState('');
+
+  /* =====================
+     INIT
+  ===================== */
 
   useEffect(() => {
     init();
@@ -42,12 +55,16 @@ export default function ProjectsPage() {
 
   async function init() {
     const emp = await getCurrentEmployee();
-    if (!emp) return; // RequireAuth يعمل redirect تلقائي
+    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
 
     setEmployee(emp);
     await loadProjects(emp);
     setLoading(false);
   }
+
+  /* =====================
+     LOAD PROJECTS
+  ===================== */
 
   async function loadProjects(emp: Employee) {
     if (emp.role === 'admin') {
@@ -60,20 +77,28 @@ export default function ProjectsPage() {
       return;
     }
 
-    // sales → المشاريع المربوطة بيه بس
     const { data } = await supabase
-      .from('projects')
-      .select('*')
-      .in(
-        'id',
-        supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id)
-      );
+      .from('employee_projects')
+      .select(`
+        project:projects (
+          id,
+          name,
+          code,
+          location
+        )
+      `)
+      .eq('employee_id', emp.id);
 
-    setProjects(data || []);
+    const allowed = (data || [])
+      .map((r: any) => r.project)
+      .filter(Boolean);
+
+    setProjects(allowed);
   }
+
+  /* =====================
+     FORM (admin فقط)
+  ===================== */
 
   function resetForm() {
     setEditingId(null);
@@ -123,6 +148,8 @@ export default function ProjectsPage() {
   async function deleteProject(id: string) {
     if (employee?.role !== 'admin') return;
 
+    if (!confirm('هل أنت متأكد من حذف المشروع؟')) return;
+
     const { count } = await supabase
       .from('units')
       .select('id', { count: 'exact', head: true })
@@ -140,9 +167,14 @@ export default function ProjectsPage() {
     if (employee) loadProjects(employee);
   }
 
+  /* =====================
+     UI
+  ===================== */
+
   return (
     <RequireAuth>
       <div className="page">
+
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
             <div className="form-row">
@@ -166,7 +198,9 @@ export default function ProjectsPage() {
                 {editingId ? 'تعديل' : 'حفظ'}
               </Button>
 
-              {editingId && <Button onClick={resetForm}>إلغاء</Button>}
+              {editingId && (
+                <Button onClick={resetForm}>إلغاء</Button>
+              )}
             </div>
           </Card>
         )}
@@ -195,7 +229,9 @@ export default function ProjectsPage() {
                     <div className="actions">
                       {employee?.role === 'admin' ? (
                         <>
-                          <Button onClick={() => startEdit(p)}>تعديل</Button>
+                          <Button onClick={() => startEdit(p)}>
+                            تعديل
+                          </Button>
 
                           <Button
                             onClick={() =>

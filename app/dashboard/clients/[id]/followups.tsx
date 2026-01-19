@@ -6,10 +6,6 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
 
-/* =====================
-   Types
-===================== */
-
 type FollowUp = {
   id: string;
   type: 'call' | 'whatsapp' | 'visit';
@@ -19,10 +15,6 @@ type FollowUp = {
   created_at: string;
   employee: { name: string } | null;
 };
-
-/* =====================
-   Constants
-===================== */
 
 const TYPES = [
   { value: 'call', label: 'مكالمة' },
@@ -41,10 +33,6 @@ const DETAILS_OPTIONS = [
   'العميل غير متواجد',
 ];
 
-/* =====================
-   Component
-===================== */
-
 export default function FollowUps({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<FollowUp[]>([]);
   const [type, setType] = useState<'call' | 'whatsapp' | 'visit'>('call');
@@ -55,28 +43,12 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /* =====================
-     LOAD
-  ===================== */
-
-  useEffect(() => {
-    fetchFollowUps();
-  }, [clientId]);
-
-  useEffect(() => {
-    getEmployee();
-  }, []);
+  useEffect(() => { fetchFollowUps(); getEmployee(); }, [clientId]);
 
   async function getEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
-
-    const { data } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('email', user.email)
-      .maybeSingle();
-
+    const { data } = await supabase.from('employees').select('id').eq('email', user.email).maybeSingle();
     if (data) setEmployeeId(data.id);
   }
 
@@ -90,49 +62,22 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         next_follow_up_date,
         visit_location,
         created_at,
-        employee:employees!client_followups_employee_id_fkey (
-          name
-        )
+        employee:employees!client_followups_employee_id_fkey (name)
       `)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error(error);
-      setItems([]);
-      return;
-    }
-
-    // 🔥 تحويل صحيح بدون Arrays
-    const normalized: FollowUp[] = (data ?? []).map((f: any) => ({
-      ...f,
-      employee: f.employee ?? null,
-    }));
-
+    if (error) { console.error(error); setItems([]); return; }
+    const normalized: FollowUp[] = (data ?? []).map((f: any) => ({ ...f, employee: f.employee ?? null }));
     setItems(normalized);
   }
 
-  /* =====================
-     ADD
-  ===================== */
-
   async function addFollowUp() {
-    if (!employeeId) {
-      alert('لم يتم تحديد الموظف');
-      return;
-    }
-
-    if (type === 'visit' && !visitLocation) {
-      alert('من فضلك أدخل مكان الزيارة');
-      return;
-    }
+    if (!employeeId) { alert('لم يتم تحديد الموظف'); return; }
+    if (type === 'visit' && !visitLocation) { alert('من فضلك أدخل مكان الزيارة'); return; }
 
     setLoading(true);
-
-    const finalNotes =
-      details && notes
-        ? `${details} - ${notes}`
-        : details || notes || null;
+    const finalNotes = details && notes ? `${details} - ${notes}` : details || notes || null;
 
     const { error } = await supabase.from('client_followups').insert({
       client_id: clientId,
@@ -143,84 +88,65 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       visit_location: type === 'visit' ? visitLocation : null,
     });
 
-    if (error) {
-      alert(error.message);
-      setLoading(false);
-      return;
-    }
+    if (error) { alert(error.message); setLoading(false); return; }
 
-    // تحديث حالة العميل
     const status = type === 'visit' ? 'visited' : 'interested';
     await supabase.from('clients').update({ status }).eq('id', clientId);
 
-    setDetails('');
-    setNotes('');
-    setNextDate('');
-    setVisitLocation('');
-    setType('call');
-    setLoading(false);
-
+    setDetails(''); setNotes(''); setNextDate(''); setVisitLocation(''); setType('call'); setLoading(false);
     fetchFollowUps();
   }
 
-  function typeLabel(t: string) {
-    return TYPES.find(x => x.value === t)?.label || t;
-  }
-
-  /* =====================
-     UI
-  ===================== */
+  function typeLabel(t: string) { return TYPES.find(x => x.value === t)?.label || t; }
 
   return (
     <>
       <Card title="إضافة متابعة">
-        <div className="form-col">
-          <select value={type} onChange={(e) => setType(e.target.value as any)}>
-            {TYPES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
-          </select>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          <div>
+            <label>نوع المتابعة</label>
+            <select value={type} onChange={(e) => setType(e.target.value as any)} style={{ width: '100%' }}>
+              {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
 
-          <select value={details} onChange={(e) => setDetails(e.target.value)}>
-            <option value="">تفاصيل المتابعة</option>
-            {DETAILS_OPTIONS.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+          <div>
+            <label>تفاصيل المتابعة</label>
+            <select value={details} onChange={(e) => setDetails(e.target.value)} style={{ width: '100%' }}>
+              <option value="">اختر التفاصيل</option>
+              {DETAILS_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
 
           {type === 'visit' && (
-            <input
-              placeholder="مكان الزيارة"
-              value={visitLocation}
-              onChange={(e) => setVisitLocation(e.target.value)}
-            />
+            <div>
+              <label>مكان الزيارة</label>
+              <input placeholder="مكان الزيارة" value={visitLocation} onChange={(e) => setVisitLocation(e.target.value)} style={{ width: '100%' }} />
+            </div>
           )}
 
-          <textarea
-            placeholder="ملاحظات إضافية"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            style={{ minHeight: 90 }}
-          />
+          <div style={{ gridColumn: 'span 2' }}>
+            <label>ملاحظات إضافية</label>
+            <textarea placeholder="ملاحظات إضافية" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ width: '100%', minHeight: 90 }} />
+          </div>
 
-          <input
-            type="date"
-            value={nextDate}
-            onChange={(e) => setNextDate(e.target.value)}
-          />
+          <div>
+            <label>المتابعة القادمة</label>
+            <input type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} style={{ width: '100%' }} />
+          </div>
 
-          <Button onClick={addFollowUp} disabled={loading}>
-            حفظ
-          </Button>
+          <div>
+            <Button onClick={addFollowUp} disabled={loading} style={{ width: '100%' }}>
+              حفظ
+            </Button>
+          </div>
         </div>
       </Card>
 
       <Card title="سجل المتابعات">
         <Table headers={['النوع','التفاصيل','مكان الزيارة','المتابعة القادمة','الموظف','التاريخ']}>
           {items.length === 0 ? (
-            <tr>
-              <td colSpan={6} style={{ textAlign: 'center' }}>لا توجد متابعات</td>
-            </tr>
+            <tr><td colSpan={6} style={{ textAlign: 'center' }}>لا توجد متابعات</td></tr>
           ) : (
             items.map(f => (
               <tr key={f.id}>

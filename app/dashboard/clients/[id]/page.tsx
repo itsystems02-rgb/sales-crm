@@ -23,7 +23,7 @@ type Client = {
   job_sector_id: string | null;
   status: string;
   created_at: string;
-  saved_by: string | null; // employee_id
+  saved_by: string | null;
 };
 
 const RESIDENCY_LABELS: Record<string, string> = {
@@ -44,7 +44,7 @@ export default function ClientPage() {
   const [salaryBankName, setSalaryBankName] = useState<string | null>(null);
   const [financeBankName, setFinanceBankName] = useState<string | null>(null);
   const [jobSectorName, setJobSectorName] = useState<string | null>(null);
-  const [savedByName, setSavedByName] = useState<string | null>(null);
+  const [savedByName, setSavedByName] = useState<string>('-');
 
   const [reservationId, setReservationId] = useState<string | null>(null);
 
@@ -55,6 +55,7 @@ export default function ClientPage() {
   async function fetchAll() {
     setLoading(true);
 
+    // ====== Client ======
     const { data: c } = await supabase
       .from('clients')
       .select('*')
@@ -69,31 +70,49 @@ export default function ClientPage() {
 
     setClient(c);
 
-    // اسم البنك والقطاع
+    // ====== Salary Bank ======
     if (c.salary_bank_id) {
-      const { data } = await supabase.from('banks').select('name').eq('id', c.salary_bank_id).maybeSingle();
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', c.salary_bank_id)
+        .maybeSingle();
       setSalaryBankName(data?.name ?? null);
     }
 
+    // ====== Finance Bank ======
     if (c.finance_bank_id) {
-      const { data } = await supabase.from('banks').select('name').eq('id', c.finance_bank_id).maybeSingle();
+      const { data } = await supabase
+        .from('banks')
+        .select('name')
+        .eq('id', c.finance_bank_id)
+        .maybeSingle();
       setFinanceBankName(data?.name ?? null);
     }
 
+    // ====== Job Sector ======
     if (c.job_sector_id) {
-      const { data } = await supabase.from('job_sectors').select('name').eq('id', c.job_sector_id).maybeSingle();
+      const { data } = await supabase
+        .from('job_sectors')
+        .select('name')
+        .eq('id', c.job_sector_id)
+        .maybeSingle();
       setJobSectorName(data?.name ?? null);
     }
 
-    // 🔥 مسجل بواسطة
+    // ====== Saved by Employee ======
     if (c.saved_by) {
-      const { data } = await supabase.from('employees').select('name').eq('id', c.saved_by).maybeSingle();
+      const { data } = await supabase
+        .from('employees')
+        .select('name')
+        .eq('id', c.saved_by)
+        .maybeSingle();
       setSavedByName(data?.name ?? '-');
     } else {
       setSavedByName('-');
     }
 
-    // 🔥 آخر حجز
+    // ====== Last Reservation ======
     const { data: reservation } = await supabase
       .from('reservations')
       .select('id')
@@ -118,12 +137,13 @@ export default function ClientPage() {
     }
   }
 
-  const residencyArabic = client.residency_type ? RESIDENCY_LABELS[client.residency_type] ?? client.residency_type : '-';
+  const residencyArabic = client.residency_type
+    ? RESIDENCY_LABELS[client.residency_type] ?? client.residency_type
+    : '-';
 
   return (
     <div className="page">
-
-      {/* ================= TOP BUTTONS ================= */}
+      {/* ===== TOP BUTTONS ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Button variant={tab === 'details' ? 'primary' : undefined} onClick={() => setTab('details')}>البيانات</Button>
         <Button variant={tab === 'followups' ? 'primary' : undefined} onClick={() => setTab('followups')}>المتابعات</Button>
@@ -131,7 +151,7 @@ export default function ClientPage() {
         {reservationId && <Button onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}>عرض الحجز</Button>}
       </div>
 
-      {/* ================= DETAILS ================= */}
+      {/* ===== DETAILS ===== */}
       {tab === 'details' && (
         <div className="details-layout">
 
@@ -168,7 +188,6 @@ export default function ClientPage() {
       )}
 
       {tab === 'followups' && <FollowUps clientId={client.id} />}
-
     </div>
   );
 }
@@ -177,7 +196,7 @@ function Detail({ label, value, badge }: { label: string; value: string; badge?:
   return (
     <div className="detail-row" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <span className="label" style={{ fontWeight: 500 }}>{label}</span>
-      <span className={badge ? 'value badge' : 'value'}>{value}</span>
+      <span className={badge ? 'value badge' : 'value'}>{value || '-'}</span>
     </div>
   );
 }

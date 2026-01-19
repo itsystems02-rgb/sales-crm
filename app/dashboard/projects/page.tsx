@@ -56,11 +56,6 @@ export default function ProjectsPage() {
     try {
       console.log('=== INIT START ===');
 
-      // 🔥 Debug: Supabase session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log('Supabase session:', session, 'Session error:', sessionError);
-
-      // 🔥 Debug: current employee
       const emp = await getCurrentEmployee();
       console.log('Current employee (getCurrentEmployee):', emp);
 
@@ -71,9 +66,12 @@ export default function ProjectsPage() {
       }
 
       setEmployee(emp);
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('Supabase session:', session, 'Session error:', sessionError);
+
       await loadProjects(emp);
       setLoading(false);
-      console.log('=== INIT END ===');
     } catch (err) {
       console.error('Error in init():', err);
       setLoading(false);

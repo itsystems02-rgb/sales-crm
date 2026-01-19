@@ -55,28 +55,17 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /* =====================
-     LOAD
-  ===================== */
-
-  useEffect(() => {
-    fetchFollowUps();
-  }, [clientId]);
-
-  useEffect(() => {
-    getEmployee();
-  }, []);
+  useEffect(() => { fetchFollowUps(); }, [clientId]);
+  useEffect(() => { getEmployee(); }, []);
 
   async function getEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
-
     const { data } = await supabase
       .from('employees')
       .select('id')
       .eq('email', user.email)
       .maybeSingle();
-
     if (data) setEmployeeId(data.id);
   }
 
@@ -90,48 +79,23 @@ export default function FollowUps({ clientId }: { clientId: string }) {
         next_follow_up_date,
         visit_location,
         created_at,
-        employee:employees!client_followups_employee_id_fkey (
-          name
-        )
+        employee:employees!client_followups_employee_id_fkey (name)
       `)
       .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error(error);
-      setItems([]);
-      return;
-    }
-
-    const normalized: FollowUp[] = (data ?? []).map((f: any) => ({
-      ...f,
-      employee: f.employee ?? null,
-    }));
-
+    if (error) return setItems([]);
+    const normalized: FollowUp[] = (data ?? []).map((f: any) => ({ ...f, employee: f.employee ?? null }));
     setItems(normalized);
   }
 
-  /* =====================
-     ADD
-  ===================== */
-
   async function addFollowUp() {
-    if (!employeeId) {
-      alert('لم يتم تحديد الموظف');
-      return;
-    }
-
-    if (type === 'visit' && !visitLocation) {
-      alert('من فضلك أدخل مكان الزيارة');
-      return;
-    }
+    if (!employeeId) { alert('لم يتم تحديد الموظف'); return; }
+    if (type === 'visit' && !visitLocation) { alert('من فضلك أدخل مكان الزيارة'); return; }
 
     setLoading(true);
 
-    const finalNotes =
-      details && notes
-        ? `${details} - ${notes}`
-        : details || notes || null;
+    const finalNotes = details && notes ? `${details} - ${notes}` : details || notes || null;
 
     const { error } = await supabase.from('client_followups').insert({
       client_id: clientId,
@@ -142,28 +106,16 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       visit_location: type === 'visit' ? visitLocation : null,
     });
 
-    if (error) {
-      alert(error.message);
-      setLoading(false);
-      return;
-    }
+    if (error) { alert(error.message); setLoading(false); return; }
 
     const status = type === 'visit' ? 'visited' : 'interested';
     await supabase.from('clients').update({ status }).eq('id', clientId);
 
-    setDetails('');
-    setNotes('');
-    setNextDate('');
-    setVisitLocation('');
-    setType('call');
-    setLoading(false);
-
+    setDetails(''); setNotes(''); setNextDate(''); setVisitLocation(''); setType('call'); setLoading(false);
     fetchFollowUps();
   }
 
-  function typeLabel(t: string) {
-    return TYPES.find(x => x.value === t)?.label || t;
-  }
+  function typeLabel(t: string) { return TYPES.find(x => x.value === t)?.label || t; }
 
   /* =====================
      UI
@@ -172,18 +124,21 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   return (
     <>
       <Card title="إضافة متابعة">
-        <div className="form-col" style={{ gap: 8 }}>
-          <select value={type} onChange={(e) => setType(e.target.value as any)}>
-            {TYPES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
-            ))}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr 1fr',
+            gap: '10px',
+            marginBottom: '10px',
+          }}
+        >
+          <select value={type} onChange={(e) => setType(e.target.value as any)} style={{ width: '100%' }}>
+            {TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
 
-          <select value={details} onChange={(e) => setDetails(e.target.value)}>
+          <select value={details} onChange={(e) => setDetails(e.target.value)} style={{ width: '100%' }}>
             <option value="">تفاصيل المتابعة</option>
-            {DETAILS_OPTIONS.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
+            {DETAILS_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
 
           {type === 'visit' && (
@@ -191,6 +146,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
               placeholder="مكان الزيارة"
               value={visitLocation}
               onChange={(e) => setVisitLocation(e.target.value)}
+              style={{ width: '100%' }}
             />
           )}
 
@@ -198,17 +154,18 @@ export default function FollowUps({ clientId }: { clientId: string }) {
             placeholder="ملاحظات إضافية"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            style={{ minHeight: 90 }}
+            style={{ minHeight: 90, gridColumn: '1 / span 3', width: '100%' }}
           />
 
           <input
             type="date"
             value={nextDate}
             onChange={(e) => setNextDate(e.target.value)}
+            style={{ gridColumn: '1 / span 3', width: '100%' }}
           />
 
-          <div style={{ width: '100%' }}>
-            <Button onClick={addFollowUp} disabled={loading} >
+          <div style={{ gridColumn: '1 / span 3', width: '100%' }}>
+            <Button onClick={addFollowUp} disabled={loading} style={{ width: '100%' }}>
               حفظ
             </Button>
           </div>

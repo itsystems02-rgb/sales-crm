@@ -23,7 +23,13 @@ type Client = {
   job_sector_id: string | null;
   status: string;
   created_at: string;
-  saved_by: string | null; // id الموظف
+  saved_by: string | null; // employee_id
+};
+
+const RESIDENCY_LABELS: Record<string, string> = {
+  residence: 'إقامة',
+  golden: 'إقامة ذهبية',
+  premium: 'إقامة مميزة',
 };
 
 export default function ClientPage() {
@@ -63,6 +69,7 @@ export default function ClientPage() {
 
     setClient(c);
 
+    // اسم البنك والقطاع
     if (c.salary_bank_id) {
       const { data } = await supabase.from('banks').select('name').eq('id', c.salary_bank_id).maybeSingle();
       setSalaryBankName(data?.name ?? null);
@@ -78,11 +85,15 @@ export default function ClientPage() {
       setJobSectorName(data?.name ?? null);
     }
 
+    // 🔥 مسجل بواسطة
     if (c.saved_by) {
       const { data } = await supabase.from('employees').select('name').eq('id', c.saved_by).maybeSingle();
-      setSavedByName(data?.name ?? null);
+      setSavedByName(data?.name ?? '-');
+    } else {
+      setSavedByName('-');
     }
 
+    // 🔥 آخر حجز
     const { data: reservation } = await supabase
       .from('reservations')
       .select('id')
@@ -92,7 +103,6 @@ export default function ClientPage() {
       .maybeSingle();
 
     setReservationId(reservation?.id ?? null);
-
     setLoading(false);
   }
 
@@ -108,9 +118,12 @@ export default function ClientPage() {
     }
   }
 
+  const residencyArabic = client.residency_type ? RESIDENCY_LABELS[client.residency_type] ?? client.residency_type : '-';
+
   return (
     <div className="page">
 
+      {/* ================= TOP BUTTONS ================= */}
       <div className="tabs" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Button variant={tab === 'details' ? 'primary' : undefined} onClick={() => setTab('details')}>البيانات</Button>
         <Button variant={tab === 'followups' ? 'primary' : undefined} onClick={() => setTab('followups')}>المتابعات</Button>
@@ -118,6 +131,7 @@ export default function ClientPage() {
         {reservationId && <Button onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}>عرض الحجز</Button>}
       </div>
 
+      {/* ================= DETAILS ================= */}
       {tab === 'details' && (
         <div className="details-layout">
 
@@ -128,7 +142,7 @@ export default function ClientPage() {
               <Detail label="الإيميل" value={client.email || '-'} />
               <Detail label="الحالة" value={translateStatus(client.status)} badge />
               <Detail label="تاريخ التسجيل" value={new Date(client.created_at).toLocaleDateString()} />
-              <Detail label="مسجل بواسطة" value={savedByName || '-'} />
+              <Detail label="مسجل بواسطة" value={savedByName} />
             </div>
           </Card>
 
@@ -138,7 +152,7 @@ export default function ClientPage() {
               <Detail label="الجنسية" value={client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'} />
               <Detail label="نوع الهوية" value={client.identity_type || '-'} />
               <Detail label="رقم الهوية" value={client.identity_no || '-'} />
-              <Detail label="نوع الإقامة" value={client.residency_type || '-'} />
+              <Detail label="نوع الإقامة" value={residencyArabic} />
             </div>
           </Card>
 

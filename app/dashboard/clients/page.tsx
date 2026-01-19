@@ -47,6 +47,15 @@ const RESIDENCY_TYPES = [
   { value: 'premium', label: 'إقامة مميزة' },
 ];
 
+function translateStatus(status: string) {
+  switch (status) {
+    case 'lead': return 'متابعة';
+    case 'reserved': return 'محجوز';
+    case 'visited': return 'تمت الزيارة';
+    default: return status;
+  }
+}
+
 /* =====================
    Page
 ===================== */
@@ -164,8 +173,8 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* فقط يمكن إضافة عملاء */}
-        {employee?.role === 'admin' || employee?.role === 'sales' ? (
+        {/* FORM */}
+        {(employee?.role === 'admin' || employee?.role === 'sales') && (
           <Card title="إضافة عميل">
             <div className="form-row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <Input placeholder="اسم العميل" value={name} onChange={(e) => setName(e.target.value)} />
@@ -204,7 +213,7 @@ export default function ClientsPage() {
               <Button onClick={handleSubmit}>حفظ</Button>
             </div>
           </Card>
-        ) : null}
+        )}
 
         {/* جدول العملاء */}
         <Card title="قائمة العملاء">
@@ -215,15 +224,17 @@ export default function ClientsPage() {
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                <td>{c.status}</td>
+                <td>{translateStatus(c.status)}</td>
                 <td>
-                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                  {employee?.role === 'admin' && (
-                    <>
-                      <Button onClick={() => alert('Admin: تعديل العميل')}>تعديل</Button>
-                      <Button onClick={() => alert('Admin: حذف العميل')} variant="danger">حذف</Button>
-                    </>
-                  )}
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                    {employee?.role === 'admin' && (
+                      <>
+                        <Button onClick={() => alert('Admin: تعديل العميل')}>تعديل</Button>
+                        <Button onClick={() => alert('Admin: حذف العميل')} variant="danger">حذف</Button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
-import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
-
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -33,6 +31,7 @@ type Employee = {
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const supabase = createClientComponentClient();
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -54,11 +53,22 @@ export default function ProjectsPage() {
   }, []);
 
   async function init() {
-    const emp = await getCurrentEmployee();
-    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
 
-    setEmployee(emp);
-    await loadProjects(emp);
+    if (!user) return; // RequireAuth هيعمل redirect تلقائي
+
+    // جلب employee info من جدول employees
+    const { data: empData, error } = await supabase
+      .from('employees')
+      .select('id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (error || !empData) return;
+
+    setEmployee(empData);
+    await loadProjects(empData);
     setLoading(false);
   }
 
@@ -67,35 +77,35 @@ export default function ProjectsPage() {
   ===================== */
 
   async function loadProjects(emp: Employee) {
-    // 👑 admin → كل المشاريع
+    setLoading(true);
+
     if (emp.role === 'admin') {
+      // admin → كل المشاريع
       const { data } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: false });
 
       setProjects(data || []);
-      return;
+    } else {
+      // sales → المشاريع المربوط بيها فقط
+      const { data } = await supabase
+        .from('employee_projects')
+        .select(`
+          project:projects (
+            id,
+            name,
+            code,
+            location
+          )
+        `)
+        .eq('employee_id', emp.id);
+
+      const allowed = (data || []).map((r: any) => r.project).filter(Boolean);
+      setProjects(allowed);
     }
 
-    // 🧑‍💻 sales → المشاريع المربوط بيها فقط
-    const { data } = await supabase
-      .from('employee_projects')
-      .select(`
-        project:projects (
-          id,
-          name,
-          code,
-          location
-        )
-      `)
-      .eq('employee_id', emp.id);
-
-    const allowed = (data || [])
-      .map((r: any) => r.project)
-      .filter(Boolean);
-
-    setProjects(allowed);
+    setLoading(false);
   }
 
   /* =====================

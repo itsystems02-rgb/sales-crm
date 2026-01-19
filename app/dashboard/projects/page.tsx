@@ -11,6 +11,10 @@ import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
 
+/* =====================
+   Types
+===================== */
+
 type Project = {
   id: string;
   name: string;
@@ -23,73 +27,106 @@ type Employee = {
   role: 'admin' | 'sales';
 };
 
+/* =====================
+   Page
+===================== */
+
 export default function ProjectsPage() {
   const router = useRouter();
-
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // form (admin فقط)
+  // form admin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [location, setLocation] = useState('');
+
+  /* =====================
+     INIT
+  ===================== */
 
   useEffect(() => {
     init();
   }, []);
 
   async function init() {
-    const emp = await getCurrentEmployee();
-    console.log('Current employee:', emp);
+    try {
+      // 🔥 Debug: current employee
+      const emp = await getCurrentEmployee();
+      console.log('Current employee:', emp);
 
-    if (!emp) return; // RequireAuth يعمل redirect تلقائي
+      if (!emp) {
+        console.warn('No employee found. Redirect should happen via RequireAuth');
+        setLoading(false);
+        return;
+      }
 
-    setEmployee(emp);
-    await loadProjects(emp);
-    setLoading(false);
+      setEmployee(emp);
+
+      // 🔥 Debug: Supabase session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('Supabase session:', session, 'Session error:', sessionError);
+
+      await loadProjects(emp);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error in init():', err);
+      setLoading(false);
+    }
   }
+
+  /* =====================
+     LOAD PROJECTS
+  ===================== */
 
   async function loadProjects(emp: Employee) {
-    console.log('Loading projects for employee:', emp);
+    try {
+      console.log('Loading projects for employee:', emp);
 
-    if (emp.role === 'admin') {
+      if (emp.role === 'admin') {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        console.log('Admin projects data:', data, 'error:', error);
+        setProjects(data || []);
+        return;
+      }
+
+      // sales → المشاريع المربوطة بيه فقط
       const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from('employee_projects')
+        .select(`
+          project:projects (
+            id,
+            name,
+            code,
+            location
+          )
+        `)
+        .eq('employee_id', emp.id);
 
-      console.log('Admin projects data:', data, 'error:', error);
+      console.log('Sales raw projects data:', data, 'error:', error);
 
-      setProjects(data || []);
-      return;
+      const allowed = (data || [])
+        .map((r: any) => r.project)
+        .filter(Boolean);
+
+      console.log('Sales allowed projects after map/filter:', allowed);
+
+      setProjects(allowed);
+    } catch (err) {
+      console.error('Error loading projects:', err);
     }
-
-    // sales → المشاريع المربوطة بيه فقط
-    const { data, error } = await supabase
-      .from('employee_projects')
-      .select(`
-        project:projects (
-          id,
-          name,
-          code,
-          location
-        )
-      `)
-      .eq('employee_id', emp.id);
-
-    console.log('Sales allowed projects raw data:', data, 'error:', error);
-
-    const allowed = (data || [])
-      .map((r: any) => r.project)
-      .filter(Boolean);
-
-    console.log('Sales allowed projects after map/filter:', allowed);
-
-    setProjects(allowed);
   }
+
+  /* =====================
+     FORM (admin فقط)
+  ===================== */
 
   function resetForm() {
     setEditingId(null);
@@ -106,29 +143,33 @@ export default function ProjectsPage() {
       return;
     }
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('projects')
-        .update({
+    try {
+      if (editingId) {
+        const { error } = await supabase
+          .from('projects')
+          .update({
+            name: name.trim(),
+            code: code.trim(),
+            location: location.trim() || null,
+          })
+          .eq('id', editingId);
+
+        console.log('Update project error:', error);
+      } else {
+        const { error } = await supabase.from('projects').insert({
           name: name.trim(),
           code: code.trim(),
           location: location.trim() || null,
-        })
-        .eq('id', editingId);
+        });
 
-      console.log('Update project error:', error);
-    } else {
-      const { error } = await supabase.from('projects').insert({
-        name: name.trim(),
-        code: code.trim(),
-        location: location.trim() || null,
-      });
+        console.log('Insert project error:', error);
+      }
 
-      console.log('Insert project error:', error);
+      resetForm();
+      if (employee) loadProjects(employee);
+    } catch (err) {
+      console.error('Error in handleSubmit():', err);
     }
-
-    resetForm();
-    if (employee) loadProjects(employee);
   }
 
   function startEdit(p: Project) {
@@ -143,23 +184,31 @@ export default function ProjectsPage() {
   async function deleteProject(id: string) {
     if (employee?.role !== 'admin') return;
 
-    const { count } = await supabase
-      .from('units')
-      .select('id', { count: 'exact', head: true })
-      .eq('project_id', id);
+    try {
+      const { count } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', id);
 
-    if ((count || 0) > 0) {
-      alert('لا يمكن حذف مشروع مرتبط بوحدات');
-      return;
+      if ((count || 0) > 0) {
+        alert('لا يمكن حذف مشروع مرتبط بوحدات');
+        return;
+      }
+
+      setDeletingId(id);
+      const { error } = await supabase.from('projects').delete().eq('id', id);
+      console.log('Delete project error:', error);
+      setDeletingId(null);
+
+      if (employee) loadProjects(employee);
+    } catch (err) {
+      console.error('Error in deleteProject():', err);
     }
-
-    setDeletingId(id);
-    const { error } = await supabase.from('projects').delete().eq('id', id);
-    console.log('Delete project error:', error);
-    setDeletingId(null);
-
-    if (employee) loadProjects(employee);
   }
+
+  /* =====================
+     UI
+  ===================== */
 
   return (
     <RequireAuth>

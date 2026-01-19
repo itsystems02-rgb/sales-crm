@@ -14,7 +14,6 @@ import Table from '@/components/ui/Table';
 /* =====================
    Types
 ===================== */
-
 type Project = {
   id: string;
   name: string;
@@ -30,7 +29,6 @@ type Employee = {
 /* =====================
    Page
 ===================== */
-
 export default function ProjectsPage() {
   const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
@@ -47,14 +45,16 @@ export default function ProjectsPage() {
   /* =====================
      INIT
   ===================== */
-
   useEffect(() => {
     init();
   }, []);
 
   async function init() {
     try {
-      // 🔥 Debug: current employee
+      // 🔥 Check session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('Supabase session:', session, 'Session error:', sessionError);
+
       const emp = await getCurrentEmployee();
       console.log('Current employee:', emp);
 
@@ -65,11 +65,6 @@ export default function ProjectsPage() {
       }
 
       setEmployee(emp);
-
-      // 🔥 Debug: Supabase session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log('Supabase session:', session, 'Session error:', sessionError);
-
       await loadProjects(emp);
       setLoading(false);
     } catch (err) {
@@ -81,7 +76,6 @@ export default function ProjectsPage() {
   /* =====================
      LOAD PROJECTS
   ===================== */
-
   async function loadProjects(emp: Employee) {
     try {
       console.log('Loading projects for employee:', emp);
@@ -127,7 +121,6 @@ export default function ProjectsPage() {
   /* =====================
      FORM (admin فقط)
   ===================== */
-
   function resetForm() {
     setEditingId(null);
     setName('');
@@ -174,7 +167,6 @@ export default function ProjectsPage() {
 
   function startEdit(p: Project) {
     if (employee?.role !== 'admin') return;
-
     setEditingId(p.id);
     setName(p.name);
     setCode(p.code);
@@ -209,33 +201,17 @@ export default function ProjectsPage() {
   /* =====================
      UI
   ===================== */
-
   return (
     <RequireAuth>
       <div className="page">
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل مشروع' : 'إضافة مشروع'}>
             <div className="form-row">
-              <Input
-                placeholder="اسم المشروع"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-              <Input
-                placeholder="كود المشروع"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-              <Input
-                placeholder="الموقع"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-              />
+              <Input placeholder="اسم المشروع" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input placeholder="كود المشروع" value={code} onChange={(e) => setCode(e.target.value)} />
+              <Input placeholder="الموقع" value={location} onChange={(e) => setLocation(e.target.value)} />
 
-              <Button onClick={handleSubmit}>
-                {editingId ? 'تعديل' : 'حفظ'}
-              </Button>
-
+              <Button onClick={handleSubmit}>{editingId ? 'تعديل' : 'حفظ'}</Button>
               {editingId && <Button onClick={resetForm}>إلغاء</Button>}
             </div>
           </Card>
@@ -245,15 +221,11 @@ export default function ProjectsPage() {
           <Table headers={['اسم المشروع', 'الكود', 'الموقع', 'إجراء']}>
             {loading ? (
               <tr>
-                <td colSpan={4} style={{ textAlign: 'center' }}>
-                  جاري التحميل...
-                </td>
+                <td colSpan={4} style={{ textAlign: 'center' }}>جاري التحميل...</td>
               </tr>
             ) : projects.length === 0 ? (
               <tr>
-                <td colSpan={4} style={{ textAlign: 'center' }}>
-                  لا توجد مشاريع
-                </td>
+                <td colSpan={4} style={{ textAlign: 'center' }}>لا توجد مشاريع</td>
               </tr>
             ) : (
               projects.map((p) => (
@@ -266,22 +238,8 @@ export default function ProjectsPage() {
                       {employee?.role === 'admin' ? (
                         <>
                           <Button onClick={() => startEdit(p)}>تعديل</Button>
-
-                          <Button
-                            onClick={() =>
-                              router.push(`/dashboard/projects/${p.id}/models`)
-                            }
-                          >
-                            النماذج
-                          </Button>
-
-                          <Button
-                            variant="danger"
-                            disabled={deletingId === p.id}
-                            onClick={() => deleteProject(p.id)}
-                          >
-                            حذف
-                          </Button>
+                          <Button onClick={() => router.push(`/dashboard/projects/${p.id}/models`)}>النماذج</Button>
+                          <Button variant="danger" disabled={deletingId === p.id} onClick={() => deleteProject(p.id)}>حذف</Button>
                         </>
                       ) : (
                         <span>-</span>

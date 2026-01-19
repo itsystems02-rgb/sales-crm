@@ -2,69 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient'; // ✅ هنا
-import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
-
-import RequireAuth from '@/components/auth/RequireAuth';
-import Card from '@/components/ui/Card';
-import Input from '@/components/ui/Input';
-import Button from '@/components/ui/Button';
-import Table from '@/components/ui/Table';
-
-/* =====================
-   Types
-===================== */
-
-type Project = {
-  id: string;
-  name: string;
-  code: string;
-  location: string | null;
-};
-
-type Employee = {
-  id: string;
-  role: 'admin' | 'sales';
-};
-
-/* =====================
-   Page
-===================== */
-
-export default function ProjectsPage() {
-  const router = useRouter();
-
-  const [employee, setEmployee] = useState<Employee | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // form (admin فقط)
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const [code, setCode] = useState('');
-  const [location, setLocation] = useState('');
-
-  /* =====================
-     INIT
-  ===================== */
-
-  useEffect(() => {
-    init();
-  }, []);
-
-  async function init() {
-    const emp = await getCurrentEmployee();
-    if (!emp) return; // RequireAuth سيعمل redirect تلقائي
-
-    setEmployee(emp);
-    await loadProjects(emp);
-    setLoading(false);
-  }
-'use client';
-
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 

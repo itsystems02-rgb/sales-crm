@@ -17,6 +17,7 @@ type Unit = {
   id: string;
   unit_code: string;
   project_id: string;
+  status: string; // ✅ إضافة حقل الحالة
 };
 
 type Bank = {
@@ -94,7 +95,7 @@ export default function ReservationPage() {
   }
 
   /* =====================
-     Fetch Data - مع تطبيق الـ Role
+     Fetch Data - مع تطبيق الـ Role والفلتر بالحالة
   ===================== */
   async function fetchData(emp: Employee) {
     try {
@@ -115,11 +116,11 @@ export default function ReservationPage() {
         .maybeSingle();
       setLastFollowUp(follow || null);
 
-      // تحميل الوحدات مع تطبيق الـ Role
+      // تحميل الوحدات مع تطبيق الـ Role والفلتر بالحالة
       let query = supabase
         .from('units')
-        .select('id, unit_code, project_id')
-        .neq('status', 'reserved'); // الوحدات المتاحة فقط
+        .select('id, unit_code, project_id, status')
+        .eq('status', 'available'); // ✅ فلتر إضافي: الوحدات المتاحة فقط
 
       // إذا كان sales: يرى فقط وحدات المشاريع المربوطة به
       if (emp.role === 'sales') {
@@ -148,7 +149,12 @@ export default function ReservationPage() {
         return;
       }
 
-      setUnits(unitsData || []);
+      // ✅ فلتر إضافي للتأكد (رغم أن Supabase فعل الفلتر)
+      const availableUnits = (unitsData || []).filter(unit => unit.status === 'available');
+      setUnits(availableUnits);
+      
+      console.log(`تم تحميل ${availableUnits.length} وحدة متاحة`, 
+        emp.role === 'sales' ? '(مشاريع الموظف فقط)' : '(كل المشاريع)');
     } catch (err) {
       console.error('Error in fetchData():', err);
       setUnits([]);
@@ -167,6 +173,19 @@ export default function ReservationPage() {
 
     if (!employee?.id) {
       alert('لم يتم تحديد الموظف الحالي');
+      return;
+    }
+
+    // ✅ تحقق إضافي: التأكد أن الوحدة مازالت متاحة قبل الحجز
+    const selectedUnit = units.find(u => u.id === unitId);
+    if (!selectedUnit) {
+      alert('الوحدة غير موجودة أو غير متاحة');
+      return;
+    }
+
+    if (selectedUnit.status !== 'available') {
+      alert('عذراً، هذه الوحدة لم تعد متاحة للحجز');
+      await fetchData(employee); // تحديث القائمة
       return;
     }
 
@@ -202,6 +221,10 @@ export default function ReservationPage() {
     await supabase.from('units').update({ status: 'reserved' }).eq('id', unitId);
 
     setReservationId(data.id);
+    
+    // ✅ تحديث قائمة الوحدات بعد الحجز
+    await fetchData(employee);
+    setUnitId(''); // إعادة تعيين اختيار الوحدة
     setSaving(false);
   }
 
@@ -237,6 +260,7 @@ export default function ReservationPage() {
           <small>
             <strong>الصلاحية:</strong> {employee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'} | 
             <strong> عدد الوحدات المتاحة:</strong> {units.length} وحدة
+            {employee.role === 'sales' && ' (في مشاريعك فقط)'}
           </small>
         </div>
       )}
@@ -246,7 +270,7 @@ export default function ReservationPage() {
           <div className="details-grid">
 
             <div className="form-field">
-              <label>الوحدة {employee?.role === 'sales' && '(مشاريعك فقط)'}</label>
+              <label>الوحدة المتاحة {employee?.role === 'sales' && '(مشاريعك فقط)'}</label>
               <select 
                 value={unitId} 
                 onChange={e => setUnitId(e.target.value)}
@@ -254,16 +278,25 @@ export default function ReservationPage() {
               >
                 <option value="">
                   {units.length === 0 
-                    ? (employee?.role === 'sales' ? 'لا توجد وحدات في مشاريعك' : 'لا توجد وحدات متاحة') 
-                    : 'اختر الوحدة'}
+                    ? (employee?.role === 'sales' 
+                      ? 'لا توجد وحدات متاحة في مشاريعك' 
+                      : 'لا توجد وحدات متاحة') 
+                    : 'اختر الوحدة المتاحة'}
                 </option>
                 {units.map(u => (
-                  <option key={u.id} value={u.id}>{u.unit_code}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.unit_code} {employee?.role === 'admin' ? `(مشروع: ${u.project_id.substring(0, 8)}...)` : ''}
+                  </option>
                 ))}
               </select>
               {employee?.role === 'sales' && units.length === 0 && (
                 <small style={{ color: '#666', marginTop: '5px' }}>
-                  يمكنك فقط رؤية وحدات المشاريع المرتبطة بك. إذا لم تكن هناك وحدات، راجع المشرف.
+                  يمكنك فقط رؤية الوحدات المتاحة في المشاريع المرتبطة بك. إذا لم تكن هناك وحدات، راجع المشرف.
+                </small>
+              )}
+              {units.length > 0 && (
+                <small style={{ color: '#34a853', marginTop: '5px', display: 'block' }}>
+                  ✅ {units.length} وحدة متاحة {employee?.role === 'sales' ? 'في مشاريعك' : 'في النظام'}
                 </small>
               )}
             </div>
@@ -330,17 +363,38 @@ export default function ReservationPage() {
           <Button 
             variant="primary" 
             onClick={submit} 
-            disabled={saving || units.length === 0}
+            disabled={saving || units.length === 0 || !unitId || !reservationDate}
           >
             {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
           </Button>
         )}
         {reservationId && (
-          <Button onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}>
-            عرض الحجز
-          </Button>
+          <>
+            <Button onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}>
+              عرض الحجز
+            </Button>
+            <Button variant="secondary" onClick={() => {
+              setReservationId(null);
+              resetForm();
+            }}>
+              حجز جديد
+            </Button>
+          </>
         )}
       </div>
     </div>
   );
+
+  /* =====================
+     Reset Form
+  ===================== */
+  function resetForm() {
+    setUnitId('');
+    setReservationDate('');
+    setBankName('');
+    setBankEmployeeName('');
+    setBankEmployeeMobile('');
+    setStatus('');
+    setNotes('');
+  }
 }

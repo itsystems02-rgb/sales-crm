@@ -894,13 +894,15 @@ export default function ReportsPage() {
             </div>
             
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <Button 
-                onClick={generateReport} 
-                disabled={generatingReport}
-                style={{ width: '100%' }}
-              >
-                {generatingReport ? 'جاري التوليد...' : 'توليد التقرير'}
-              </Button>
+              <div style={{ width: '100%' }}>
+                <Button 
+                  onClick={generateReport} 
+                  disabled={generatingReport}
+                  style={{ width: '100%' }}
+                >
+                  {generatingReport ? 'جاري التوليد...' : 'توليد التقرير'}
+                </Button>
+              </div>
             </div>
           </div>
         </Card>
@@ -1467,7 +1469,9 @@ export default function ReportsPage() {
           }}>
             <div style={{ fontSize: '18px', marginBottom: '10px' }}>لا توجد بيانات للتقرير</div>
             <div style={{ color: '#666', marginBottom: '20px' }}>انقر على زر توليد التقرير لعرض الإحصائيات</div>
-            <Button onClick={generateReport}>توليد التقرير الآن</Button>
+            <div style={{ width: '100%', maxWidth: '200px', margin: '0 auto' }}>
+              <Button onClick={generateReport}>توليد التقرير الآن</Button>
+            </div>
           </div>
         )}
 

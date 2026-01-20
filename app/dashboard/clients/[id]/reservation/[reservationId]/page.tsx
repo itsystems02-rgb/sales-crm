@@ -438,87 +438,86 @@ export default function ReservationViewPage() {
         {/* COLUMN 1 */}
         <div>
           {/* بيانات العميل */}
-          <Card 
-            title="👤 بيانات العميل" 
-            style={{ marginBottom: '20px' }}
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
-          >
-            <DetailGrid>
-              <DetailItem 
-                label="الاسم الكامل" 
-                value={client.name} 
-                icon="👤"
-              />
-              <DetailItem 
-                label="رقم الجوال" 
-                value={client.mobile} 
-                icon="📱"
-                copyable
-              />
-              <DetailItem 
-                label="البريد الإلكتروني" 
-                value={client.email || 'غير متوفر'} 
-                icon="✉️"
-              />
-              <DetailItem 
-                label="رقم الهوية/الإقامة" 
-                value={client.identity_no || 'غير متوفر'} 
-                icon="🆔"
-              />
-              <DetailItem 
-                label="حالة العميل" 
-                value={
-                  <StatusBadge status={getStatusColor(client.status)}>
-                    {client.status}
-                  </StatusBadge>
-                }
-              />
-            </DetailGrid>
-          </Card>
+          <div style={{ marginBottom: '20px' }}>
+            <Card 
+              title="👤 بيانات العميل"
+            >
+              <DetailGrid>
+                <DetailItem 
+                  label="الاسم الكامل" 
+                  value={client.name} 
+                  icon="👤"
+                />
+                <DetailItem 
+                  label="رقم الجوال" 
+                  value={client.mobile} 
+                  icon="📱"
+                  copyable
+                />
+                <DetailItem 
+                  label="البريد الإلكتروني" 
+                  value={client.email || 'غير متوفر'} 
+                  icon="✉️"
+                />
+                <DetailItem 
+                  label="رقم الهوية/الإقامة" 
+                  value={client.identity_no || 'غير متوفر'} 
+                  icon="🆔"
+                />
+                <DetailItem 
+                  label="حالة العميل" 
+                  value={
+                    <StatusBadge status={getStatusColor(client.status)}>
+                      {client.status}
+                    </StatusBadge>
+                  }
+                />
+              </DetailGrid>
+            </Card>
+          </div>
 
           {/* بيانات الوحدة */}
-          <Card 
-            title="🏠 بيانات الوحدة" 
-            style={{ marginBottom: '20px' }}
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
-          >
-            <DetailGrid>
-              <DetailItem 
-                label="كود الوحدة" 
-                value={unit?.unit_code || 'غير محدد'} 
-                icon="#️⃣"
-              />
-              <DetailItem 
-                label="رقم البلوك" 
-                value={unit?.block_no || 'غير محدد'} 
-                icon="🏗️"
-              />
-              <DetailItem 
-                label="نوع الوحدة" 
-                value={unit?.unit_type || 'غير محدد'} 
-                icon="🏠"
-              />
-              <DetailItem 
-                label="السعر المدعوم" 
-                value={
-                  unit?.supported_price 
-                    ? `${unit.supported_price.toLocaleString()} ريال` 
-                    : 'غير محدد'
-                } 
-                icon="💰"
-              />
-              <DetailItem 
-                label="المشروع" 
-                value={projectName || 'غير محدد'} 
-                icon="🏢"
-              />
-            </DetailGrid>
-          </Card>
+          <div style={{ marginBottom: '20px' }}>
+            <Card 
+              title="🏠 بيانات الوحدة"
+            >
+              <DetailGrid>
+                <DetailItem 
+                  label="كود الوحدة" 
+                  value={unit?.unit_code || 'غير محدد'} 
+                  icon="#️⃣"
+                />
+                <DetailItem 
+                  label="رقم البلوك" 
+                  value={unit?.block_no || 'غير محدد'} 
+                  icon="🏗️"
+                />
+                <DetailItem 
+                  label="نوع الوحدة" 
+                  value={unit?.unit_type || 'غير محدد'} 
+                  icon="🏠"
+                />
+                <DetailItem 
+                  label="السعر المدعوم" 
+                  value={
+                    unit?.supported_price 
+                      ? `${unit.supported_price.toLocaleString()} ريال` 
+                      : 'غير محدد'
+                  } 
+                  icon="💰"
+                />
+                <DetailItem 
+                  label="المشروع" 
+                  value={projectName || 'غير محدد'} 
+                  icon="🏢"
+                />
+              </DetailGrid>
+            </Card>
+          </div>
 
           {/* بيانات البنك */}
           <Card 
-            title="🏦 بيانات البنك" 
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
+            title="🏦 بيانات البنك"
           >
             <DetailGrid>
               <DetailItem 
@@ -544,114 +543,113 @@ export default function ReservationViewPage() {
         {/* COLUMN 2 */}
         <div>
           {/* بيانات الحجز */}
-          <Card 
-            title="📅 بيانات الحجز" 
-            style={{ marginBottom: '20px' }}
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
-          >
-            <DetailGrid>
-              <DetailItem 
-                label="رقم الحجز" 
-                value={reservation.id.substring(0, 8).toUpperCase()} 
-                icon="#️⃣"
-              />
-              <DetailItem 
-                label="تاريخ الحجز" 
-                value={new Date(reservation.reservation_date).toLocaleDateString('ar-SA', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })} 
-                icon="📅"
-              />
-              <DetailItem 
-                label="حالة الحجز" 
-                value={
-                  <StatusBadge status={getStatusColor(reservation.status)}>
-                    {reservation.status}
-                  </StatusBadge>
-                }
-              />
-              <DetailItem 
-                label="تاريخ الإنشاء" 
-                value={new Date(reservation.created_at).toLocaleString('ar-SA')} 
-                icon="⏰"
-              />
-            </DetailGrid>
-          </Card>
+          <div style={{ marginBottom: '20px' }}>
+            <Card 
+              title="📅 بيانات الحجز"
+            >
+              <DetailGrid>
+                <DetailItem 
+                  label="رقم الحجز" 
+                  value={reservation.id.substring(0, 8).toUpperCase()} 
+                  icon="#️⃣"
+                />
+                <DetailItem 
+                  label="تاريخ الحجز" 
+                  value={new Date(reservation.reservation_date).toLocaleDateString('ar-SA', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })} 
+                  icon="📅"
+                />
+                <DetailItem 
+                  label="حالة الحجز" 
+                  value={
+                    <StatusBadge status={getStatusColor(reservation.status)}>
+                      {reservation.status}
+                    </StatusBadge>
+                  }
+                />
+                <DetailItem 
+                  label="تاريخ الإنشاء" 
+                  value={new Date(reservation.created_at).toLocaleString('ar-SA')} 
+                  icon="⏰"
+                />
+              </DetailGrid>
+            </Card>
+          </div>
 
           {/* بيانات الموظفين */}
-          <Card 
-            title="👥 بيانات الموظفين" 
-            style={{ marginBottom: '20px' }}
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
-          >
-            <DetailGrid>
-              <DetailItem 
-                label="الموظف القائم بالحجز" 
-                value={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>{salesEmployee?.name || 'غير محدد'}</span>
-                    {salesEmployee?.role && (
-                      <StatusBadge status="info">
-                        {salesEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
-                      </StatusBadge>
-                    )}
-                  </div>
-                } 
-                icon="👨‍💼"
-              />
-              <DetailItem 
-                label="موظف المتابعة" 
-                value={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>{followEmployee?.name || 'غير محدد'}</span>
-                    {followEmployee?.role && (
-                      <StatusBadge status="info">
-                        {followEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
-                      </StatusBadge>
-                    )}
-                  </div>
-                } 
-                icon="📋"
-              />
-              <DetailItem 
-                label="تاريخ آخر متابعة" 
-                value={
-                  reservation.last_follow_up_at
-                    ? new Date(reservation.last_follow_up_at).toLocaleString('ar-SA')
-                    : 'لا توجد متابعة'
-                } 
-                icon="🔄"
-              />
-            </DetailGrid>
-          </Card>
+          <div style={{ marginBottom: '20px' }}>
+            <Card 
+              title="👥 بيانات الموظفين"
+            >
+              <DetailGrid>
+                <DetailItem 
+                  label="الموظف القائم بالحجز" 
+                  value={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>{salesEmployee?.name || 'غير محدد'}</span>
+                      {salesEmployee?.role && (
+                        <StatusBadge status="info">
+                          {salesEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
+                        </StatusBadge>
+                      )}
+                    </div>
+                  } 
+                  icon="👨‍💼"
+                />
+                <DetailItem 
+                  label="موظف المتابعة" 
+                  value={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>{followEmployee?.name || 'غير محدد'}</span>
+                      {followEmployee?.role && (
+                        <StatusBadge status="info">
+                          {followEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
+                        </StatusBadge>
+                      )}
+                    </div>
+                  } 
+                  icon="📋"
+                />
+                <DetailItem 
+                  label="تاريخ آخر متابعة" 
+                  value={
+                    reservation.last_follow_up_at
+                      ? new Date(reservation.last_follow_up_at).toLocaleString('ar-SA')
+                      : 'لا توجد متابعة'
+                  } 
+                  icon="🔄"
+                />
+              </DetailGrid>
+            </Card>
+          </div>
 
           {/* الملاحظات */}
-          <Card 
-            title="📝 الملاحظات" 
-            style={{ marginBottom: '20px' }}
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
-          >
-            <div style={{
-              backgroundColor: '#f8f9fa',
-              padding: '20px',
-              borderRadius: '8px',
-              border: '1px solid #e9ecef',
-              minHeight: '120px',
-              whiteSpace: 'pre-wrap',
-              lineHeight: '1.6',
-              color: '#495057'
-            }}>
-              {reservation.notes || 'لا توجد ملاحظات لهذا الحجز.'}
-            </div>
-          </Card>
+          <div style={{ marginBottom: '20px' }}>
+            <Card 
+              title="📝 الملاحظات"
+            >
+              <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '20px',
+                borderRadius: '8px',
+                border: '1px solid #e9ecef',
+                minHeight: '120px',
+                whiteSpace: 'pre-wrap',
+                lineHeight: '1.6',
+                color: '#495057'
+              }}>
+                {reservation.notes || 'لا توجد ملاحظات لهذا الحجز.'}
+              </div>
+            </Card>
+          </div>
 
           {/* تفاصيل المتابعة */}
           <Card 
             title="📊 تفاصيل المتابعة"
-            headerStyle={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #eee' }}
           >
             <div style={{
               backgroundColor: '#f8f9fa',

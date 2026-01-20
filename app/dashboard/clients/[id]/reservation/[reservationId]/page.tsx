@@ -328,12 +328,13 @@ export default function ReservationViewPage() {
         }}>
           <h3 style={{ color: '#856404', marginBottom: '10px' }}>الحجز غير موجود</h3>
           <p style={{ color: '#666' }}>قد يكون الحجز قد تم حذفه أو لا يوجد لديك صلاحية للوصول إليه.</p>
-          <Button 
-            onClick={() => router.push(`/dashboard/clients/${clientId}`)}
-            style={{ marginTop: '15px' }}
-          >
-            العودة إلى صفحة العميل
-          </Button>
+          <div style={{ marginTop: '15px' }}>
+            <Button 
+              onClick={() => router.push(`/dashboard/clients/${clientId}`)}
+            >
+              العودة إلى صفحة العميل
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -402,28 +403,27 @@ export default function ReservationViewPage() {
             </select>
           )}
 
-          <Button 
-            variant="secondary" 
-            onClick={() => window.print()}
-            style={{ padding: '10px 20px' }}
-          >
-            🖨️ طباعة
-          </Button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <Button 
+              variant="secondary" 
+              onClick={() => window.print()}
+            >
+              🖨️ طباعة
+            </Button>
 
-          <Button 
-            onClick={() => router.push(`/dashboard/clients/${clientId}`)}
-            style={{ padding: '10px 20px' }}
-          >
-            ↩ العودة للعميل
-          </Button>
+            <Button 
+              onClick={() => router.push(`/dashboard/clients/${clientId}`)}
+            >
+              ↩ العودة للعميل
+            </Button>
 
-          <Button 
-            variant="danger" 
-            onClick={deleteReservation}
-            style={{ padding: '10px 20px' }}
-          >
-            🗑️ حذف الحجز
-          </Button>
+            <Button 
+              variant="danger" 
+              onClick={deleteReservation}
+            >
+              🗑️ حذف الحجز
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -681,7 +681,6 @@ export default function ReservationViewPage() {
         <Button 
           variant="primary"
           onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}/edit`)}
-          style={{ padding: '12px 30px', fontSize: '16px' }}
         >
           ✏️ تعديل الحجز
         </Button>
@@ -689,7 +688,6 @@ export default function ReservationViewPage() {
         <Button 
           variant="secondary"
           onClick={() => router.push(`/dashboard/clients/${clientId}`)}
-          style={{ padding: '12px 30px', fontSize: '16px' }}
         >
           👁️ عرض ملف العميل
         </Button>
@@ -697,7 +695,6 @@ export default function ReservationViewPage() {
         <Button 
           variant="success"
           onClick={() => router.push(`/dashboard/sales/create?reservationId=${reservationId}`)}
-          style={{ padding: '12px 30px', fontSize: '16px' }}
         >
           💰 تحويل إلى عملية بيع
         </Button>

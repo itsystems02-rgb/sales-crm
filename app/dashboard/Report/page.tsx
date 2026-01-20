@@ -63,7 +63,7 @@ type ReportStats = {
   
   // إحصائيات العملاء
   clientsStats: {
-    total: number;
+    totalClients: number;
     byStatus: {
       lead: number;
       reserved: number;
@@ -86,7 +86,7 @@ type ReportStats = {
   
   // إحصائيات الوحدات
   unitsStats: {
-    total: number;
+    totalUnits: number;
     byType: {
       villa: number;
       duplex: number;
@@ -110,7 +110,7 @@ type ReportStats = {
   
   // إحصائيات الحجوزات
   reservationsStats: {
-    total: number;
+    totalReservations: number;
     active: number;
     converted: number;
     cancelled: number;
@@ -123,7 +123,7 @@ type ReportStats = {
   
   // إحصائيات المتابعات
   followUpsStats: {
-    total: number;
+    totalFollowUps: number;
     byType: {
       call: number;
       whatsapp: number;
@@ -259,7 +259,7 @@ export default function ReportsPage() {
       const report: ReportStats = {
         totalProjects: projectsStats.totalProjects,
         totalUnits: unitsStats.totalUnits,
-        totalClients: clientsStats.total, // تم التصحيح هنا
+        totalClients: clientsStats.totalClients,
         totalEmployees: employeesStats.totalEmployees,
         
         totalSales: salesStats.totalSales,
@@ -366,14 +366,20 @@ export default function ReportsPage() {
       sold: units?.filter(u => u.status === 'sold').length || 0
     };
     
-    const { data: unitsByProjectData } = await supabase
+    // حساب توزيع الوحدات حسب المشروع
+    const { data: unitsData } = await supabase
       .from('units')
-      .select('project_id, projects!inner(name)')
-      .group('project_id, projects(name)');
+      .select('project_id, projects!inner(name)');
     
-    const unitsByProject = (unitsByProjectData || []).map((item: any) => ({
-      projectName: item.projects?.name || 'غير معروف',
-      count: 0
+    const projectCounts: Record<string, number> = {};
+    unitsData?.forEach(unit => {
+      const projectName = unit.projects?.name || 'غير معروف';
+      projectCounts[projectName] = (projectCounts[projectName] || 0) + 1;
+    });
+    
+    const unitsByProject = Object.entries(projectCounts).map(([projectName, count]) => ({
+      projectName,
+      count
     }));
     
     const prices = (unitsWithPrice || []).map(u => u.supported_price || 0).filter(p => p > 0);
@@ -421,7 +427,7 @@ export default function ReportsPage() {
     ].sort((a, b) => b.count - a.count);
     
     return {
-      total: clients?.length || 0,
+      totalClients: clients?.length || 0,
       byStatus,
       byNationality,
       byEligibility,
@@ -514,7 +520,7 @@ export default function ReportsPage() {
     });
     
     return {
-      total: reservations?.length || 0,
+      totalReservations: reservations?.length || 0,
       active: reservations?.filter(r => r.status === 'active').length || 0,
       converted: reservations?.filter(r => r.status === 'converted').length || 0,
       cancelled: reservations?.filter(r => r.status === 'cancelled').length || 0,
@@ -546,7 +552,7 @@ export default function ReportsPage() {
     })).sort((a, b) => b.count - a.count);
     
     return {
-      total: followUps?.length || 0,
+      totalFollowUps: followUps?.length || 0,
       byType,
       byEmployee,
       avgFollowUpsPerClient: Math.floor(Math.random() * 5) + 1,
@@ -997,9 +1003,431 @@ export default function ReportsPage() {
               </div>
             </Card>
 
-            {/* باقي الكود... */}
-            {/* لقد قمت بتصحيح الخطأ الرئيسي، يمكنك إضافة بقية الكود هنا */}
-            
+            {/* Employees Performance */}
+            <Card title="أداء الموظفين">
+              <div style={{ padding: '15px' }}>
+                <Table headers={['الموظف', 'الدور', 'العملاء', 'المتابعات', 'الحجوزات', 'المبيعات', 'قيمة المبيعات', 'معدل التحويل', 'متوسط الاستجابة']}>
+                  {reportData.employeesPerformance.map(emp => (
+                    <tr key={emp.employeeId}>
+                      <td style={{ fontWeight: 'bold' }}>{emp.employeeName}</td>
+                      <td>{emp.role}</td>
+                      <td>{emp.totalClients}</td>
+                      <td>{emp.totalFollowUps}</td>
+                      <td>{emp.totalReservations}</td>
+                      <td>
+                        <span style={{ 
+                          padding: '3px 8px', 
+                          borderRadius: '12px', 
+                          backgroundColor: emp.totalSales > 0 ? '#e6f4ea' : '#ffebee',
+                          color: emp.totalSales > 0 ? '#0d8a3e' : '#ea4335',
+                          fontSize: '12px'
+                        }}>
+                          {emp.totalSales}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 'bold', color: '#34a853' }}>
+                        {emp.salesAmount.toLocaleString()} ريال
+                      </td>
+                      <td>
+                        <span style={{ 
+                          padding: '3px 8px', 
+                          borderRadius: '12px', 
+                          backgroundColor: emp.conversionRate >= 20 ? '#e6f4ea' : emp.conversionRate >= 10 ? '#fff8e1' : '#ffebee',
+                          color: emp.conversionRate >= 20 ? '#0d8a3e' : emp.conversionRate >= 10 ? '#fbbc04' : '#ea4335',
+                          fontSize: '12px'
+                        }}>
+                          {emp.conversionRate}%
+                        </span>
+                      </td>
+                      <td>{emp.avgResponseTime} ساعة</td>
+                    </tr>
+                  ))}
+                </Table>
+              </div>
+            </Card>
+
+            {/* Two Columns Layout */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', 
+              gap: '20px',
+              marginBottom: '30px'
+            }}>
+              {/* Clients Statistics */}
+              <Card title="إحصائيات العملاء">
+                <div style={{ padding: '15px' }}>
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>التوزيع حسب الحالة</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {Object.entries(reportData.clientsStats.byStatus).map(([status, count]) => (
+                        <div key={status} style={{ display: 'flex', alignItems: 'center' }}>
+                          <div style={{ width: '100px', fontSize: '13px' }}>
+                            {status === 'lead' ? 'متابعة' : 
+                             status === 'reserved' ? 'محجوز' : 
+                             status === 'converted' ? 'تم البيع' : 'تمت الزيارة'}
+                          </div>
+                          <div style={{ flex: 1, marginLeft: '10px' }}>
+                            <div style={{ 
+                              height: '8px', 
+                              backgroundColor: '#eaeaea',
+                              borderRadius: '4px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${(count as number / reportData.clientsStats.totalClients) * 100}%`, 
+                                height: '100%',
+                                backgroundColor: 
+                                  status === 'lead' ? '#1a73e8' :
+                                  status === 'reserved' ? '#fbbc04' :
+                                  status === 'converted' ? '#34a853' : '#ea4335'
+                              }} />
+                            </div>
+                          </div>
+                          <div style={{ width: '40px', textAlign: 'left', fontWeight: 'bold' }}>{count as number}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1fr 1fr', 
+                    gap: '15px',
+                    marginTop: '20px'
+                  }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1a73e8' }}>
+                        {reportData.clientsStats.byNationality.saudi}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>سعوديون</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fbbc04' }}>
+                        {reportData.clientsStats.byNationality.non_saudi}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>غير سعوديين</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0d8a3e' }}>
+                        {reportData.clientsStats.byEligibility.eligible}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>مستحقين</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ea4335' }}>
+                        {reportData.clientsStats.byEligibility.notEligible}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>غير مستحقين</div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Units Statistics */}
+              <Card title="إحصائيات الوحدات">
+                <div style={{ padding: '15px' }}>
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>التوزيع حسب النوع</div>
+                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#0d8a3e' }}>
+                          {reportData.unitsStats.byType.villa}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>فيلا</div>
+                      </div>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbbc04' }}>
+                          {reportData.unitsStats.byType.duplex}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>دوبلكس</div>
+                      </div>
+                      <div style={{ textAlign: 'center', flex: 1 }}>
+                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1a73e8' }}>
+                          {reportData.unitsStats.byType.apartment}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666' }}>شقة</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>نطاق الأسعار</div>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(3, 1fr)', 
+                      gap: '10px',
+                      textAlign: 'center'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#ea4335' }}>
+                          {reportData.unitsStats.priceRange.min.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#666' }}>الحد الأدنى</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#fbbc04' }}>
+                          {reportData.unitsStats.priceRange.avg.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#666' }}>المتوسط</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#34a853' }}>
+                          {reportData.unitsStats.priceRange.max.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#666' }}>الحد الأقصى</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>الحالة الحالية</div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#e6f4ea', borderRadius: '6px' }}>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#0d8a3e' }}>
+                          {reportData.unitsStats.byStatus.available}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#0d8a3e' }}>متاحة</div>
+                      </div>
+                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#fff8e1', borderRadius: '6px' }}>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fbbc04' }}>
+                          {reportData.unitsStats.byStatus.reserved}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#fbbc04' }}>محجوزة</div>
+                      </div>
+                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#e8f5e9', borderRadius: '6px' }}>
+                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#34a853' }}>
+                          {reportData.unitsStats.byStatus.sold}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#34a853' }}>مباعة</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Sales Details */}
+            <Card title="تفاصيل المبيعات">
+              <div style={{ padding: '15px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                  gap: '20px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#34a853' }}>
+                      {reportData.totalSales}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#666' }}>عدد المبيعات</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1a73e8' }}>
+                      {reportData.avgSalePrice.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#666' }}>متوسط سعر البيع</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#fbbc04' }}>
+                      {reportData.minSalePrice.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#666' }}>أقل سعر بيع</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#ea4335' }}>
+                      {reportData.maxSalePrice.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#666' }}>أعلى سعر بيع</div>
+                  </div>
+                </div>
+                
+                <div style={{ 
+                  backgroundColor: '#f8f9fa', 
+                  padding: '15px', 
+                  borderRadius: '8px',
+                  marginTop: '20px'
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>ملخص الأداء المالي</div>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', 
+                    gap: '15px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات اليومية</div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                        {reportData.timeBasedStats.dailyAvgSales}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات الأسبوعية</div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                        {reportData.timeBasedStats.weeklyAvgSales}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات الشهرية</div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                        {reportData.timeBasedStats.monthlyAvgSales}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>معدل النمو</div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#34a853' }}>
+                        {reportData.kpis.salesGrowthRate}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Time Analysis */}
+            <Card title="التحليل الزمني">
+              <div style={{ padding: '15px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                  gap: '20px'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>أوقات الذروة</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {reportData.timeBasedStats.peakHours.map((hour, index) => (
+                        <div key={hour.hour} style={{ display: 'flex', alignItems: 'center' }}>
+                          <div style={{ width: '60px', fontSize: '13px' }}>
+                            {hour.hour}:00 - {hour.hour + 1}:00
+                          </div>
+                          <div style={{ flex: 1, marginLeft: '10px' }}>
+                            <div style={{ 
+                              height: '10px', 
+                              backgroundColor: '#eaeaea',
+                              borderRadius: '5px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${(hour.activity / 100) * 100}%`, 
+                                height: '100%',
+                                backgroundColor: index === 0 ? '#34a853' : 
+                                               index === 1 ? '#1a73e8' : 
+                                               index === 2 ? '#fbbc04' : '#ea4335'
+                              }} />
+                            </div>
+                          </div>
+                          <div style={{ width: '40px', textAlign: 'left', fontSize: '12px' }}>
+                            {hour.activity}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>أكثر الأيام نشاطاً</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {reportData.timeBasedStats.busiestDays.map((day, index) => (
+                        <div key={day.day} style={{ display: 'flex', alignItems: 'center' }}>
+                          <div style={{ width: '80px', fontSize: '13px' }}>{day.day}</div>
+                          <div style={{ flex: 1, marginLeft: '10px' }}>
+                            <div style={{ 
+                              height: '10px', 
+                              backgroundColor: '#eaeaea',
+                              borderRadius: '5px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${(day.activity / 100) * 100}%`, 
+                                height: '100%',
+                                backgroundColor: index === 0 ? '#34a853' : 
+                                               index === 1 ? '#1a73e8' : 
+                                               index === 2 ? '#fbbc04' : '#ea4335'
+                              }} />
+                            </div>
+                          </div>
+                          <div style={{ width: '40px', textAlign: 'left', fontSize: '12px' }}>
+                            {day.activity}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Summary */}
+            <Card title="ملخص التقرير">
+              <div style={{ padding: '20px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+                  gap: '15px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#e6f4ea', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#0d8a3e' }}>
+                      {reportData.reservationsStats.converted}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#0d8a3e' }}>حجز تحول لبيع</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#fff8e1', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbbc04' }}>
+                      {reportData.followUpsStats.successRate}%
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#fbbc04' }}>نسبة نجاح المتابعات</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#e8f0fe', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1a73e8' }}>
+                      {reportData.reservationsStats.avgReservationToSaleDays}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#1a73e8' }}>متوسط أيام التحويل</div>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#fce8e6', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#ea4335' }}>
+                      {reportData.followUpsStats.avgFollowUpsPerClient}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#ea4335' }}>متوسط المتابعات لكل عميل</div>
+                  </div>
+                </div>
+                
+                <div style={{ 
+                  backgroundColor: '#f8f9fa', 
+                  padding: '20px', 
+                  borderRadius: '8px',
+                  borderLeft: '4px solid #1a73e8'
+                }}>
+                  <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px' }}>توصيات وتحليلات</div>
+                  <ul style={{ margin: 0, paddingLeft: '20px', color: '#555' }}>
+                    <li style={{ marginBottom: '8px' }}>
+                      <strong>أداء المبيعات:</strong> معدل النمو الحالي {reportData.kpis.salesGrowthRate}% وهو {reportData.kpis.salesGrowthRate >= 20 ? 'ممتاز' : 'بحاجة للتحسين'}
+                    </li>
+                    <li style={{ marginBottom: '8px' }}>
+                      <strong>كفاءة الموظفين:</strong> متوسط إنتاجية الموظفين {reportData.kpis.employeeProductivity}% {reportData.kpis.employeeProductivity >= 80 ? '(ممتازة)' : '(تحتاج للتدريب)'}
+                    </li>
+                    <li style={{ marginBottom: '8px' }}>
+                      <strong>إدارة المخزون:</strong> معدل دوران الوحدات {reportData.kpis.inventoryTurnover} مرة سنوياً {reportData.kpis.inventoryTurnover >= 6 ? '(جيد)' : '(بحاجة لتحسين)'}
+                    </li>
+                    <li style={{ marginBottom: '8px' }}>
+                      <strong>اكتساب العملاء:</strong> تكلفة اكتساب العميل {reportData.kpis.clientAcquisitionCost} ريال {reportData.kpis.clientAcquisitionCost <= 3000 ? '(مناسبة)' : '(مرتفعة)'}
+                    </li>
+                  </ul>
+                </div>
+                
+                <div style={{ 
+                  marginTop: '20px', 
+                  padding: '15px', 
+                  backgroundColor: '#e6f4ea', 
+                  borderRadius: '8px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#666' }}>
+                    آخر تحديث: {new Date().toLocaleString('ar-SA')} | 
+                    الفترة: {dateRange.startDate} إلى {dateRange.endDate} | 
+                    تم توليد التقرير بواسطة: {employee?.name}
+                  </div>
+                </div>
+              </div>
+            </Card>
           </>
         )}
 

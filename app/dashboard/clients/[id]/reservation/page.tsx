@@ -15,6 +15,7 @@ import Input from '@/components/ui/Input';
 type Unit = {
   id: string;
   unit_code: string;
+  project_id: string;
 };
 
 type Bank = {
@@ -28,7 +29,11 @@ type FollowUp = {
   notes: string | null;
 };
 
-// ✅ النوع ده بس عشان TypeScript
+type Employee = {
+  id: string;
+  role: 'admin' | 'sales';
+};
+
 type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
 /* =====================
@@ -40,12 +45,13 @@ export default function ReservationPage() {
   const router = useRouter();
   const clientId = params.id as string;
 
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
-
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
@@ -53,7 +59,6 @@ export default function ReservationPage() {
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
   const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
-
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -61,45 +66,61 @@ export default function ReservationPage() {
      INIT
   ===================== */
   useEffect(() => {
-    fetchData();
-    fetchCurrentEmployee();
+    init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* =====================
-     Current Employee
-  ===================== */
-  async function fetchCurrentEmployee() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.email) return;
+  async function init() {
+    setLoading(true);
 
-    const { data } = await supabase
+    // 1️⃣ Get current employee
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) return setLoading(false);
+
+    const { data: emp } = await supabase
       .from('employees')
-      .select('id')
+      .select('id, role')
       .eq('email', user.email)
       .maybeSingle();
 
-    if (data?.id) setEmployeeId(data.id);
-  }
+    if (!emp?.id) return setLoading(false);
 
-  /* =====================
-     Fetch Data
-  ===================== */
-  async function fetchData() {
-    const { data: u } = await supabase
+    setEmployee(emp);
+    setEmployeeId(emp.id);
+
+    // 2️⃣ Get units
+    let unitQuery = supabase
       .from('units')
-      .select('id, unit_code')
-      .neq('status', 'reserved'); // الوحدات المتاحة فقط
+      .select('id, unit_code, project_id')
+      .neq('status', 'reserved')
+      .neq('status', 'sold')
+      .order('unit_code');
 
+    if (emp.role === 'sales') {
+      const { data: empProjects } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', emp.id);
+
+      const allowedIds = (empProjects || []).map(p => p.project_id);
+      if (allowedIds.length > 0) {
+        unitQuery = unitQuery.in('project_id', allowedIds);
+      } else {
+        unitQuery = unitQuery.in('project_id', ['']); // لو مفيش مشاريع متاحة → ما تظهرش أي وحدة
+      }
+    }
+
+    const { data: u } = await unitQuery;
     setUnits(u || []);
 
+    // 3️⃣ Get banks
     const { data: b } = await supabase
       .from('banks')
-      .select('id, name')
+      .select('id,name')
       .order('name');
-
     setBanks(b || []);
 
+    // 4️⃣ Get last follow-up
     const { data: follow } = await supabase
       .from('client_followups')
       .select('employee_id, created_at, notes')
@@ -109,6 +130,7 @@ export default function ReservationPage() {
       .maybeSingle();
 
     setLastFollowUp(follow || null);
+    setLoading(false);
   }
 
   /* =====================
@@ -162,6 +184,8 @@ export default function ReservationPage() {
   /* =====================
      UI
   ===================== */
+  if (loading) return <div className="page">جاري التحميل...</div>;
+
   return (
     <div className="page">
 
@@ -194,7 +218,9 @@ export default function ReservationPage() {
               <label>اسم البنك</label>
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
-                {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {banks.map(b => (
+                  <option key={b.id} value={b.name}>{b.name}</option>
+                ))}
               </select>
             </div>
 

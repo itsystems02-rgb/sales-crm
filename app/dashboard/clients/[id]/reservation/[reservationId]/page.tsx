@@ -95,6 +95,44 @@ function StatusBadge({
 }
 
 /* =====================
+   Custom Button Component (for success style)
+===================== */
+
+function SuccessButton({ 
+  children, 
+  onClick 
+}: { 
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        backgroundColor: '#28a745',
+        color: 'white',
+        border: 'none',
+        padding: '10px 20px',
+        borderRadius: '6px',
+        fontSize: '14px',
+        fontWeight: '500',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        minHeight: '40px'
+      }}
+      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
+      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* =====================
    Page
 ===================== */
 
@@ -690,16 +728,11 @@ export default function ReservationViewPage() {
           👁️ عرض ملف العميل
         </Button>
         
-        <Button 
+        <SuccessButton 
           onClick={() => router.push(`/dashboard/sales/create?reservationId=${reservationId}`)}
-          style={{
-            backgroundColor: '#28a745',
-            color: 'white',
-            border: 'none'
-          }}
         >
           💰 تحويل إلى عملية بيع
-        </Button>
+        </SuccessButton>
       </div>
 
       {/* ===== FOOTER INFO ===== */}

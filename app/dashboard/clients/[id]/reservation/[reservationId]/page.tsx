@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Badge from '@/components/ui/Badge'; // استيراد Badge من المكونات
 
 /* =====================
    Types
@@ -54,6 +53,46 @@ type Employee = {
   name: string;
   role: string;
 };
+
+/* =====================
+   Custom Badge Component
+===================== */
+
+function StatusBadge({ 
+  children, 
+  status = 'default' 
+}: { 
+  children: React.ReactNode;
+  status?: 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'default';
+}) {
+  const colors = {
+    success: { bg: '#d4edda', color: '#155724', border: '#c3e6cb' },
+    warning: { bg: '#fff3cd', color: '#856404', border: '#ffeaa7' },
+    danger: { bg: '#f8d7da', color: '#721c24', border: '#f5c6cb' },
+    info: { bg: '#d1ecf1', color: '#0c5460', border: '#bee5eb' },
+    primary: { bg: '#cce5ff', color: '#004085', border: '#b8daff' },
+    default: { bg: '#e2e3e5', color: '#383d41', border: '#d6d8db' }
+  };
+
+  const color = colors[status];
+
+  return (
+    <span
+      style={{
+        backgroundColor: color.bg,
+        color: color.color,
+        border: `1px solid ${color.border}`,
+        padding: '4px 10px',
+        borderRadius: '20px',
+        fontSize: '12px',
+        fontWeight: '600',
+        display: 'inline-block'
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 /* =====================
    Page
@@ -328,12 +367,9 @@ export default function ReservationViewPage() {
             gap: '10px',
             flexWrap: 'wrap'
           }}>
-            <Badge 
-              status={getStatusColor(reservation.status)}
-              style={{ fontSize: '14px', padding: '6px 12px' }}
-            >
+            <StatusBadge status={getStatusColor(reservation.status)}>
               {reservation.status || 'غير محدد'}
-            </Badge>
+            </StatusBadge>
             <span style={{ color: '#666', fontSize: '14px' }}>
               تاريخ الإنشاء: {new Date(reservation.created_at).toLocaleDateString('ar-SA')}
             </span>
@@ -432,9 +468,9 @@ export default function ReservationViewPage() {
               <DetailItem 
                 label="حالة العميل" 
                 value={
-                  <Badge status={getStatusColor(client.status)}>
+                  <StatusBadge status={getStatusColor(client.status)}>
                     {client.status}
-                  </Badge>
+                  </StatusBadge>
                 }
               />
             </DetailGrid>
@@ -532,9 +568,9 @@ export default function ReservationViewPage() {
               <DetailItem 
                 label="حالة الحجز" 
                 value={
-                  <Badge status={getStatusColor(reservation.status)}>
+                  <StatusBadge status={getStatusColor(reservation.status)}>
                     {reservation.status}
-                  </Badge>
+                  </StatusBadge>
                 }
               />
               <DetailItem 
@@ -558,9 +594,9 @@ export default function ReservationViewPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span>{salesEmployee?.name || 'غير محدد'}</span>
                     {salesEmployee?.role && (
-                      <Badge status="info" style={{ fontSize: '11px' }}>
+                      <StatusBadge status="info">
                         {salesEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
-                      </Badge>
+                      </StatusBadge>
                     )}
                   </div>
                 } 
@@ -572,9 +608,9 @@ export default function ReservationViewPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span>{followEmployee?.name || 'غير محدد'}</span>
                     {followEmployee?.role && (
-                      <Badge status="info" style={{ fontSize: '11px' }}>
+                      <StatusBadge status="info">
                         {followEmployee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
-                      </Badge>
+                      </StatusBadge>
                     )}
                   </div>
                 } 

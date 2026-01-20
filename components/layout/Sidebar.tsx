@@ -11,6 +11,7 @@ const LINKS = [
   { href: '/dashboard/clients/[id]/reservation', label: 'الحجوزات', icon: '📌' },
   { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
   { href: '/api/employees', label: 'الموظفين', icon: '🧑‍💼' },
+{ href: '/dashboard/Report', label: 'التقارير', icon: '' },
 ];
 
 export default function Sidebar() {

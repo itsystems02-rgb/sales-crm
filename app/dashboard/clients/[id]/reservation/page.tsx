@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -29,12 +30,13 @@ type FollowUp = {
   notes: string | null;
 };
 
+// ✅ النوع ده بس عشان TypeScript
+type ReservationStatus = 'active' | 'cancelled' | 'converted';
+
 type Employee = {
   id: string;
   role: 'admin' | 'sales';
 };
-
-type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
 /* =====================
    Page
@@ -45,12 +47,12 @@ export default function ReservationPage() {
   const router = useRouter();
   const clientId = params.id as string;
 
-  const [employee, setEmployee] = useState<Employee | null>(null);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
-
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
+
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
@@ -67,75 +69,91 @@ export default function ReservationPage() {
      INIT
   ===================== */
   useEffect(() => {
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user?.email) return;
-
-      const { data: emp } = await supabase
-        .from('employees')
-        .select('id, role')
-        .eq('email', user.email)
-        .maybeSingle();
-
-      if (!emp?.id) return;
-
-      setEmployee(emp);
-      setEmployeeId(emp.id);
-
-      await fetchData(emp);
-    }
-
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function init() {
+    try {
+      // 1. الحصول على بيانات الموظف الحالي
+      const emp = await getCurrentEmployee();
+      setEmployee(emp);
+      
+      if (!emp) {
+        setLoading(false);
+        return;
+      }
+
+      // 2. تحميل البيانات حسب صلاحية الموظف
+      await fetchData(emp);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error in init():', err);
+      setLoading(false);
+    }
+  }
+
   /* =====================
-     Fetch Data
+     Fetch Data - مع تطبيق الـ Role
   ===================== */
   async function fetchData(emp: Employee) {
-    // ====== وحدات ======
-    let unitQuery = supabase
-      .from('units')
-      .select('id, unit_code, project_id')
-      .neq('status', 'reserved')
-      .neq('status', 'sold')
-      .order('unit_code');
+    try {
+      // تحميل البنوك (نفسها للجميع)
+      const { data: b } = await supabase
+        .from('banks')
+        .select('id, name')
+        .order('name');
+      setBanks(b || []);
 
-    // لو sales → فلتر المشاريع المربوطة بيه فقط
-    if (emp.role === 'sales') {
-      const { data: empProjects } = await supabase
-        .from('employee_projects')
-        .select('project_id')
-        .eq('employee_id', emp.id);
+      // تحميل آخر متابعة (نفسها للجميع)
+      const { data: follow } = await supabase
+        .from('client_followups')
+        .select('employee_id, created_at, notes')
+        .eq('client_id', clientId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setLastFollowUp(follow || null);
 
-      const allowedProjectIds = (empProjects || []).map(p => p.project_id);
+      // تحميل الوحدات مع تطبيق الـ Role
+      let query = supabase
+        .from('units')
+        .select('id, unit_code, project_id')
+        .neq('status', 'reserved'); // الوحدات المتاحة فقط
 
-      if (allowedProjectIds.length > 0) {
-        unitQuery = unitQuery.in('project_id', allowedProjectIds);
-      } else {
-        unitQuery = unitQuery.in('project_id', ['']); // ما تظهرش وحدات
+      // إذا كان sales: يرى فقط وحدات المشاريع المربوطة به
+      if (emp.role === 'sales') {
+        // الحصول على المشاريع المسموح بها للموظف
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        // تطبيق التصفية إذا كان لديه مشاريع
+        if (allowedProjectIds.length > 0) {
+          query = query.in('project_id', allowedProjectIds);
+        } else {
+          // إذا لم يكن لديه أي مشاريع، لا يرى أي وحدات
+          query = query.eq('project_id', 'no-projects'); // فلتر يعيد صفر نتائج
+        }
       }
+
+      const { data: unitsData, error } = await query;
+      
+      if (error) {
+        console.error('Error loading units:', error);
+        setUnits([]);
+        return;
+      }
+
+      setUnits(unitsData || []);
+    } catch (err) {
+      console.error('Error in fetchData():', err);
+      setUnits([]);
+      setBanks([]);
     }
-
-    const { data: u } = await unitQuery;
-    setUnits(u || []);
-
-    // ====== بنوك ======
-    const { data: b } = await supabase
-      .from('banks')
-      .select('id, name')
-      .order('name');
-    setBanks(b || []);
-
-    // ====== آخر متابعة تلقائية ======
-    const { data: follow } = await supabase
-      .from('client_followups')
-      .select('employee_id, created_at, notes')
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    setLastFollowUp(follow || null);
   }
 
   /* =====================
@@ -146,7 +164,8 @@ export default function ReservationPage() {
       alert('من فضلك اختر الوحدة وتاريخ الحجز');
       return;
     }
-    if (!employeeId) {
+
+    if (!employee?.id) {
       alert('لم يتم تحديد الموظف الحالي');
       return;
     }
@@ -158,7 +177,7 @@ export default function ReservationPage() {
       .insert({
         client_id: clientId,
         unit_id: unitId,
-        employee_id: employeeId,
+        employee_id: employee.id,
         reservation_date: reservationDate,
         bank_name: bankName || null,
         bank_employee_name: bankEmployeeName || null,
@@ -178,15 +197,9 @@ export default function ReservationPage() {
       return;
     }
 
-    await supabase
-      .from('clients')
-      .update({ status: 'reserved' })
-      .eq('id', clientId);
-
-    await supabase
-      .from('units')
-      .update({ status: 'reserved' })
-      .eq('id', unitId);
+    // تحديث حالة العميل والوحدة
+    await supabase.from('clients').update({ status: 'reserved' }).eq('id', clientId);
+    await supabase.from('units').update({ status: 'reserved' }).eq('id', unitId);
 
     setReservationId(data.id);
     setSaving(false);
@@ -195,33 +208,73 @@ export default function ReservationPage() {
   /* =====================
      UI
   ===================== */
+  if (loading) {
+    return (
+      <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+        <div>جاري التحميل...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
 
-      {/* ===== Tabs ===== */}
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
         <Button variant="primary">حجز</Button>
       </div>
 
+      {/* معلومات الصلاحية للتصحيح */}
+      {employee && (
+        <div style={{ 
+          padding: '8px 12px', 
+          marginBottom: '10px', 
+          backgroundColor: employee.role === 'admin' ? '#e6f4ea' : '#fef7e6',
+          borderRadius: '4px',
+          borderLeft: `4px solid ${employee.role === 'admin' ? '#34a853' : '#fbbc04'}`
+        }}>
+          <small>
+            <strong>الصلاحية:</strong> {employee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'} | 
+            <strong> عدد الوحدات المتاحة:</strong> {units.length} وحدة
+          </small>
+        </div>
+      )}
+
       <div className="details-layout">
         <Card title="بيانات الحجز">
           <div className="details-grid">
 
             <div className="form-field">
-              <label>الوحدة</label>
-              <select value={unitId} onChange={e => setUnitId(e.target.value)}>
-                <option value="">اختر الوحدة</option>
+              <label>الوحدة {employee?.role === 'sales' && '(مشاريعك فقط)'}</label>
+              <select 
+                value={unitId} 
+                onChange={e => setUnitId(e.target.value)}
+                disabled={units.length === 0}
+              >
+                <option value="">
+                  {units.length === 0 
+                    ? (employee?.role === 'sales' ? 'لا توجد وحدات في مشاريعك' : 'لا توجد وحدات متاحة') 
+                    : 'اختر الوحدة'}
+                </option>
                 {units.map(u => (
                   <option key={u.id} value={u.id}>{u.unit_code}</option>
                 ))}
               </select>
+              {employee?.role === 'sales' && units.length === 0 && (
+                <small style={{ color: '#666', marginTop: '5px' }}>
+                  يمكنك فقط رؤية وحدات المشاريع المرتبطة بك. إذا لم تكن هناك وحدات، راجع المشرف.
+                </small>
+              )}
             </div>
 
             <div className="form-field">
               <label>تاريخ الحجز</label>
-              <Input type="date" value={reservationDate} onChange={e => setReservationDate(e.target.value)} />
+              <Input 
+                type="date" 
+                value={reservationDate} 
+                onChange={e => setReservationDate(e.target.value)} 
+              />
             </div>
 
             <div className="form-field">
@@ -274,7 +327,11 @@ export default function ReservationPage() {
 
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         {!reservationId && (
-          <Button variant="primary" onClick={submit} disabled={saving}>
+          <Button 
+            variant="primary" 
+            onClick={submit} 
+            disabled={saving || units.length === 0}
+          >
             {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
           </Button>
         )}

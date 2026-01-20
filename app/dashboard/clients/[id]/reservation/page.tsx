@@ -3,37 +3,24 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 
-/* =====================
-   Types
-===================== */
-
 type Unit = {
   id: string;
   unit_code: string;
+  project_id: string;
+  status: 'available' | 'reserved' | 'sold';
 };
 
-type Bank = {
-  id: string;
-  name: string;
-};
+type Bank = { id: string; name: string };
 
-type FollowUp = {
-  employee_id: string | null;
-  created_at: string | null;
-  notes: string | null;
-};
+type FollowUp = { employee_id: string | null; created_at: string | null; notes: string | null };
 
-// ✅ النوع ده بس عشان TypeScript
+type Employee = { id: string; role: 'admin' | 'sales' };
+
 type ReservationStatus = 'active' | 'cancelled' | 'converted';
-
-/* =====================
-   Page
-===================== */
 
 export default function ReservationPage() {
   const params = useParams();
@@ -43,9 +30,9 @@ export default function ReservationPage() {
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
-
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
@@ -53,53 +40,66 @@ export default function ReservationPage() {
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
   const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
-
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  /* =====================
-     INIT
-  ===================== */
   useEffect(() => {
-    fetchData();
     fetchCurrentEmployee();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* =====================
-     Current Employee
-  ===================== */
   async function fetchCurrentEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.email) return;
 
     const { data } = await supabase
       .from('employees')
-      .select('id')
+      .select('id, role')
       .eq('email', user.email)
       .maybeSingle();
 
-    if (data?.id) setEmployeeId(data.id);
+    if (data?.id) {
+      setEmployee(data);
+      setEmployeeId(data.id);
+      fetchUnits(data);
+    }
   }
 
-  /* =====================
-     Fetch Data
-  ===================== */
-  async function fetchData() {
-    const { data: u } = await supabase
-      .from('units')
-      .select('id, unit_code')
-      .neq('status', 'reserved'); // الوحدات المتاحة فقط
+  async function fetchUnits(emp: Employee) {
+    try {
+      let query = supabase
+        .from('units')
+        .select('id, unit_code, project_id, status')
+        .eq('status', 'available') // بس الوحدات المتاحة
+        .order('unit_code');
 
-    setUnits(u || []);
+      // لو الموظف Sales → فلترة حسب المشاريع المربوطة بيه
+      if (emp.role === 'sales') {
+        const { data: empProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
 
-    const { data: b } = await supabase
-      .from('banks')
-      .select('id, name')
-      .order('name');
+        const allowedIds = (empProjects || []).map(p => p.project_id);
+        if (allowedIds.length > 0) {
+          query = query.in('project_id', allowedIds);
+        } else {
+          query = query.in('project_id', ['']); // ما تظهرش أي وحدات لو مفيش مشاريع
+        }
+      }
 
+      const { data: u } = await query;
+      setUnits(u || []);
+    } catch (err) {
+      console.error('Error fetching units:', err);
+      setUnits([]);
+    }
+
+    // البنوك
+    const { data: b } = await supabase.from('banks').select('id,name').order('name');
     setBanks(b || []);
 
+    // آخر متابعة تلقائية
     const { data: follow } = await supabase
       .from('client_followups')
       .select('employee_id, created_at, notes')
@@ -111,19 +111,9 @@ export default function ReservationPage() {
     setLastFollowUp(follow || null);
   }
 
-  /* =====================
-     Submit Reservation
-  ===================== */
   async function submit() {
-    if (!unitId || !reservationDate) {
-      alert('من فضلك اختر الوحدة وتاريخ الحجز');
-      return;
-    }
-
-    if (!employeeId) {
-      alert('لم يتم تحديد الموظف الحالي');
-      return;
-    }
+    if (!unitId || !reservationDate) return alert('من فضلك اختر الوحدة وتاريخ الحجز');
+    if (!employeeId) return alert('لم يتم تحديد الموظف الحالي');
 
     setSaving(true);
 
@@ -159,12 +149,8 @@ export default function ReservationPage() {
     setSaving(false);
   }
 
-  /* =====================
-     UI
-  ===================== */
   return (
     <div className="page">
-
       <div className="tabs" style={{ display: 'flex', gap: 10 }}>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}`)}>البيانات</Button>
         <Button onClick={() => router.push(`/dashboard/clients/${clientId}?tab=followups`)}>المتابعات</Button>
@@ -173,7 +159,7 @@ export default function ReservationPage() {
 
       <div className="details-layout">
         <Card title="بيانات الحجز">
-          <div className="details-grid">
+          <div className="details-grid" style={{ gap: 12 }}>
 
             <div className="form-field">
               <label>الوحدة</label>

@@ -15,7 +15,6 @@ import Input from '@/components/ui/Input';
 type Unit = {
   id: string;
   unit_code: string;
-  project_id: string;
 };
 
 type Bank = {
@@ -29,11 +28,7 @@ type FollowUp = {
   notes: string | null;
 };
 
-type Employee = {
-  id: string;
-  role: 'admin' | 'sales';
-};
-
+// ✅ النوع ده بس عشان TypeScript
 type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
 /* =====================
@@ -45,13 +40,12 @@ export default function ReservationPage() {
   const router = useRouter();
   const clientId = params.id as string;
 
-  const [employee, setEmployee] = useState<Employee | null>(null);
   const [units, setUnits] = useState<Unit[]>([]);
   const [banks, setBanks] = useState<Bank[]>([]);
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
-  const [loading, setLoading] = useState(true);
 
   const [employeeId, setEmployeeId] = useState<string | null>(null);
+
   const [unitId, setUnitId] = useState('');
   const [reservationDate, setReservationDate] = useState('');
   const [bankName, setBankName] = useState('');
@@ -59,6 +53,7 @@ export default function ReservationPage() {
   const [bankEmployeeMobile, setBankEmployeeMobile] = useState('');
   const [status, setStatus] = useState<ReservationStatus | ''>('');
   const [notes, setNotes] = useState('');
+
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -66,71 +61,45 @@ export default function ReservationPage() {
      INIT
   ===================== */
   useEffect(() => {
-    init();
+    fetchData();
+    fetchCurrentEmployee();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function init() {
-    setLoading(true);
-
-    // 1️⃣ Current employee
+  /* =====================
+     Current Employee
+  ===================== */
+  async function fetchCurrentEmployee() {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.email) {
-      setLoading(false);
-      return;
-    }
+    if (!user?.email) return;
 
-    const { data: emp } = await supabase
+    const { data } = await supabase
       .from('employees')
-      .select('id, role')
+      .select('id')
       .eq('email', user.email)
       .maybeSingle();
 
-    if (!emp?.id) {
-      setLoading(false);
-      return;
-    }
+    if (data?.id) setEmployeeId(data.id);
+  }
 
-    setEmployee(emp);
-    setEmployeeId(emp.id);
-
-    // 2️⃣ Load units
-    let unitQuery = supabase
+  /* =====================
+     Fetch Data
+  ===================== */
+  async function fetchData() {
+    const { data: u } = await supabase
       .from('units')
-      .select('id, unit_code, project_id')
-      .neq('status', 'reserved')
-      .neq('status', 'sold')
-      .order('unit_code');
+      .select('id, unit_code')
+      .neq('status', 'reserved'); // الوحدات المتاحة فقط
 
-    if (emp.role === 'sales') {
-      // جلب المشاريع الخاصة بالـ sales
-      const { data: empProjects } = await supabase
-        .from('employee_projects')
-        .select('project_id')
-        .eq('employee_id', emp.id);
-
-      const allowedIds = (empProjects || []).map(p => p.project_id);
-      if (allowedIds.length > 0) {
-        unitQuery = unitQuery.in('project_id', allowedIds);
-      } else {
-        unitQuery = unitQuery.in('project_id', ['']); // لا تظهر أي وحدة لو مفيش مشاريع
-      }
-    }
-
-    const { data: u, error: unitsError } = await unitQuery;
-    if (unitsError) console.error('Units fetch error:', unitsError);
     setUnits(u || []);
 
-    // 3️⃣ Load banks
-    const { data: b, error: banksError } = await supabase
+    const { data: b } = await supabase
       .from('banks')
-      .select('id,name')
+      .select('id, name')
       .order('name');
 
-    if (banksError) console.error('Banks fetch error:', banksError);
     setBanks(b || []);
 
-    // 4️⃣ Load last follow-up
     const { data: follow } = await supabase
       .from('client_followups')
       .select('employee_id, created_at, notes')
@@ -140,8 +109,6 @@ export default function ReservationPage() {
       .maybeSingle();
 
     setLastFollowUp(follow || null);
-
-    setLoading(false);
   }
 
   /* =====================
@@ -195,8 +162,6 @@ export default function ReservationPage() {
   /* =====================
      UI
   ===================== */
-  if (loading) return <div className="page">جاري التحميل...</div>;
-
   return (
     <div className="page">
 
@@ -229,9 +194,7 @@ export default function ReservationPage() {
               <label>اسم البنك</label>
               <select value={bankName} onChange={e => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
-                {banks.map(b => (
-                  <option key={b.id} value={b.name}>{b.name}</option>
-                ))}
+                {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
 

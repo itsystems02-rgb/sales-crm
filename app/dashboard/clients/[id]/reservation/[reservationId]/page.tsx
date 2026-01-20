@@ -691,8 +691,12 @@ export default function ReservationViewPage() {
         </Button>
         
         <Button 
-          variant="success"
           onClick={() => router.push(`/dashboard/sales/create?reservationId=${reservationId}`)}
+          style={{
+            backgroundColor: '#28a745',
+            color: 'white',
+            border: 'none'
+          }}
         >
           💰 تحويل إلى عملية بيع
         </Button>

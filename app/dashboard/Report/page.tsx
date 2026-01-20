@@ -369,11 +369,31 @@ export default function ReportsPage() {
     // حساب توزيع الوحدات حسب المشروع
     const { data: unitsData } = await supabase
       .from('units')
-      .select('project_id, projects!inner(name)');
+      .select('project_id, projects(id, name)');
     
     const projectCounts: Record<string, number> = {};
+    const projectNames: Record<string, string> = {};
+    
+    // الحصول على أسماء المشاريع أولاً
+    const { data: allProjects } = await supabase
+      .from('projects')
+      .select('id, name');
+    
+    allProjects?.forEach(project => {
+      projectNames[project.id] = project.name;
+    });
+    
     unitsData?.forEach(unit => {
-      const projectName = unit.projects?.name || 'غير معروف';
+      let projectName = 'غير معروف';
+      
+      if (unit.projects && Array.isArray(unit.projects) && unit.projects.length > 0) {
+        // إذا كانت projects مصفوفة (كيفية Supabase لعلاقات many-to-one)
+        projectName = unit.projects[0]?.name || 'غير معروف';
+      } else if (unit.project_id && projectNames[unit.project_id]) {
+        // إذا كان لدينا معرف المشروع مباشرة
+        projectName = projectNames[unit.project_id];
+      }
+      
       projectCounts[projectName] = (projectCounts[projectName] || 0) + 1;
     });
     
@@ -532,7 +552,7 @@ export default function ReportsPage() {
   async function fetchFollowUpsStats() {
     const { data: followUps } = await supabase
       .from('client_followups')
-      .select('type, employee_id, employees!inner(name)');
+      .select('type, employee_id, employees(id, name)');
     
     const byType = {
       call: followUps?.filter(f => f.type === 'call').length || 0,
@@ -541,8 +561,14 @@ export default function ReportsPage() {
     };
     
     const employeeCounts: Record<string, number> = {};
+    
     followUps?.forEach(f => {
-      const empName = f.employees?.name || 'غير معروف';
+      let empName = 'غير معروف';
+      
+      if (f.employees && Array.isArray(f.employees) && f.employees.length > 0) {
+        empName = f.employees[0]?.name || 'غير معروف';
+      }
+      
       employeeCounts[empName] = (employeeCounts[empName] || 0) + 1;
     });
     

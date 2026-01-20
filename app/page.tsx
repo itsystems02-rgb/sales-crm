@@ -7,7 +7,6 @@ import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
 
 /* =====================
    Types
@@ -737,40 +736,100 @@ export default function DashboardPage() {
           {/* أزرار سريعة */}
           <Card title="إجراءات سريعة">
             <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <Button 
+              <button 
                 onClick={() => router.push('/dashboard/clients')}
-                style={{ justifyContent: 'flex-start', padding: '12px' }}
+                style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s',
+                  textAlign: 'right'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
               >
-                <span style={{ marginRight: '10px' }}>👥</span> إدارة العملاء
-              </Button>
+                <span style={{ marginRight: '10px', fontSize: '18px' }}>👥</span> إدارة العملاء
+              </button>
               
-              <Button 
+              <button 
                 onClick={() => router.push('/dashboard/units')}
-                style={{ justifyContent: 'flex-start', padding: '12px' }}
+                style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s',
+                  textAlign: 'right'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
               >
-                <span style={{ marginRight: '10px' }}>🏠</span> إدارة الوحدات
-              </Button>
+                <span style={{ marginRight: '10px', fontSize: '18px' }}>🏠</span> إدارة الوحدات
+              </button>
               
-              <Button 
+              <button 
                 onClick={() => router.push('/dashboard/projects')}
-                style={{ justifyContent: 'flex-start', padding: '12px' }}
+                style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s',
+                  textAlign: 'right'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
               >
-                <span style={{ marginRight: '10px' }}>📋</span> إدارة المشاريع
-              </Button>
+                <span style={{ marginRight: '10px', fontSize: '18px' }}>📋</span> إدارة المشاريع
+              </button>
               
-              <Button 
+              <button 
                 onClick={() => router.push('/dashboard/reservations')}
-                style={{ justifyContent: 'flex-start', padding: '12px' }}
+                style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s',
+                  textAlign: 'right'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
               >
-                <span style={{ marginRight: '10px' }}>📅</span> الحجوزات
-              </Button>
+                <span style={{ marginRight: '10px', fontSize: '18px' }}>📅</span> الحجوزات
+              </button>
               
-              <Button 
+              <button 
                 onClick={() => router.push('/dashboard/sales')}
-                style={{ justifyContent: 'flex-start', padding: '12px' }}
+                style={{ 
+                  padding: '12px', 
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #ddd',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.2s',
+                  textAlign: 'right'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
               >
-                <span style={{ marginRight: '10px' }}>💰</span> التنفيذات
-              </Button>
+                <span style={{ marginRight: '10px', fontSize: '18px' }}>💰</span> التنفيذات
+              </button>
             </div>
           </Card>
         </div>

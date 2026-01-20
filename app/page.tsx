@@ -776,7 +776,7 @@ export default function DashboardPage() {
         </div>
 
         {/* ملخص أداء */}
-        <Card title="ملخص الأداء" style={{ marginTop: '20px' }}>
+        <Card title="ملخص الأداء">
           <div style={{ padding: '15px' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
               <div style={{ 
@@ -839,7 +839,7 @@ export default function DashboardPage() {
                 backgroundColor: '#f8f9fa', 
                 padding: '15px', 
                 borderRadius: '8px',
-                borderLeft: '4px solid '#34a853'
+                borderLeft: '4px solid #34a853'
               }}>
                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>قيمة التنفيذات</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>

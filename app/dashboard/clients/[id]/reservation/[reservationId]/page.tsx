@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -95,44 +96,6 @@ function StatusBadge({
 }
 
 /* =====================
-   Custom Button Component (for success style)
-===================== */
-
-function SuccessButton({ 
-  children, 
-  onClick 
-}: { 
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        backgroundColor: '#28a745',
-        color: 'white',
-        border: 'none',
-        padding: '10px 20px',
-        borderRadius: '6px',
-        fontSize: '14px',
-        fontWeight: '500',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '8px',
-        minHeight: '40px'
-      }}
-      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
-      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* =====================
    Page
 ===================== */
 
@@ -151,10 +114,28 @@ export default function ReservationViewPage() {
   const [followEmployee, setFollowEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
 
   useEffect(() => {
+    fetchCurrentUser();
     fetchAll();
   }, [reservationId]);
+
+  /* =====================
+     Fetch Current User
+  ===================== */
+
+  async function fetchCurrentUser() {
+    try {
+      const user = await getCurrentEmployee();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    } finally {
+      setUserLoading(false);
+    }
+  }
 
   /* =====================
      Fetch Data
@@ -254,11 +235,17 @@ export default function ReservationViewPage() {
   }
 
   /* =====================
-     Delete Reservation
+     Delete Reservation (Admin Only)
   ===================== */
 
   async function deleteReservation() {
     if (!reservation) return;
+
+    // التحقق من أن المستخدم الحالي هو admin
+    if (currentUser?.role !== 'admin') {
+      alert('غير مصرح لك بحذف الحجوزات. هذه الميزة متاحة للإداريين فقط.');
+      return;
+    }
 
     if (!confirm('هل أنت متأكد من حذف الحجز؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
 
@@ -323,7 +310,7 @@ export default function ReservationViewPage() {
      Loading State
   ===================== */
 
-  if (loading) {
+  if (loading || userLoading) {
     return (
       <div className="page" style={{
         display: 'flex',
@@ -412,6 +399,11 @@ export default function ReservationViewPage() {
             <span style={{ color: '#666', fontSize: '14px' }}>
               تاريخ الإنشاء: {new Date(reservation.created_at).toLocaleDateString('ar-SA')}
             </span>
+            {currentUser?.role === 'admin' && (
+              <StatusBadge status="info">
+                🛡️ الوضع: مدير النظام
+              </StatusBadge>
+            )}
           </div>
         </div>
 
@@ -455,12 +447,15 @@ export default function ReservationViewPage() {
               ↩ العودة للعميل
             </Button>
 
-            <Button 
-              variant="danger" 
-              onClick={deleteReservation}
-            >
-              🗑️ حذف الحجز
-            </Button>
+            {/* عرض زر الحذف للإدمن فقط */}
+            {currentUser?.role === 'admin' && (
+              <Button 
+                variant="danger" 
+                onClick={deleteReservation}
+              >
+                🗑️ حذف الحجز
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -703,36 +698,6 @@ export default function ReservationViewPage() {
             </div>
           </Card>
         </div>
-      </div>
-
-      {/* ===== QUICK ACTIONS ===== */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        gap: '15px',
-        marginTop: '40px',
-        paddingTop: '25px',
-        borderTop: '1px solid #eee'
-      }}>
-        <Button 
-          variant="primary"
-          onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}/edit`)}
-        >
-          ✏️ تعديل الحجز
-        </Button>
-        
-        <Button 
-          variant="secondary"
-          onClick={() => router.push(`/dashboard/clients/${clientId}`)}
-        >
-          👁️ عرض ملف العميل
-        </Button>
-        
-        <SuccessButton 
-          onClick={() => router.push(`/dashboard/sales/create?reservationId=${reservationId}`)}
-        >
-          💰 تحويل إلى عملية بيع
-        </SuccessButton>
       </div>
 
       {/* ===== FOOTER INFO ===== */}

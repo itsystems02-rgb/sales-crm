@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const LINKS = [
-  { href: '/dashboard/projects', label: 'المشاريع', icon: '🏗️' },
+{ href: '/dashboard', label: 'الصفحه الرئسية', icon: '🏗️' }, 
+ { href: '/dashboard/projects', label: 'المشاريع', icon: '🏗️' },
   { href: '/dashboard/units', label: 'الوحدات', icon: '🏠' },
   { href: '/dashboard/clients', label: 'العملاء', icon: '👥' },
   { href: '/dashboard/clients/[id]/reservation', label: 'الحجوزات', icon: '📌' },

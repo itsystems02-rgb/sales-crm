@@ -898,7 +898,6 @@ export default function ReportsPage() {
                 <Button 
                   onClick={generateReport} 
                   disabled={generatingReport}
-                  style={{ width: '100%' }}
                 >
                   {generatingReport ? 'جاري التوليد...' : 'توليد التقرير'}
                 </Button>

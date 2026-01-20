@@ -1,5 +1,3 @@
-[file name]: page.tsx
-[file content begin]
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -1470,4 +1468,3 @@ export default function ReportsPage() {
     </RequireAuth>
   );
 }
-[file content end]

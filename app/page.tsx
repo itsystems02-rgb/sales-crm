@@ -382,7 +382,13 @@ export default function DashboardPage() {
           marginBottom: '30px' 
         }}>
           {/* العملاء */}
-          <Card style={{ padding: '20px' }}>
+          <div className="card-stats" style={{ 
+            padding: '20px', 
+            backgroundColor: 'white', 
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            border: '1px solid #eaeaea'
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>إجمالي العملاء</div>
@@ -407,10 +413,16 @@ export default function DashboardPage() {
               <span style={{ color: '#fbbc04' }}>محجوز: {stats?.clientsByStatus.reserved}</span>
               <span style={{ color: '#34a853' }}>تم البيع: {stats?.clientsByStatus.converted}</span>
             </div>
-          </Card>
+          </div>
 
           {/* الوحدات المتاحة */}
-          <Card style={{ padding: '20px' }}>
+          <div className="card-stats" style={{ 
+            padding: '20px', 
+            backgroundColor: 'white', 
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            border: '1px solid #eaeaea'
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>
@@ -435,10 +447,16 @@ export default function DashboardPage() {
             <div style={{ marginTop: '15px', fontSize: '12px', color: '#666' }}>
               {employee?.role === 'admin' ? 'كل المشاريع' : 'المشاريع المرتبطة بك فقط'}
             </div>
-          </Card>
+          </div>
 
           {/* نشاطي الشخصي */}
-          <Card style={{ padding: '20px' }}>
+          <div className="card-stats" style={{ 
+            padding: '20px', 
+            backgroundColor: 'white', 
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            border: '1px solid #eaeaea'
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>نشاطي الشخصي</div>
@@ -477,10 +495,16 @@ export default function DashboardPage() {
                 }} />
               </div>
             </div>
-          </Card>
+          </div>
 
           {/* معدلات التحويل */}
-          <Card style={{ padding: '20px' }}>
+          <div className="card-stats" style={{ 
+            padding: '20px', 
+            backgroundColor: 'white', 
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            border: '1px solid #eaeaea'
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>معدل التحويل</div>
@@ -506,7 +530,7 @@ export default function DashboardPage() {
             <div style={{ marginTop: '15px', fontSize: '12px' }}>
               {stats?.reservationToSaleRate}% من الحجوزات تتحول لبيع
             </div>
-          </Card>
+          </div>
         </div>
 
         {/* قسمين رئيسيين */}
@@ -815,7 +839,7 @@ export default function DashboardPage() {
                 backgroundColor: '#f8f9fa', 
                 padding: '15px', 
                 borderRadius: '8px',
-                borderLeft: '4px solid #34a853'
+                borderLeft: '4px solid '#34a853'
               }}>
                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>قيمة التنفيذات</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>

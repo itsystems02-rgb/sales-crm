@@ -75,45 +75,6 @@ function StatusBadge({
 }
 
 /* =====================
-   Custom Success Button
-===================== */
-
-function SuccessButton({ 
-  children, 
-  onClick 
-}: { 
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        backgroundColor: '#28a745',
-        color: 'white',
-        border: 'none',
-        padding: '8px 16px',
-        borderRadius: '6px',
-        fontSize: '13px',
-        fontWeight: '500',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '6px',
-        minHeight: '36px',
-        width: '100%'
-      }}
-      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
-      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
-    >
-      {children}
-    </button>
-  );
-}
-
-/* =====================
    Constants
 ===================== */
 
@@ -563,43 +524,6 @@ export default function ClientPage() {
                 </div>
               </div>
             </Card>
-
-            {/* Quick Actions */}
-            <div style={{ marginTop: '20px' }}>
-              <Card title="⚡ إجراءات سريعة">
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', 
-                  gap: '10px',
-                  padding: '10px 0'
-                }}>
-                  <Button 
-                    onClick={() => router.push(`/dashboard/clients/${clientId}/edit`)}
-                    variant="secondary"
-                  >
-                    ✏️ تعديل البيانات
-                  </Button>
-                  <Button 
-                    onClick={() => setTab('followups')}
-                    variant="secondary"
-                  >
-                    📞 إضافة متابعة
-                  </Button>
-                  <SuccessButton 
-                    onClick={() => router.push(`/dashboard/clients/${clientId}/reservation`)}
-                  >
-                    📅 حجز جديد
-                  </SuccessButton>
-                  {reservationId && (
-                    <Button 
-                      onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}
-                    >
-                      🏠 عرض الحجز
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            </div>
           </div>
         </div>
       ) : (

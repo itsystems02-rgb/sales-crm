@@ -36,10 +36,12 @@ type Client = {
 
 function StatusBadge({ 
   children, 
-  status = 'default' 
+  status = 'default',
+  small = false
 }: { 
   children: React.ReactNode;
   status?: 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'default';
+  small?: boolean;
 }) {
   const colors = {
     success: { bg: '#d4edda', color: '#155724', border: '#c3e6cb' },
@@ -51,6 +53,8 @@ function StatusBadge({
   };
 
   const color = colors[status];
+  const fontSize = small ? '11px' : '12px';
+  const padding = small ? '3px 8px' : '4px 10px';
 
   return (
     <span
@@ -58,9 +62,9 @@ function StatusBadge({
         backgroundColor: color.bg,
         color: color.color,
         border: `1px solid ${color.border}`,
-        padding: '4px 10px',
+        padding,
         borderRadius: '20px',
-        fontSize: '12px',
+        fontSize,
         fontWeight: '600',
         display: 'inline-block'
       }}
@@ -539,7 +543,7 @@ export default function ClientPage() {
                   <div>
                     <div style={{ fontWeight: '500' }}>حالة الاستحقاق:</div>
                     <div>
-                      <StatusBadge status={getEligibilityColor(client.eligible)} style={{ fontSize: '11px' }}>
+                      <StatusBadge status={getEligibilityColor(client.eligible)} small>
                         {client.eligible ? 'مستحق' : 'غير مستحق'}
                       </StatusBadge>
                     </div>
@@ -547,7 +551,7 @@ export default function ClientPage() {
                   <div>
                     <div style={{ fontWeight: '500' }}>الجنسية:</div>
                     <div>
-                      <StatusBadge status={getNationalityColor(client.nationality)} style={{ fontSize: '11px' }}>
+                      <StatusBadge status={getNationalityColor(client.nationality)} small>
                         {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
                       </StatusBadge>
                     </div>

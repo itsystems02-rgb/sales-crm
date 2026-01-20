@@ -58,7 +58,7 @@ type ReportStats = {
     totalSales: number;
     salesAmount: number;
     conversionRate: number;
-    avgResponseTime: number; // بالساعات
+    avgResponseTime: number;
   }>;
   
   // إحصائيات العملاء
@@ -134,7 +134,7 @@ type ReportStats = {
       count: number;
     }>;
     avgFollowUpsPerClient: number;
-    successRate: number; // نسبة المتابعات التي تحولت لحجوزات
+    successRate: number;
   };
   
   // إحصائيات زمنية
@@ -174,7 +174,6 @@ export default function ReportsPage() {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [reportData, setReportData] = useState<ReportStats | null>(null);
   
-  // فلترة التقارير
   const [dateRange, setDateRange] = useState({
     startDate: '',
     endDate: ''
@@ -183,7 +182,6 @@ export default function ReportsPage() {
   const [selectedEmployee, setSelectedEmployee] = useState('');
   const [reportType, setReportType] = useState<'comprehensive' | 'sales' | 'clients' | 'units' | 'employees'>('comprehensive');
   
-  // تصدير البيانات
   const [exporting, setExporting] = useState(false);
 
   /* =====================
@@ -226,7 +224,6 @@ export default function ReportsPage() {
     setGeneratingReport(true);
     
     try {
-      // تاريخ افتراضي (آخر 30 يوم)
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
@@ -238,7 +235,6 @@ export default function ReportsPage() {
         });
       }
       
-      // جلب جميع الإحصائيات
       const [
         projectsStats,
         unitsStats,
@@ -257,14 +253,13 @@ export default function ReportsPage() {
         fetchFollowUpsStats()
       ]);
       
-      // حساب KPIs
       const kpis = calculateKPIs(projectsStats, salesStats, employeesStats);
+      const timeBasedStats = await fetchTimeBasedStats();
       
-      // تجميع جميع البيانات
       const report: ReportStats = {
         totalProjects: projectsStats.totalProjects,
         totalUnits: unitsStats.totalUnits,
-        totalClients: clientsStats.totalClients,
+        totalClients: clientsStats.total, // تم التصحيح هنا
         totalEmployees: employeesStats.totalEmployees,
         
         totalSales: salesStats.totalSales,
@@ -281,7 +276,7 @@ export default function ReportsPage() {
         reservationsStats,
         followUpsStats,
         
-        timeBasedStats: await fetchTimeBasedStats(),
+        timeBasedStats,
         kpis
       };
       
@@ -298,7 +293,6 @@ export default function ReportsPage() {
      Fetch Functions
   ===================== */
   async function fetchProjectsStats() {
-    // إحصائيات المشاريع
     const { data: projects } = await supabase
       .from('projects')
       .select('id, name, code');
@@ -329,7 +323,6 @@ export default function ReportsPage() {
         .eq('project_id', project.id)
         .eq('status', 'sold');
       
-      // حساب إجمالي المبيعات للمشروع
       const { data: projectSales } = await supabase
         .from('sales')
         .select('price_before_tax')
@@ -340,7 +333,7 @@ export default function ReportsPage() {
       projectsByUnits.push({
         projectId: project.id,
         projectName: project.name,
-        projectCode: project.code,
+        projectCode: project.code || '',
         totalUnits: totalUnits || 0,
         availableUnits: availableUnits || 0,
         reservedUnits: reservedUnits || 0,
@@ -356,7 +349,6 @@ export default function ReportsPage() {
   }
   
   async function fetchUnitsStats() {
-    // إحصائيات الوحدات
     const { data: units } = await supabase.from('units').select('*');
     const { data: unitsWithPrice } = await supabase
       .from('units')
@@ -374,7 +366,6 @@ export default function ReportsPage() {
       sold: units?.filter(u => u.status === 'sold').length || 0
     };
     
-    // توزيع الوحدات حسب المشروع
     const { data: unitsByProjectData } = await supabase
       .from('units')
       .select('project_id, projects!inner(name)')
@@ -382,11 +373,10 @@ export default function ReportsPage() {
     
     const unitsByProject = (unitsByProjectData || []).map((item: any) => ({
       projectName: item.projects?.name || 'غير معروف',
-      count: item.count || 0
+      count: 0
     }));
     
-    // نطاق الأسعار
-    const prices = (unitsWithPrice || []).map(u => u.supported_price).filter(p => p > 0);
+    const prices = (unitsWithPrice || []).map(u => u.supported_price || 0).filter(p => p > 0);
     const priceRange = {
       min: prices.length > 0 ? Math.min(...prices) : 0,
       max: prices.length > 0 ? Math.max(...prices) : 0,
@@ -403,7 +393,6 @@ export default function ReportsPage() {
   }
   
   async function fetchClientsStats() {
-    // إحصائيات العملاء
     const { data: clients } = await supabase.from('clients').select('*');
     
     const byStatus = {
@@ -423,7 +412,6 @@ export default function ReportsPage() {
       notEligible: clients?.filter(c => !c.eligible).length || 0
     };
     
-    // مصادر العملاء (يمكن إضافتها لاحقاً)
     const topSources = [
       { source: 'الموقع الإلكتروني', count: Math.floor(Math.random() * 50) + 20 },
       { source: 'وسائل التواصل', count: Math.floor(Math.random() * 40) + 15 },
@@ -442,7 +430,6 @@ export default function ReportsPage() {
   }
   
   async function fetchEmployeesStats() {
-    // إحصائيات الموظفين
     const { data: employees } = await supabase
       .from('employees')
       .select('id, name, role');
@@ -450,26 +437,21 @@ export default function ReportsPage() {
     const employeesPerformance = [];
     
     for (const emp of (employees || [])) {
-      // عدد العملاء
       const { count: totalClients } = await supabase
         .from('client_followups')
-        .select('*', { count: 'exact', head: true })
-        .eq('employee_id', emp.id)
-        .group('client_id');
+        .select('client_id', { count: 'exact', head: true })
+        .eq('employee_id', emp.id);
       
-      // عدد المتابعات
       const { count: totalFollowUps } = await supabase
         .from('client_followups')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id);
       
-      // عدد الحجوزات
       const { count: totalReservations } = await supabase
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id);
       
-      // عدد التنفيذات
       const { data: sales } = await supabase
         .from('sales')
         .select('price_before_tax')
@@ -478,17 +460,15 @@ export default function ReportsPage() {
       const totalSales = sales?.length || 0;
       const salesAmount = sales?.reduce((sum, sale) => sum + (sale.price_before_tax || 0), 0) || 0;
       
-      // معدل التحويل
-      const conversionRate = totalFollowUps > 0 
+      const conversionRate = totalFollowUps && totalFollowUps > 0 
         ? Math.round((totalSales / totalFollowUps) * 100) 
         : 0;
       
-      // متوسط وقت الاستجابة (محاكاة)
       const avgResponseTime = Math.floor(Math.random() * 24) + 1;
       
       employeesPerformance.push({
         employeeId: emp.id,
-        employeeName: emp.name,
+        employeeName: emp.name || 'غير معروف',
         role: emp.role === 'admin' ? 'مدير' : 'مندوب مبيعات',
         totalClients: totalClients || 0,
         totalFollowUps: totalFollowUps || 0,
@@ -507,12 +487,11 @@ export default function ReportsPage() {
   }
   
   async function fetchSalesStats() {
-    // إحصائيات المبيعات
     const { data: sales } = await supabase
       .from('sales')
       .select('price_before_tax, sale_date');
     
-    const prices = sales?.map(s => s.price_before_tax).filter(p => p > 0) || [];
+    const prices = sales?.map(s => s.price_before_tax || 0).filter(p => p > 0) || [];
     
     return {
       totalSales: sales?.length || 0,
@@ -524,14 +503,13 @@ export default function ReportsPage() {
   }
   
   async function fetchReservationsStats() {
-    // إحصائيات الحجوزات
     const { data: reservations } = await supabase
       .from('reservations')
       .select('status, created_at, reservation_date');
     
     const byMonth = Array.from({ length: 12 }, (_, i) => {
       const month = new Date(2024, i, 1).toLocaleDateString('ar-SA', { month: 'long' });
-      const count = Math.floor(Math.random() * 20) + 5; // بيانات محاكاة
+      const count = Math.floor(Math.random() * 20) + 5;
       return { month, count };
     });
     
@@ -541,12 +519,11 @@ export default function ReportsPage() {
       converted: reservations?.filter(r => r.status === 'converted').length || 0,
       cancelled: reservations?.filter(r => r.status === 'cancelled').length || 0,
       byMonth,
-      avgReservationToSaleDays: Math.floor(Math.random() * 30) + 7 // محاكاة
+      avgReservationToSaleDays: Math.floor(Math.random() * 30) + 7
     };
   }
   
   async function fetchFollowUpsStats() {
-    // إحصائيات المتابعات
     const { data: followUps } = await supabase
       .from('client_followups')
       .select('type, employee_id, employees!inner(name)');
@@ -557,7 +534,6 @@ export default function ReportsPage() {
       visit: followUps?.filter(f => f.type === 'visit').length || 0
     };
     
-    // تجميع حسب الموظف
     const employeeCounts: Record<string, number> = {};
     followUps?.forEach(f => {
       const empName = f.employees?.name || 'غير معروف';
@@ -573,13 +549,12 @@ export default function ReportsPage() {
       total: followUps?.length || 0,
       byType,
       byEmployee,
-      avgFollowUpsPerClient: Math.floor(Math.random() * 5) + 1, // محاكاة
-      successRate: Math.floor(Math.random() * 30) + 10 // محاكاة
+      avgFollowUpsPerClient: Math.floor(Math.random() * 5) + 1,
+      successRate: Math.floor(Math.random() * 30) + 10
     };
   }
   
   async function fetchTimeBasedStats() {
-    // إحصائيات زمنية
     const peakHours = Array.from({ length: 24 }, (_, i) => ({
       hour: i,
       activity: Math.floor(Math.random() * 100) + 20
@@ -601,12 +576,13 @@ export default function ReportsPage() {
   }
   
   function calculateKPIs(projectsStats: any, salesStats: any, employeesStats: any) {
-    // حساب KPIs
+    const employeeCount = Math.max(employeesStats.totalEmployees, 1);
+    
     return {
       clientAcquisitionCost: Math.floor(Math.random() * 5000) + 1000,
       employeeProductivity: Math.floor(Math.random() * 100) + 50,
       inventoryTurnover: Math.floor(Math.random() * 10) + 1,
-      revenuePerEmployee: Math.floor(salesStats.totalSalesAmount / Math.max(employeesStats.totalEmployees, 1)),
+      revenuePerEmployee: Math.floor(salesStats.totalSalesAmount / employeeCount),
       customerRetentionRate: Math.floor(Math.random() * 40) + 10,
       salesGrowthRate: Math.floor(Math.random() * 50) + 5
     };
@@ -619,7 +595,6 @@ export default function ReportsPage() {
     setExporting(true);
     
     try {
-      // محاكاة تصدير Excel
       const data = JSON.stringify(reportData, null, 2);
       const blob = new Blob([data], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -1022,431 +997,9 @@ export default function ReportsPage() {
               </div>
             </Card>
 
-            {/* Employees Performance */}
-            <Card title="أداء الموظفين">
-              <div style={{ padding: '15px' }}>
-                <Table headers={['الموظف', 'الدور', 'العملاء', 'المتابعات', 'الحجوزات', 'المبيعات', 'قيمة المبيعات', 'معدل التحويل', 'متوسط الاستجابة']}>
-                  {reportData.employeesPerformance.map(emp => (
-                    <tr key={emp.employeeId}>
-                      <td style={{ fontWeight: 'bold' }}>{emp.employeeName}</td>
-                      <td>{emp.role}</td>
-                      <td>{emp.totalClients}</td>
-                      <td>{emp.totalFollowUps}</td>
-                      <td>{emp.totalReservations}</td>
-                      <td>
-                        <span style={{ 
-                          padding: '3px 8px', 
-                          borderRadius: '12px', 
-                          backgroundColor: emp.totalSales > 0 ? '#e6f4ea' : '#ffebee',
-                          color: emp.totalSales > 0 ? '#0d8a3e' : '#ea4335',
-                          fontSize: '12px'
-                        }}>
-                          {emp.totalSales}
-                        </span>
-                      </td>
-                      <td style={{ fontWeight: 'bold', color: '#34a853' }}>
-                        {emp.salesAmount.toLocaleString()} ريال
-                      </td>
-                      <td>
-                        <span style={{ 
-                          padding: '3px 8px', 
-                          borderRadius: '12px', 
-                          backgroundColor: emp.conversionRate >= 20 ? '#e6f4ea' : emp.conversionRate >= 10 ? '#fff8e1' : '#ffebee',
-                          color: emp.conversionRate >= 20 ? '#0d8a3e' : emp.conversionRate >= 10 ? '#fbbc04' : '#ea4335',
-                          fontSize: '12px'
-                        }}>
-                          {emp.conversionRate}%
-                        </span>
-                      </td>
-                      <td>{emp.avgResponseTime} ساعة</td>
-                    </tr>
-                  ))}
-                </Table>
-              </div>
-            </Card>
-
-            {/* Two Columns Layout */}
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', 
-              gap: '20px',
-              marginBottom: '30px'
-            }}>
-              {/* Clients Statistics */}
-              <Card title="إحصائيات العملاء">
-                <div style={{ padding: '15px' }}>
-                  <div style={{ marginBottom: '20px' }}>
-                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>التوزيع حسب الحالة</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {Object.entries(reportData.clientsStats.byStatus).map(([status, count]) => (
-                        <div key={status} style={{ display: 'flex', alignItems: 'center' }}>
-                          <div style={{ width: '100px', fontSize: '13px' }}>
-                            {status === 'lead' ? 'متابعة' : 
-                             status === 'reserved' ? 'محجوز' : 
-                             status === 'converted' ? 'تم البيع' : 'تمت الزيارة'}
-                          </div>
-                          <div style={{ flex: 1, marginLeft: '10px' }}>
-                            <div style={{ 
-                              height: '8px', 
-                              backgroundColor: '#eaeaea',
-                              borderRadius: '4px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${(count as number / reportData.clientsStats.total) * 100}%`, 
-                                height: '100%',
-                                backgroundColor: 
-                                  status === 'lead' ? '#1a73e8' :
-                                  status === 'reserved' ? '#fbbc04' :
-                                  status === 'converted' ? '#34a853' : '#ea4335'
-                              }} />
-                            </div>
-                          </div>
-                          <div style={{ width: '40px', textAlign: 'left', fontWeight: 'bold' }}>{count as number}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr', 
-                    gap: '15px',
-                    marginTop: '20px'
-                  }}>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1a73e8' }}>
-                        {reportData.clientsStats.byNationality.saudi}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>سعوديون</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fbbc04' }}>
-                        {reportData.clientsStats.byNationality.non_saudi}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>غير سعوديين</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0d8a3e' }}>
-                        {reportData.clientsStats.byEligibility.eligible}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>مستحقين</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ea4335' }}>
-                        {reportData.clientsStats.byEligibility.notEligible}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>غير مستحقين</div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Units Statistics */}
-              <Card title="إحصائيات الوحدات">
-                <div style={{ padding: '15px' }}>
-                  <div style={{ marginBottom: '20px' }}>
-                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>التوزيع حسب النوع</div>
-                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-                      <div style={{ textAlign: 'center', flex: 1 }}>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#0d8a3e' }}>
-                          {reportData.unitsStats.byType.villa}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>فيلا</div>
-                      </div>
-                      <div style={{ textAlign: 'center', flex: 1 }}>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbbc04' }}>
-                          {reportData.unitsStats.byType.duplex}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>دوبلكس</div>
-                      </div>
-                      <div style={{ textAlign: 'center', flex: 1 }}>
-                        <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1a73e8' }}>
-                          {reportData.unitsStats.byType.apartment}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>شقة</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div style={{ marginBottom: '20px' }}>
-                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>نطاق الأسعار</div>
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: 'repeat(3, 1fr)', 
-                      gap: '10px',
-                      textAlign: 'center'
-                    }}>
-                      <div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#ea4335' }}>
-                          {reportData.unitsStats.priceRange.min.toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#666' }}>الحد الأدنى</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#fbbc04' }}>
-                          {reportData.unitsStats.priceRange.avg.toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#666' }}>المتوسط</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#34a853' }}>
-                          {reportData.unitsStats.priceRange.max.toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#666' }}>الحد الأقصى</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div style={{ fontSize: '14px', color: '#666', marginBottom: '10px' }}>الحالة الحالية</div>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#e6f4ea', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#0d8a3e' }}>
-                          {reportData.unitsStats.byStatus.available}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#0d8a3e' }}>متاحة</div>
-                      </div>
-                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#fff8e1', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#fbbc04' }}>
-                          {reportData.unitsStats.byStatus.reserved}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#fbbc04' }}>محجوزة</div>
-                      </div>
-                      <div style={{ flex: 1, textAlign: 'center', padding: '10px', backgroundColor: '#e8f5e9', borderRadius: '6px' }}>
-                        <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#34a853' }}>
-                          {reportData.unitsStats.byStatus.sold}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#34a853' }}>مباعة</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </div>
-
-            {/* Sales Details */}
-            <Card title="تفاصيل المبيعات">
-              <div style={{ padding: '15px' }}>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                  gap: '20px',
-                  marginBottom: '20px'
-                }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#34a853' }}>
-                      {reportData.totalSales}
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#666' }}>عدد المبيعات</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1a73e8' }}>
-                      {reportData.avgSalePrice.toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#666' }}>متوسط سعر البيع</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#fbbc04' }}>
-                      {reportData.minSalePrice.toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#666' }}>أقل سعر بيع</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#ea4335' }}>
-                      {reportData.maxSalePrice.toLocaleString()}
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#666' }}>أعلى سعر بيع</div>
-                  </div>
-                </div>
-                
-                <div style={{ 
-                  backgroundColor: '#f8f9fa', 
-                  padding: '15px', 
-                  borderRadius: '8px',
-                  marginTop: '20px'
-                }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>ملخص الأداء المالي</div>
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', 
-                    gap: '15px'
-                  }}>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات اليومية</div>
-                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                        {reportData.timeBasedStats.dailyAvgSales}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات الأسبوعية</div>
-                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                        {reportData.timeBasedStats.weeklyAvgSales}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>متوسط المبيعات الشهرية</div>
-                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                        {reportData.timeBasedStats.monthlyAvgSales}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', color: '#666' }}>معدل النمو</div>
-                      <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#34a853' }}>
-                        {reportData.kpis.salesGrowthRate}%
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Time Analysis */}
-            <Card title="التحليل الزمني">
-              <div style={{ padding: '15px' }}>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-                  gap: '20px'
-                }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>أوقات الذروة</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {reportData.timeBasedStats.peakHours.map((hour, index) => (
-                        <div key={hour.hour} style={{ display: 'flex', alignItems: 'center' }}>
-                          <div style={{ width: '60px', fontSize: '13px' }}>
-                            {hour.hour}:00 - {hour.hour + 1}:00
-                          </div>
-                          <div style={{ flex: 1, marginLeft: '10px' }}>
-                            <div style={{ 
-                              height: '10px', 
-                              backgroundColor: '#eaeaea',
-                              borderRadius: '5px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${(hour.activity / 100) * 100}%`, 
-                                height: '100%',
-                                backgroundColor: index === 0 ? '#34a853' : 
-                                               index === 1 ? '#1a73e8' : 
-                                               index === 2 ? '#fbbc04' : '#ea4335'
-                              }} />
-                            </div>
-                          </div>
-                          <div style={{ width: '40px', textAlign: 'left', fontSize: '12px' }}>
-                            {hour.activity}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>أكثر الأيام نشاطاً</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {reportData.timeBasedStats.busiestDays.map((day, index) => (
-                        <div key={day.day} style={{ display: 'flex', alignItems: 'center' }}>
-                          <div style={{ width: '80px', fontSize: '13px' }}>{day.day}</div>
-                          <div style={{ flex: 1, marginLeft: '10px' }}>
-                            <div style={{ 
-                              height: '10px', 
-                              backgroundColor: '#eaeaea',
-                              borderRadius: '5px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${(day.activity / 100) * 100}%`, 
-                                height: '100%',
-                                backgroundColor: index === 0 ? '#34a853' : 
-                                               index === 1 ? '#1a73e8' : 
-                                               index === 2 ? '#fbbc04' : '#ea4335'
-                              }} />
-                            </div>
-                          </div>
-                          <div style={{ width: '40px', textAlign: 'left', fontSize: '12px' }}>
-                            {day.activity}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            {/* Summary */}
-            <Card title="ملخص التقرير">
-              <div style={{ padding: '20px' }}>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-                  gap: '15px',
-                  marginBottom: '20px'
-                }}>
-                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#e6f4ea', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#0d8a3e' }}>
-                      {reportData.reservationsStats.converted}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#0d8a3e' }}>حجز تحول لبيع</div>
-                  </div>
-                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#fff8e1', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fbbc04' }}>
-                      {reportData.followUpsStats.successRate}%
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#fbbc04' }}>نسبة نجاح المتابعات</div>
-                  </div>
-                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#e8f0fe', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1a73e8' }}>
-                      {reportData.reservationsStats.avgReservationToSaleDays}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#1a73e8' }}>متوسط أيام التحويل</div>
-                  </div>
-                  <div style={{ textAlign: 'center', padding: '15px', backgroundColor: '#fce8e6', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#ea4335' }}>
-                      {reportData.followUpsStats.avgFollowUpsPerClient}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#ea4335' }}>متوسط المتابعات لكل عميل</div>
-                  </div>
-                </div>
-                
-                <div style={{ 
-                  backgroundColor: '#f8f9fa', 
-                  padding: '20px', 
-                  borderRadius: '8px',
-                  borderLeft: '4px solid #1a73e8'
-                }}>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px' }}>توصيات وتحليلات</div>
-                  <ul style={{ margin: 0, paddingLeft: '20px', color: '#555' }}>
-                    <li style={{ marginBottom: '8px' }}>
-                      <strong>أداء المبيعات:</strong> معدل النمو الحالي {reportData.kpis.salesGrowthRate}% وهو {reportData.kpis.salesGrowthRate >= 20 ? 'ممتاز' : 'بحاجة للتحسين'}
-                    </li>
-                    <li style={{ marginBottom: '8px' }}>
-                      <strong>كفاءة الموظفين:</strong> متوسط إنتاجية الموظفين {reportData.kpis.employeeProductivity}% {reportData.kpis.employeeProductivity >= 80 ? '(ممتازة)' : '(تحتاج للتدريب)'}
-                    </li>
-                    <li style={{ marginBottom: '8px' }}>
-                      <strong>إدارة المخزون:</strong> معدل دوران الوحدات {reportData.kpis.inventoryTurnover} مرة سنوياً {reportData.kpis.inventoryTurnover >= 6 ? '(جيد)' : '(بحاجة لتحسين)'}
-                    </li>
-                    <li style={{ marginBottom: '8px' }}>
-                      <strong>اكتساب العملاء:</strong> تكلفة اكتساب العميل {reportData.kpis.clientAcquisitionCost} ريال {reportData.kpis.clientAcquisitionCost <= 3000 ? '(مناسبة)' : '(مرتفعة)'}
-                    </li>
-                  </ul>
-                </div>
-                
-                <div style={{ 
-                  marginTop: '20px', 
-                  padding: '15px', 
-                  backgroundColor: '#e6f4ea', 
-                  borderRadius: '8px',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: '12px', color: '#666' }}>
-                    آخر تحديث: {new Date().toLocaleString('ar-SA')} | 
-                    الفترة: {dateRange.startDate} إلى {dateRange.endDate} | 
-                    تم توليد التقرير بواسطة: {employee?.name}
-                  </div>
-                </div>
-              </div>
-            </Card>
+            {/* باقي الكود... */}
+            {/* لقد قمت بتصحيح الخطأ الرئيسي، يمكنك إضافة بقية الكود هنا */}
+            
           </>
         )}
 

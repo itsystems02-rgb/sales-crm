@@ -71,6 +71,45 @@ function StatusBadge({
 }
 
 /* =====================
+   Custom Success Button
+===================== */
+
+function SuccessButton({ 
+  children, 
+  onClick 
+}: { 
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        backgroundColor: '#28a745',
+        color: 'white',
+        border: 'none',
+        padding: '8px 16px',
+        borderRadius: '6px',
+        fontSize: '13px',
+        fontWeight: '500',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '6px',
+        minHeight: '36px',
+        width: '100%'
+      }}
+      onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
+      onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* =====================
    Constants
 ===================== */
 
@@ -349,7 +388,6 @@ export default function ClientPage() {
           {reservationId && (
             <Button 
               onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}
-              variant="success"
             >
               🏠 عرض الحجز
             </Button>
@@ -534,28 +572,23 @@ export default function ClientPage() {
                   <Button 
                     onClick={() => router.push(`/dashboard/clients/${clientId}/edit`)}
                     variant="secondary"
-                    style={{ fontSize: '13px', padding: '8px 12px' }}
                   >
                     ✏️ تعديل البيانات
                   </Button>
                   <Button 
                     onClick={() => setTab('followups')}
                     variant="secondary"
-                    style={{ fontSize: '13px', padding: '8px 12px' }}
                   >
                     📞 إضافة متابعة
                   </Button>
-                  <Button 
+                  <SuccessButton 
                     onClick={() => router.push(`/dashboard/clients/${clientId}/reservation`)}
-                    variant="success"
-                    style={{ fontSize: '13px', padding: '8px 12px' }}
                   >
                     📅 حجز جديد
-                  </Button>
+                  </SuccessButton>
                   {reservationId && (
                     <Button 
                       onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}
-                      style={{ fontSize: '13px', padding: '8px 12px' }}
                     >
                       🏠 عرض الحجز
                     </Button>

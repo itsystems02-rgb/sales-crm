@@ -621,17 +621,22 @@ export default function ClientsPage() {
                   </select>
                 </div>
                 
-                <div style={{ gridColumn: '1 / -1', marginTop: '10px' }}>
+                {/* الأزرار - تم تعديلها */}
+                <div style={{ 
+                  gridColumn: '1 / -1', 
+                  marginTop: '10px',
+                  display: 'flex',
+                  gap: '10px',
+                  flexWrap: 'wrap'
+                }}>
                   <Button 
-                    onClick={handleSubmit} 
-                    style={{ padding: '12px 30px', fontSize: '16px' }}
+                    onClick={handleSubmit}
                   >
                     💾 حفظ العميل
                   </Button>
                   <Button 
                     onClick={resetForm} 
-                    variant="secondary" 
-                    style={{ marginLeft: '10px', padding: '12px 20px' }}
+                    variant="secondary"
                   >
                     🔄 مسح النموذج
                   </Button>
@@ -662,7 +667,6 @@ export default function ClientsPage() {
                 <Button 
                   onClick={() => setSearchTerm('')}
                   variant="secondary"
-                  style={{ marginTop: '10px' }}
                 >
                   عرض جميع العملاء
                 </Button>
@@ -711,7 +715,6 @@ export default function ClientsPage() {
                         <Button 
                           onClick={() => router.push(`/dashboard/clients/${client.id}`)}
                           variant="secondary"
-                          style={{ fontSize: '12px', padding: '6px 12px' }}
                         >
                           👁️ عرض
                         </Button>
@@ -720,7 +723,6 @@ export default function ClientsPage() {
                         {employee?.role === 'admin' && (
                           <Button 
                             onClick={() => router.push(`/dashboard/clients/${client.id}/edit`)}
-                            style={{ fontSize: '12px', padding: '6px 12px' }}
                           >
                             ✏️ تعديل
                           </Button>
@@ -731,7 +733,6 @@ export default function ClientsPage() {
                           <Button 
                             onClick={() => deleteClient(client.id, client.name)}
                             variant="danger"
-                            style={{ fontSize: '12px', padding: '6px 12px' }}
                           >
                             🗑️ حذف
                           </Button>

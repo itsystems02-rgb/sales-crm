@@ -427,13 +427,11 @@ export default function ClientsPage() {
                 placeholder="اسم العميل *"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
               />
               <Input
                 placeholder="رقم الجوال * (مثال: 0512345678)"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                required
               />
               <Input
                 type="email"

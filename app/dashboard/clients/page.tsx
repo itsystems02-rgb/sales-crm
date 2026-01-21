@@ -16,25 +16,10 @@ import Table from '@/components/ui/Table';
 type ClientListItem = {
   id: string;
   name: string;
-  mobile: string;
-  email: string | null;
   eligible: boolean;
   status: string;
-  nationality: 'saudi' | 'non_saudi';
   created_at: string;
   created_by: string | null;
-};
-
-type ClientDetail = ClientListItem & {
-  identity_type: string | null;
-  identity_no: string | null;
-  residency_type: string | null;
-  salary_bank_id: string | null;
-  finance_bank_id: string | null;
-  job_sector_id: string | null;
-  bank_salary: { name: string } | null;
-  bank_finance: { name: string } | null;
-  job_sector: { name: string } | null;
 };
 
 type Option = {
@@ -68,7 +53,6 @@ function translateStatus(status: string) {
     case 'lead': return 'متابعة';
     case 'reserved': return 'محجوز';
     case 'visited': return 'تمت الزيارة';
-    case 'completed': return 'مكتمل';
     default: return status;
   }
 }
@@ -85,7 +69,6 @@ export default function ClientsPage() {
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -110,7 +93,7 @@ export default function ClientsPage() {
       try {
         const emp = await getCurrentEmployee();
         setEmployee(emp);
-        await fetchClients(emp);
+        await fetchClients();
         await fetchBanks();
         await fetchJobSectors();
       } catch (error) {
@@ -132,81 +115,58 @@ export default function ClientsPage() {
   /* =====================
      LOAD DATA
   ===================== */
-  async function fetchClients(emp: Employee | null = null) {
+  async function fetchClients() {
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('clients')
-        .select('id,name,mobile,email,eligible,status,nationality,created_at,created_by')
+        .select('id,name,eligible,status,created_at,created_by')
         .order('created_at', { ascending: false });
-
-      // إذا كان مندوب مبيعات، يرى فقط العملاء الذي أضافهم هو
-      if (emp && emp.role === 'sales') {
-        query = query.eq('created_by', emp.id);
-      }
-
-      const { data, error } = await query;
       
-      if (error) {
+      if (error) { 
         console.error('Error fetching clients:', error);
-        alert('حدث خطأ في تحميل العملاء');
-        return;
+        alert('حدث خطأ في تحميل العملاء: ' + error.message); 
+        return; 
       }
       
-      setClients(data || []);
+      // إذا كان مندوب مبيعات، نرى فقط العملاء الذي أضافهم هو
+      if (employee?.role === 'sales') {
+        const filteredClients = (data || []).filter(client => 
+          client.created_by === employee.id
+        );
+        setClients(filteredClients);
+      } else {
+        // الأدمن يرى كل العملاء
+        setClients(data || []);
+      }
     } catch (error) {
       console.error('Error in fetchClients:', error);
       setClients([]);
     }
   }
 
-  async function fetchClientDetails(id: string) {
-    try {
-      const { data, error } = await supabase
-        .from('clients')
-        .select(`
-          *,
-          bank_salary:salary_bank_id(id, name),
-          bank_finance:finance_bank_id(id, name),
-          job_sector:job_sector_id(id, name)
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
-      return data as ClientDetail;
-    } catch (error) {
-      console.error('Error fetching client details:', error);
-      return null;
-    }
-  }
-
   async function fetchBanks() {
     try {
-      const { data, error } = await supabase
-        .from('banks')
-        .select('id,name')
-        .order('name');
-        
-      if (error) throw error;
+      const { data, error } = await supabase.from('banks').select('id,name').order('name');
+      if (error) {
+        console.error('Error fetching banks:', error);
+        return;
+      }
       setBanks(data || []);
     } catch (error) {
-      console.error('Error fetching banks:', error);
-      setBanks([]);
+      console.error('Error in fetchBanks:', error);
     }
   }
 
   async function fetchJobSectors() {
     try {
-      const { data, error } = await supabase
-        .from('job_sectors')
-        .select('id,name')
-        .order('name');
-        
-      if (error) throw error;
+      const { data, error } = await supabase.from('job_sectors').select('id,name').order('name');
+      if (error) {
+        console.error('Error fetching job sectors:', error);
+        return;
+      }
       setJobSectors(data || []);
     } catch (error) {
-      console.error('Error fetching job sectors:', error);
-      setJobSectors([]);
+      console.error('Error in fetchJobSectors:', error);
     }
   }
 
@@ -228,128 +188,40 @@ export default function ClientsPage() {
     setJobSectorId('');
   }
 
-  async function startEdit(clientId: string) {
-    if (!employee || employee.role !== 'admin') {
-      alert('لا تملك صلاحية تعديل العملاء');
-      return;
-    }
-
-    try {
-      const client = await fetchClientDetails(clientId);
-      if (!client) {
-        alert('لم يتم العثور على بيانات العميل');
-        return;
-      }
-
-      setEditingId(client.id);
-      setName(client.name);
-      setMobile(client.mobile);
-      setEmail(client.email || '');
-      setIdentityType(client.identity_type || '');
-      setIdentityNo(client.identity_no || '');
-      setEligible(client.eligible);
-      setNationality(client.nationality);
-      setResidencyType(client.residency_type || '');
-      setSalaryBankId(client.salary_bank_id || '');
-      setFinanceBankId(client.finance_bank_id || '');
-      setJobSectorId(client.job_sector_id || '');
-    } catch (error) {
-      console.error('Error starting edit:', error);
-      alert('حدث خطأ في تحميل بيانات العميل');
-    }
-  }
-
-  function validateMobile(mobile: string): boolean {
-    // تحقق من رقم الجوال السعودي (يبدأ بـ 05 ويتكون من 10 أرقام)
-    return /^05\d{8}$/.test(mobile);
-  }
-
-  function validateEmail(email: string): boolean {
-    if (!email) return true; // الإيميل اختياري
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  }
-
   async function handleSubmit() {
-    // التحقق من الصلاحية للتعديل
-    if (editingId && employee?.role !== 'admin') {
-      alert('لا تملك صلاحية تعديل العملاء');
-      return;
-    }
-
-    // التحقق من الحقول المطلوبة
-    if (!name.trim()) {
-      alert('اسم العميل مطلوب');
-      return;
-    }
-
-    if (!mobile.trim()) {
-      alert('رقم الجوال مطلوب');
-      return;
-    }
-
-    // تحقق من صحة رقم الجوال
-    if (!validateMobile(mobile)) {
-      alert('رقم الجوال غير صحيح. يجب أن يبدأ بـ 05 ويتكون من 10 أرقام');
-      return;
-    }
-
-    // تحقق من صحة الإيميل
-    if (email && !validateEmail(email)) {
-      alert('البريد الإلكتروني غير صحيح');
-      return;
+    if (!name || !mobile) { 
+      alert('الاسم ورقم الجوال مطلوبين'); 
+      return; 
     }
 
     setSaving(true);
 
     try {
-      const payload: any = {
-        name: name.trim(),
-        mobile: mobile.trim(),
-        email: email.trim() || null,
+      const payload = {
+        name,
+        mobile,
+        email: email || null,
         identity_type: identityType || null,
-        identity_no: identityNo.trim() || null,
+        identity_no: identityNo || null,
         eligible,
         nationality,
+        residency_type: nationality === 'non_saudi' ? residencyType || null : null,
+        salary_bank_id: salaryBankId || null,
+        finance_bank_id: financeBankId || null,
+        job_sector_id: jobSectorId || null,
         status: 'lead',
+        created_by: employee?.id || null, // إضافة معرف المستخدم الذي أنشأ العميل
       };
 
-      // فقط عند الإضافة، نضيف created_by
-      if (!editingId && employee) {
-        payload.created_by = employee.id;
+      const res = await supabase.from('clients').insert(payload);
+      if (res.error) { 
+        alert(res.error.message); 
+        return; 
       }
 
-      // إضافة الحقول الخاصة بغير السعوديين
-      if (nationality === 'non_saudi') {
-        payload.residency_type = residencyType || null;
-      } else {
-        payload.residency_type = null;
-      }
-
-      // إضافة الحقول الاختيارية
-      if (salaryBankId) payload.salary_bank_id = salaryBankId;
-      if (financeBankId) payload.finance_bank_id = financeBankId;
-      if (jobSectorId) payload.job_sector_id = jobSectorId;
-
-      let res;
-      if (editingId) {
-        res = await supabase
-          .from('clients')
-          .update(payload)
-          .eq('id', editingId);
-      } else {
-        res = await supabase.from('clients').insert(payload);
-      }
-
-      if (res.error) {
-        console.error('Error saving client:', res.error);
-        alert(res.error.message);
-        return;
-      }
-
-      alert(editingId ? 'تم تحديث بيانات العميل بنجاح' : 'تم إضافة العميل بنجاح');
+      alert('تم إضافة العميل بنجاح');
       resetForm();
-      await fetchClients(employee);
+      await fetchClients();
     } catch (error) {
       console.error('Error in handleSubmit:', error);
       alert('حدث خطأ في حفظ البيانات');
@@ -359,13 +231,17 @@ export default function ClientsPage() {
   }
 
   async function handleDeleteClient(clientId: string) {
-    if (!employee || employee.role !== 'admin') {
+    // التحقق من الصلاحية
+    if (employee?.role !== 'admin') {
       alert('لا تملك صلاحية حذف العملاء');
       return;
     }
 
-    // التحقق إذا كان العميل مرتبط بحجوزات
+    const confirmDelete = window.confirm('هل أنت متأكد من حذف العميل؟');
+    if (!confirmDelete) return;
+
     try {
+      // التحقق إذا كان العميل مرتبط بحجوزات
       const { count: reservationsCount } = await supabase
         .from('reservations')
         .select('id', { count: 'exact', head: true })
@@ -376,40 +252,37 @@ export default function ClientsPage() {
         return;
       }
 
-      // التحقق إذا كان العميل مرتبط بعمليات بيع
-      const { count: salesCount } = await supabase
-        .from('sales')
-        .select('id', { count: 'exact', head: true })
-        .eq('client_id', clientId);
-
-      if ((salesCount || 0) > 0) {
-        alert('لا يمكن حذف عميل مرتبط بعمليات بيع');
-        return;
-      }
-
-      const confirmDelete = window.confirm('هل أنت متأكد من حذف العميل؟ لا يمكن التراجع عن هذا الإجراء.');
-      if (!confirmDelete) return;
-
-      setDeletingId(clientId);
-
       const { error } = await supabase
         .from('clients')
         .delete()
         .eq('id', clientId);
 
       if (error) {
-        console.error('Error deleting client:', error);
         alert(error.message);
         return;
       }
 
       alert('تم حذف العميل بنجاح');
-      await fetchClients(employee);
+      await fetchClients();
     } catch (error) {
-      console.error('Error in handleDeleteClient:', error);
+      console.error('Error deleting client:', error);
       alert('حدث خطأ في حذف العميل');
-    } finally {
-      setDeletingId(null);
+    }
+  }
+
+  async function handleEditClient(clientId: string) {
+    // التحقق من الصلاحية
+    if (employee?.role !== 'admin') {
+      alert('لا تملك صلاحية تعديل العملاء');
+      return;
+    }
+
+    try {
+      // هنا يمكنك جلب بيانات العميل وتعبئة الفورم للتعديل
+      // هذه مجرد رسالة توضيحية الآن
+      alert('ميزة التعديل قيد التطوير');
+    } catch (error) {
+      console.error('Error editing client:', error);
     }
   }
 
@@ -421,25 +294,23 @@ export default function ClientsPage() {
       <div className="page">
         {/* FORM */}
         {(employee?.role === 'admin' || employee?.role === 'sales') && (
-          <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
+          <Card title="إضافة عميل">
             <div className="form-row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              <Input
-                placeholder="اسم العميل *"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+              <Input 
+                placeholder="اسم العميل" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)} 
               />
-              <Input
-                placeholder="رقم الجوال * (مثال: 0512345678)"
-                value={mobile}
-                onChange={(e) => setMobile(e.target.value)}
+              <Input 
+                placeholder="رقم الجوال" 
+                value={mobile} 
+                onChange={(e) => setMobile(e.target.value)} 
               />
-              <Input
-                type="email"
-                placeholder="الإيميل (اختياري)"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+              <Input 
+                placeholder="الإيميل" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
               />
-              
               <select 
                 value={identityType} 
                 onChange={(e) => setIdentityType(e.target.value)}
@@ -449,13 +320,11 @@ export default function ClientsPage() {
                   <option key={i.value} value={i.value}>{i.label}</option>
                 ))}
               </select>
-              
-              <Input
-                placeholder="رقم الهوية"
-                value={identityNo}
-                onChange={(e) => setIdentityNo(e.target.value)}
+              <Input 
+                placeholder="رقم الهوية" 
+                value={identityNo} 
+                onChange={(e) => setIdentityNo(e.target.value)} 
               />
-              
               <select 
                 value={eligible ? 'yes' : 'no'} 
                 onChange={(e) => setEligible(e.target.value === 'yes')}
@@ -464,7 +333,6 @@ export default function ClientsPage() {
                 <option value="yes">مستحق</option>
                 <option value="no">غير مستحق</option>
               </select>
-              
               <select 
                 value={nationality} 
                 onChange={(e) => setNationality(e.target.value as any)}
@@ -473,7 +341,6 @@ export default function ClientsPage() {
                 <option value="saudi">سعودي</option>
                 <option value="non_saudi">غير سعودي</option>
               </select>
-              
               {nationality === 'non_saudi' && (
                 <select 
                   value={residencyType} 
@@ -486,71 +353,52 @@ export default function ClientsPage() {
                   ))}
                 </select>
               )}
-              
               <select 
                 value={salaryBankId} 
                 onChange={(e) => setSalaryBankId(e.target.value)}
                 style={{ minWidth: '150px' }}
               >
                 <option value="">بنك الراتب</option>
-                {banks.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
+                {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
-              
               <select 
                 value={financeBankId} 
                 onChange={(e) => setFinanceBankId(e.target.value)}
                 style={{ minWidth: '150px' }}
               >
                 <option value="">بنك التمويل</option>
-                {banks.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
+                {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
-              
               <select 
                 value={jobSectorId} 
                 onChange={(e) => setJobSectorId(e.target.value)}
                 style={{ minWidth: '150px' }}
               >
                 <option value="">القطاع الوظيفي</option>
-                {jobSectors.map(j => (
-                  <option key={j.id} value={j.id}>{j.name}</option>
-                ))}
+                {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </select>
-              
               <Button 
                 onClick={handleSubmit} 
-                disabled={saving || !name.trim() || !mobile.trim()}
+                disabled={saving}
               >
-                {saving ? 'جاري الحفظ...' : editingId ? 'تحديث' : 'حفظ'}
+                {saving ? 'جاري الحفظ...' : 'حفظ'}
               </Button>
-              
-              {editingId && (
-                <Button 
-                  onClick={resetForm} 
-                  variant="danger"
-                >
-                  إلغاء
-                </Button>
-              )}
             </div>
           </Card>
         )}
 
         {/* جدول العملاء */}
         <Card title="قائمة العملاء">
-          <Table headers={['الاسم', 'الجوال', 'مستحق', 'الحالة', 'الجنسية', 'إجراء']}>
+          <Table headers={['الاسم', 'مستحق', 'الحالة', 'إجراء']}>
             {loading ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+                <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>
                   جاري تحميل العملاء...
                 </td>
               </tr>
             ) : clients.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>
+                <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>
                   {employee?.role === 'sales' 
                     ? 'لم تقم بإضافة أي عملاء بعد' 
                     : 'لا يوجد عملاء'}
@@ -560,7 +408,6 @@ export default function ClientsPage() {
               clients.map(c => (
                 <tr key={c.id}>
                   <td>{c.name}</td>
-                  <td>{c.mobile}</td>
                   <td>
                     <span className={`badge ${c.eligible ? 'success' : 'danger'}`}>
                       {c.eligible ? 'مستحق' : 'غير مستحق'}
@@ -571,7 +418,6 @@ export default function ClientsPage() {
                       {translateStatus(c.status)}
                     </span>
                   </td>
-                  <td>{c.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <Button 
@@ -579,21 +425,18 @@ export default function ClientsPage() {
                       >
                         فتح
                       </Button>
-                      
                       {employee?.role === 'admin' && (
                         <>
                           <Button 
-                            onClick={() => startEdit(c.id)}
+                            onClick={() => handleEditClient(c.id)}
                           >
                             تعديل
                           </Button>
-                          
                           <Button 
                             onClick={() => handleDeleteClient(c.id)}
                             variant="danger"
-                            disabled={deletingId === c.id}
                           >
-                            {deletingId === c.id ? 'جاري الحذف...' : 'حذف'}
+                            حذف
                           </Button>
                         </>
                       )}

@@ -749,8 +749,8 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                   textAlign: 'right'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>👥</span> إدارة العملاء
               </button>
@@ -759,7 +759,7 @@ export default function DashboardPage() {
                 onClick={() => router.push('/dashboard/units')}
                 style={{ 
                   padding: '12px', 
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: '#2563eb',
                   border: '1px solid #ddd',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -768,8 +768,8 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                   textAlign: 'right'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>🏠</span> إدارة الوحدات
               </button>
@@ -778,7 +778,7 @@ export default function DashboardPage() {
                 onClick={() => router.push('/dashboard/projects')}
                 style={{ 
                   padding: '12px', 
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: '#2563eb',
                   border: '1px solid #ddd',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -787,8 +787,8 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                   textAlign: 'right'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>📋</span> إدارة المشاريع
               </button>
@@ -797,7 +797,7 @@ export default function DashboardPage() {
                 onClick={() => router.push('/dashboard/reservations')}
                 style={{ 
                   padding: '12px', 
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: '#2563eb',
                   border: '1px solid #ddd',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -806,8 +806,8 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                   textAlign: 'right'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>📅</span> الحجوزات
               </button>
@@ -816,7 +816,7 @@ export default function DashboardPage() {
                 onClick={() => router.push('/dashboard/sales')}
                 style={{ 
                   padding: '12px', 
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: '#2563eb',
                   border: '1px solid #ddd',
                   borderRadius: '6px',
                   cursor: 'pointer',
@@ -825,8 +825,8 @@ export default function DashboardPage() {
                   transition: 'all 0.2s',
                   textAlign: 'right'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f8f9fa'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
               >
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>💰</span> التنفيذات
               </button>

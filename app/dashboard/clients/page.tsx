@@ -19,7 +19,6 @@ type ClientListItem = {
   eligible: boolean;
   status: string;
   created_at: string;
-  created_by: string | null;
 };
 
 type Option = {
@@ -117,9 +116,10 @@ export default function ClientsPage() {
   ===================== */
   async function fetchClients() {
     try {
+      // استعلام بسيط بدون created_by
       const { data, error } = await supabase
         .from('clients')
-        .select('id,name,eligible,status,created_at,created_by')
+        .select('id,name,eligible,status,created_at')
         .order('created_at', { ascending: false });
       
       if (error) { 
@@ -128,16 +128,9 @@ export default function ClientsPage() {
         return; 
       }
       
-      // إذا كان مندوب مبيعات، نرى فقط العملاء الذي أضافهم هو
-      if (employee?.role === 'sales') {
-        const filteredClients = (data || []).filter(client => 
-          client.created_by === employee.id
-        );
-        setClients(filteredClients);
-      } else {
-        // الأدمن يرى كل العملاء
-        setClients(data || []);
-      }
+      // TODO: إذا كنت تريد فلترة حسب الموظف، تحتاج أولاً إضافة created_by إلى الجدول
+      // حالياً نعرض كل العملاء للجميع
+      setClients(data || []);
     } catch (error) {
       console.error('Error in fetchClients:', error);
       setClients([]);
@@ -197,6 +190,7 @@ export default function ClientsPage() {
     setSaving(true);
 
     try {
+      // payload بدون created_by لأنه غير موجود في الجدول
       const payload = {
         name,
         mobile,
@@ -210,7 +204,6 @@ export default function ClientsPage() {
         finance_bank_id: financeBankId || null,
         job_sector_id: jobSectorId || null,
         status: 'lead',
-        created_by: employee?.id || null, // إضافة معرف المستخدم الذي أنشأ العميل
       };
 
       const res = await supabase.from('clients').insert(payload);
@@ -278,11 +271,88 @@ export default function ClientsPage() {
     }
 
     try {
-      // هنا يمكنك جلب بيانات العميل وتعبئة الفورم للتعديل
-      // هذه مجرد رسالة توضيحية الآن
-      alert('ميزة التعديل قيد التطوير');
+      // جلب بيانات العميل
+      const { data: client, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', clientId)
+        .single();
+
+      if (error) {
+        alert('خطأ في جلب بيانات العميل: ' + error.message);
+        return;
+      }
+
+      if (!client) {
+        alert('العميل غير موجود');
+        return;
+      }
+
+      // تعبئة النموذج للتحرير
+      setEditingId(client.id);
+      setName(client.name);
+      setMobile(client.mobile);
+      setEmail(client.email || '');
+      setIdentityType(client.identity_type || '');
+      setIdentityNo(client.identity_no || '');
+      setEligible(client.eligible);
+      setNationality(client.nationality);
+      setResidencyType(client.residency_type || '');
+      setSalaryBankId(client.salary_bank_id || '');
+      setFinanceBankId(client.finance_bank_id || '');
+      setJobSectorId(client.job_sector_id || '');
+      
+      // نقل التركيز للنموذج
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       console.error('Error editing client:', error);
+      alert('حدث خطأ في تحميل بيانات العميل');
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!name || !mobile) { 
+      alert('الاسم ورقم الجوال مطلوبين'); 
+      return; 
+    }
+
+    if (!editingId) return;
+
+    setSaving(true);
+
+    try {
+      const payload = {
+        name,
+        mobile,
+        email: email || null,
+        identity_type: identityType || null,
+        identity_no: identityNo || null,
+        eligible,
+        nationality,
+        residency_type: nationality === 'non_saudi' ? residencyType || null : null,
+        salary_bank_id: salaryBankId || null,
+        finance_bank_id: financeBankId || null,
+        job_sector_id: jobSectorId || null,
+      };
+
+      const { error } = await supabase
+        .from('clients')
+        .update(payload)
+        .eq('id', editingId);
+
+      if (error) { 
+        alert(error.message); 
+        return; 
+      }
+
+      alert('تم تحديث بيانات العميل بنجاح');
+      resetForm();
+      await fetchClients();
+    } catch (error) {
+      console.error('Error in handleSaveEdit:', error);
+      alert('حدث خطأ في حفظ البيانات');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -294,7 +364,7 @@ export default function ClientsPage() {
       <div className="page">
         {/* FORM */}
         {(employee?.role === 'admin' || employee?.role === 'sales') && (
-          <Card title="إضافة عميل">
+          <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
             <div className="form-row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <Input 
                 placeholder="اسم العميل" 
@@ -377,12 +447,22 @@ export default function ClientsPage() {
                 <option value="">القطاع الوظيفي</option>
                 {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </select>
+              
               <Button 
-                onClick={handleSubmit} 
+                onClick={editingId ? handleSaveEdit : handleSubmit} 
                 disabled={saving}
               >
-                {saving ? 'جاري الحفظ...' : 'حفظ'}
+                {saving ? 'جاري الحفظ...' : editingId ? 'تحديث' : 'حفظ'}
               </Button>
+              
+              {editingId && (
+                <Button 
+                  onClick={resetForm}
+                  variant="danger"
+                >
+                  إلغاء
+                </Button>
+              )}
             </div>
           </Card>
         )}
@@ -399,9 +479,7 @@ export default function ClientsPage() {
             ) : clients.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>
-                  {employee?.role === 'sales' 
-                    ? 'لم تقم بإضافة أي عملاء بعد' 
-                    : 'لا يوجد عملاء'}
+                  لا يوجد عملاء
                 </td>
               </tr>
             ) : (

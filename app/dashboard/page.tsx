@@ -75,6 +75,51 @@ function StatusBadge({
 }
 
 /* =====================
+   Custom Search Input
+===================== */
+
+function SearchInput({ 
+  placeholder, 
+  value, 
+  onChange 
+}: { 
+  placeholder: string; 
+  value: string; 
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div style={{ position: 'relative', minWidth: '250px' }}>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          width: '100%',
+          padding: '10px 15px 10px 40px',
+          borderRadius: '6px',
+          border: '1px solid #ddd',
+          fontSize: '14px',
+          transition: 'all 0.2s ease'
+        }}
+        onFocus={(e) => e.target.style.borderColor = '#3498db'}
+        onBlur={(e) => e.target.style.borderColor = '#ddd'}
+      />
+      <div style={{
+        position: 'absolute',
+        left: '12px',
+        top: '50%',
+        transform: 'translateY(-50%)',
+        fontSize: '16px',
+        color: '#666'
+      }}>
+        🔍
+      </div>
+    </div>
+  );
+}
+
+/* =====================
    Constants
 ===================== */
 const IDENTITY_TYPES = [
@@ -405,11 +450,10 @@ export default function ClientsPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <Input 
-              placeholder="🔍 بحث بالاسم، الجوال، أو الرقم..." 
+            <SearchInput 
+              placeholder="بحث بالاسم، الجوال، أو الرقم..." 
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ minWidth: '250px' }}
+              onChange={setSearchTerm}
             />
           </div>
         </div>

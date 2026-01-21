@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
+import * as XLSX from 'xlsx';
 
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
@@ -80,6 +81,207 @@ function projectText(p: ProjectRef | null) {
 }
 
 /* =====================
+   Excel Import/Export Functions
+===================== */
+
+// تصدير البيانات إلى Excel
+function exportToExcel(units: Unit[], fileName: string = 'وحدات.xlsx') {
+  try {
+    // تحويل البيانات إلى تنسيق مناسب لـ Excel
+    const excelData = units.map(unit => ({
+      'كود الوحدة': unit.unit_code,
+      'رقم البلوك': unit.block_no || '-',
+      'رقم الوحدة': unit.unit_no || '-',
+      'النوع': typeLabel(unit.unit_type),
+      'الحالة': statusLabel(unit.status),
+      'مساحة الأرض': unit.land_area || '-',
+      'مسطح البناء': unit.build_area || '-',
+      'السعر المعتمد': unit.supported_price,
+      'المشروع': projectText(unit.project),
+      'النموذج': unit.model?.name || '-',
+      'معرف الوحدة': unit.id,
+    }));
+
+    // إنشاء ورقة عمل
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    
+    // إنشاء مصنف
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'الوحدات');
+    
+    // تنزيل الملف
+    XLSX.writeFile(wb, fileName);
+    
+    return true;
+  } catch (error) {
+    console.error('Error exporting to Excel:', error);
+    alert('حدث خطأ أثناء تصدير البيانات إلى Excel');
+    return false;
+  }
+}
+
+// استيراد البيانات من Excel
+async function importFromExcel(file: File, onSuccess?: (data: any[]) => void, onError?: (error: string) => void) {
+  try {
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        
+        // الحصول على أول ورقة
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // تحويل الورقة إلى JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        
+        console.log('Imported data:', jsonData);
+        
+        if (onSuccess) {
+          onSuccess(jsonData);
+        }
+      } catch (parseError) {
+        console.error('Error parsing Excel file:', parseError);
+        if (onError) {
+          onError('حدث خطأ في تحليل ملف Excel');
+        }
+      }
+    };
+    
+    reader.onerror = () => {
+      if (onError) {
+        onError('حدث خطأ في قراءة الملف');
+      }
+    };
+    
+    reader.readAsBinaryString(file);
+  } catch (error) {
+    console.error('Error importing from Excel:', error);
+    if (onError) {
+      onError('حدث خطأ في استيراد البيانات');
+    }
+  }
+}
+
+// معالجة البيانات المستوردة
+async function processImportedUnits(data: any[], projects: ProjectOption[], models: ModelOption[]) {
+  const processedUnits = [];
+  const errors = [];
+  
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const rowNumber = i + 2; // +2 لأن الصف الأول هو العناوين
+    
+    try {
+      // البحث عن المشروع بواسطة الاسم أو الكود
+      let project = null;
+      const projectName = row['المشروع'] || row['project'] || row['Project'];
+      
+      if (projectName) {
+        project = projects.find(p => 
+          p.name === projectName || 
+          p.code === projectName ||
+          p.name.includes(projectName) ||
+          projectName.includes(p.name)
+        );
+        
+        if (!project) {
+          errors.push(`الصف ${rowNumber}: المشروع "${projectName}" غير موجود في النظام`);
+          continue;
+        }
+      } else {
+        errors.push(`الصف ${rowNumber}: اسم المشروع مطلوب`);
+        continue;
+      }
+      
+      // البحث عن النموذج
+      let model = null;
+      const modelName = row['النموذج'] || row['model'] || row['Model'];
+      
+      if (modelName && project) {
+        // جلب نماذج المشروع
+        const projectModels = await supabase
+          .from('project_models')
+          .select('id,name')
+          .eq('project_id', project.id);
+          
+        if (projectModels.data) {
+          model = projectModels.data.find(m => 
+            m.name === modelName || 
+            m.name.includes(modelName) ||
+            modelName.includes(m.name)
+          );
+          
+          if (!model) {
+            errors.push(`الصف ${rowNumber}: النموذج "${modelName}" غير موجود في المشروع "${project.name}"`);
+            continue;
+          }
+        }
+      }
+      
+      // تحويل النوع
+      const unitTypeMap: Record<string, Unit['unit_type']> = {
+        'فيلا': 'villa',
+        'دوبلكس': 'duplex',
+        'شقة': 'apartment',
+        'villa': 'villa',
+        'duplex': 'duplex',
+        'apartment': 'apartment'
+      };
+      
+      const typeText = row['النوع'] || row['type'] || row['Type'] || 'apartment';
+      const unitType = unitTypeMap[typeText] || 'apartment';
+      
+      // تحويل الحالة
+      const statusMap: Record<string, Unit['status']> = {
+        'متاحة': 'available',
+        'محجوزة': 'reserved',
+        'مباعة': 'sold',
+        'available': 'available',
+        'reserved': 'reserved',
+        'sold': 'sold'
+      };
+      
+      const statusText = row['الحالة'] || row['status'] || row['Status'] || 'available';
+      const unitStatus = statusMap[statusText] || 'available';
+      
+      // إنشاء كائن الوحدة
+      const unit = {
+        unit_code: row['كود الوحدة'] || row['unit_code'] || row['Unit Code'] || '',
+        block_no: row['رقم البلوك'] || row['block_no'] || row['Block No'] || null,
+        unit_no: row['رقم الوحدة'] || row['unit_no'] || row['Unit No'] || null,
+        unit_type: unitType,
+        status: unitStatus,
+        supported_price: Number(row['السعر المعتمد'] || row['supported_price'] || row['Price'] || 0),
+        land_area: row['مساحة الأرض'] || row['land_area'] || row['Land Area'] ? Number(row['مساحة الأرض'] || row['land_area'] || row['Land Area']) : null,
+        build_area: row['مسطح البناء'] || row['build_area'] || row['Build Area'] ? Number(row['مسطح البناء'] || row['build_area'] || row['Build Area']) : null,
+        project_id: project.id,
+        model_id: model?.id || null,
+      };
+      
+      // التحقق من البيانات المطلوبة
+      if (!unit.unit_code.trim()) {
+        errors.push(`الصف ${rowNumber}: كود الوحدة مطلوب`);
+        continue;
+      }
+      
+      if (unit.supported_price <= 0) {
+        errors.push(`الصف ${rowNumber}: السعر يجب أن يكون أكبر من صفر`);
+        continue;
+      }
+      
+      processedUnits.push(unit);
+    } catch (error) {
+      errors.push(`الصف ${rowNumber}: خطأ في معالجة البيانات - ${error}`);
+    }
+  }
+  
+  return { processedUnits, errors };
+}
+
+/* =====================
    Page
 ===================== */
 
@@ -92,6 +294,12 @@ export default function UnitsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // Excel import states
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [showImportErrors, setShowImportErrors] = useState(false);
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -107,6 +315,7 @@ export default function UnitsPage() {
   const [modelId, setModelId] = useState('');
 
   const prefillingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* =====================
      INIT
@@ -337,11 +546,243 @@ export default function UnitsPage() {
   }
 
   /* =====================
+     Excel Import/Export Handlers
+  ===================== */
+
+  function handleExportExcel() {
+    if (units.length === 0) {
+      alert('لا توجد بيانات للتصدير');
+      return;
+    }
+    
+    const fileName = `وحدات_${new Date().toISOString().split('T')[0]}.xlsx`;
+    exportToExcel(units, fileName);
+  }
+
+  function handleImportClick() {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }
+
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // التحقق من نوع الملف
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      alert('الرجاء اختيار ملف Excel بصيغة .xlsx أو .xls أو .csv');
+      return;
+    }
+
+    setImporting(true);
+    setImportProgress(0);
+    setImportErrors([]);
+    setShowImportErrors(false);
+
+    try {
+      // تحميل الملف ومعالجته
+      await importFromExcel(
+        file,
+        async (data) => {
+          // معالجة البيانات المستوردة
+          const { processedUnits, errors } = await processImportedUnits(data, projects, models);
+          
+          if (errors.length > 0) {
+            setImportErrors(errors);
+            setShowImportErrors(true);
+            
+            if (processedUnits.length === 0) {
+              alert('لا توجد وحدات صالحة للإضافة بسبب الأخطاء');
+              setImporting(false);
+              return;
+            }
+          }
+
+          setImportProgress(30);
+
+          // إضافة الوحدات إلى قاعدة البيانات
+          const successCount = 0;
+          const errorCount = 0;
+          
+          for (let i = 0; i < processedUnits.length; i++) {
+            const unit = processedUnits[i];
+            
+            try {
+              const { error } = await supabase.from('units').insert(unit);
+              
+              if (error) {
+                errorCount++;
+                console.error(`Error importing unit ${i + 1}:`, error);
+              } else {
+                successCount++;
+              }
+              
+              // تحديث التقدم
+              const progress = 30 + Math.floor((i + 1) / processedUnits.length * 70);
+              setImportProgress(progress);
+              
+            } catch (unitError) {
+              errorCount++;
+              console.error(`Error importing unit ${i + 1}:`, unitError);
+            }
+          }
+          
+          setImportProgress(100);
+          
+          // عرض النتائج
+          let message = `تم استيراد ${successCount} وحدة بنجاح.`;
+          if (errorCount > 0) {
+            message += ` فشل استيراد ${errorCount} وحدة.`;
+          }
+          if (errors.length > 0) {
+            message += ` يوجد ${errors.length} خطأ في تنسيق البيانات.`;
+          }
+          
+          alert(message);
+          
+          // إعادة تحميل البيانات
+          await loadUnits(employee);
+          
+          // إعادة تعيين حقل الملف
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        },
+        (errorMessage) => {
+          alert(`خطأ في الاستيراد: ${errorMessage}`);
+        }
+      );
+    } catch (error) {
+      console.error('Error in file upload:', error);
+      alert('حدث خطأ أثناء استيراد الملف');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function downloadTemplate() {
+    // إنشاء قالب Excel
+    const templateData = [
+      {
+        'كود الوحدة': 'UNIT001',
+        'رقم البلوك': 'B1',
+        'رقم الوحدة': '101',
+        'النوع': 'فيلا',
+        'الحالة': 'متاحة',
+        'مساحة الأرض': '300',
+        'مسطح البناء': '250',
+        'السعر المعتمد': '1500000',
+        'المشروع': 'اسم المشروع',
+        'النموذج': 'اسم النموذج'
+      }
+    ];
+    
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'الوحدات');
+    XLSX.writeFile(wb, 'قالب_استيراد_الوحدات.xlsx');
+  }
+
+  /* =====================
      UI
   ===================== */
   return (
     <RequireAuth>
       <div className="page units-page">
+        {/* Excel Import/Export Section - للادمن فقط */}
+        {employee?.role === 'admin' && (
+          <Card title="استيراد وتصدير البيانات">
+            <div className="form-row" style={{ gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
+              <Button onClick={handleExportExcel} disabled={units.length === 0}>
+                تصدير إلى Excel
+              </Button>
+              
+              <Button onClick={handleImportClick} disabled={importing}>
+                {importing ? 'جاري الاستيراد...' : 'استيراد من Excel'}
+              </Button>
+              
+              <Button onClick={downloadTemplate}>
+                تحميل القالب
+              </Button>
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".xlsx,.xls,.csv"
+                style={{ display: 'none' }}
+              />
+              
+              {importing && (
+                <div style={{ width: '100%', marginTop: '10px' }}>
+                  <div style={{ 
+                    width: '100%', 
+                    backgroundColor: '#e0e0e0', 
+                    borderRadius: '4px', 
+                    overflow: 'hidden',
+                    marginBottom: '5px'
+                  }}>
+                    <div 
+                      style={{ 
+                        width: `${importProgress}%`, 
+                        height: '20px', 
+                        backgroundColor: '#4CAF50',
+                        transition: 'width 0.3s ease'
+                      }}
+                    />
+                  </div>
+                  <div style={{ textAlign: 'center', fontSize: '14px', color: '#666' }}>
+                    {importProgress}%
+                  </div>
+                </div>
+              )}
+              
+              {showImportErrors && importErrors.length > 0 && (
+                <div style={{ 
+                  width: '100%', 
+                  marginTop: '10px',
+                  padding: '10px',
+                  backgroundColor: '#ffebee',
+                  border: '1px solid #ffcdd2',
+                  borderRadius: '4px'
+                }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    marginBottom: '10px'
+                  }}>
+                    <strong style={{ color: '#c62828' }}>أخطاء الاستيراد ({importErrors.length})</strong>
+                    <Button 
+                      size="small" 
+                      variant="danger"
+                      onClick={() => setShowImportErrors(false)}
+                    >
+                      إغلاق
+                    </Button>
+                  </div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    {importErrors.map((error, index) => (
+                      <div 
+                        key={index} 
+                        style={{ 
+                          padding: '5px 0', 
+                          borderBottom: index < importErrors.length - 1 ? '1px solid #ffcdd2' : 'none',
+                          fontSize: '12px',
+                          color: '#c62828'
+                        }}
+                      >
+                        {error}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
         {/* FORM */}
         {employee?.role === 'admin' && (
           <Card title={editingId ? 'تعديل وحدة' : 'إضافة وحدة'}>
@@ -382,7 +823,18 @@ export default function UnitsPage() {
         )}
 
         {/* TABLE */}
-        <Card title="قائمة الوحدات">
+        <Card 
+          title={`قائمة الوحدات (${units.length})`}
+          headerAction={employee?.role === 'admin' && (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                {units.filter(u => u.status === 'available').length} متاحة | 
+                {units.filter(u => u.status === 'reserved').length} محجوزة | 
+                {units.filter(u => u.status === 'sold').length} مباعة
+              </span>
+            </div>
+          )}
+        >
           <div className="units-scroll">
             <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>
               {loading ? (

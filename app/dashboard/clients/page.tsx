@@ -576,7 +576,6 @@ export default function ClientsPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <Button 
                         onClick={() => router.push(`/dashboard/clients/${c.id}`)}
-                        size="small"
                       >
                         فتح
                       </Button>
@@ -585,7 +584,6 @@ export default function ClientsPage() {
                         <>
                           <Button 
                             onClick={() => startEdit(c.id)}
-                            size="small"
                           >
                             تعديل
                           </Button>
@@ -593,7 +591,6 @@ export default function ClientsPage() {
                           <Button 
                             onClick={() => handleDeleteClient(c.id)}
                             variant="danger"
-                            size="small"
                             disabled={deletingId === c.id}
                           >
                             {deletingId === c.id ? 'جاري الحذف...' : 'حذف'}

@@ -740,7 +740,7 @@ export default function DashboardPage() {
                 onClick={() => router.push('/dashboard/clients')}
                 style={{ 
                   padding: '12px', 
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: '#2563eb',
                   border: '1px solid #ddd',
                   borderRadius: '6px',
                   cursor: 'pointer',

@@ -755,7 +755,6 @@ export default function UnitsPage() {
                   }}>
                     <strong style={{ color: '#c62828' }}>أخطاء الاستيراد ({importErrors.length})</strong>
                     <Button 
-                      size="small" 
                       variant="danger"
                       onClick={() => setShowImportErrors(false)}
                     >

@@ -822,18 +822,36 @@ export default function UnitsPage() {
         )}
 
         {/* TABLE */}
-        <Card 
-          title={`قائمة الوحدات (${units.length})`}
-          headerAction={employee?.role === 'admin' && (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', color: '#666' }}>
-                {units.filter(u => u.status === 'available').length} متاحة | 
-                {units.filter(u => u.status === 'reserved').length} محجوزة | 
-                {units.filter(u => u.status === 'sold').length} مباعة
-              </span>
+        <Card title={`قائمة الوحدات (${units.length})`}>
+          {/* Statistics Section - للادمن فقط */}
+          {employee?.role === 'admin' && (
+            <div style={{ 
+              padding: '10px 15px', 
+              backgroundColor: '#f5f5f5', 
+              borderBottom: '1px solid #e0e0e0',
+              marginBottom: '15px',
+              borderRadius: '4px 4px 0 0'
+            }}>
+              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                    {units.filter(u => u.status === 'available').length}
+                  </span> متاحة
+                </span>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
+                    {units.filter(u => u.status === 'reserved').length}
+                  </span> محجوزة
+                </span>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#F44336', fontWeight: 'bold' }}>
+                    {units.filter(u => u.status === 'sold').length}
+                  </span> مباعة
+                </span>
+              </div>
             </div>
           )}
-        >
+          
           <div className="units-scroll">
             <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>
               {loading ? (

@@ -6,28 +6,44 @@ import { supabase } from '@/lib/supabaseClient';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import FollowUps from './followups';
 
 /* =====================
    Types
 ===================== */
 
-type Client = {
+type Sale = {
   id: string;
+  sale_date: string;
+  price_before_tax: number;
+  finance_type: string | null;
+  finance_entity: string | null;
+  contract_support_no: string | null;
+  contract_talad_no: string | null;
+  contract_type: string | null;
+  client_id: string;
+  unit_id: string;
+  project_id: string;
+  sales_employee_id: string;
+  created_at: string;
+};
+
+type Client = {
   name: string;
   mobile: string;
-  email: string | null;
-  identity_type: string | null;
-  identity_no: string | null;
-  eligible: boolean;
-  nationality: 'saudi' | 'non_saudi';
-  residency_type: string | null;
-  salary_bank_id: string | null;
-  finance_bank_id: string | null;
-  job_sector_id: string | null;
   status: string;
-  created_at: string;
-  saved_by: string | null;
+  email: string | null;
+};
+
+type Unit = {
+  unit_code: string;
+  block_no: string | null;
+  unit_type: string | null;
+  supported_price: number | null;
+};
+
+type Employee = {
+  name: string;
+  role: string;
 };
 
 /* =====================
@@ -36,12 +52,10 @@ type Client = {
 
 function StatusBadge({ 
   children, 
-  status = 'default',
-  small = false
+  status = 'default' 
 }: { 
   children: React.ReactNode;
   status?: 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'default';
-  small?: boolean;
 }) {
   const colors = {
     success: { bg: '#d4edda', color: '#155724', border: '#c3e6cb' },
@@ -53,8 +67,6 @@ function StatusBadge({
   };
 
   const color = colors[status];
-  const fontSize = small ? '11px' : '12px';
-  const padding = small ? '3px 8px' : '4px 10px';
 
   return (
     <span
@@ -62,9 +74,9 @@ function StatusBadge({
         backgroundColor: color.bg,
         color: color.color,
         border: `1px solid ${color.border}`,
-        padding,
+        padding: '4px 10px',
         borderRadius: '20px',
-        fontSize,
+        fontSize: '12px',
         fontWeight: '600',
         display: 'inline-block'
       }}
@@ -75,144 +87,139 @@ function StatusBadge({
 }
 
 /* =====================
-   Constants
-===================== */
-
-const RESIDENCY_LABELS: Record<string, string> = {
-  residence: 'إقامة',
-  golden: 'إقامة ذهبية',
-  premium: 'إقامة مميزة',
-};
-
-/* =====================
    Page
 ===================== */
 
-export default function ClientPage() {
+export default function SaleViewPage() {
   const params = useParams();
   const router = useRouter();
-  const clientId = params.id as string;
 
+  const saleId = params.id as string;
+
+  const [sale, setSale] = useState<Sale | null>(null);
   const [client, setClient] = useState<Client | null>(null);
-  const [tab, setTab] = useState<'details' | 'followups'>('details');
+  const [unit, setUnit] = useState<Unit | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [projectName, setProjectName] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [salaryBankName, setSalaryBankName] = useState<string | null>(null);
-  const [financeBankName, setFinanceBankName] = useState<string | null>(null);
-  const [jobSectorName, setJobSectorName] = useState<string | null>(null);
-  const [savedByName, setSavedByName] = useState<string>('-');
-  const [reservationId, setReservationId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAll();
-  }, [clientId]);
+  }, [saleId]);
+
+  /* =====================
+     Fetch Data
+  ===================== */
 
   async function fetchAll() {
     setLoading(true);
 
     try {
-      // ====== العميل ======
-      const { data: c } = await supabase
-        .from('clients')
+      // 1️⃣ بيانات التنفيذ
+      const { data: s } = await supabase
+        .from('sales')
         .select('*')
-        .eq('id', clientId)
+        .eq('id', saleId)
         .maybeSingle();
 
-      if (!c) {
-        setClient(null);
+      if (!s) {
+        setSale(null);
         setLoading(false);
         return;
       }
 
-      setClient(c);
+      setSale(s);
 
-      // ====== بنك الراتب ======
-      if (c.salary_bank_id) {
-        const { data } = await supabase
-          .from('banks')
-          .select('name')
-          .eq('id', c.salary_bank_id)
-          .maybeSingle();
-        setSalaryBankName(data?.name ?? null);
-      }
-
-      // ====== بنك التمويل ======
-      if (c.finance_bank_id) {
-        const { data } = await supabase
-          .from('banks')
-          .select('name')
-          .eq('id', c.finance_bank_id)
-          .maybeSingle();
-        setFinanceBankName(data?.name ?? null);
-      }
-
-      // ====== القطاع الوظيفي ======
-      if (c.job_sector_id) {
-        const { data } = await supabase
-          .from('job_sectors')
-          .select('name')
-          .eq('id', c.job_sector_id)
-          .maybeSingle();
-        setJobSectorName(data?.name ?? null);
-      }
-
-      // ====== مسجل بواسطة ======
-      if (c.saved_by) {
-        const { data } = await supabase
-          .from('employees')
-          .select('name')
-          .eq('id', c.saved_by)
-          .maybeSingle();
-        setSavedByName(data?.name ?? '-');
-      } else {
-        setSavedByName('-');
-      }
-
-      // ====== آخر حجز ======
-      const { data: reservation } = await supabase
-        .from('reservations')
-        .select('id')
-        .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(1)
+      // 2️⃣ بيانات العميل
+      const { data: c } = await supabase
+        .from('clients')
+        .select('name, mobile, status, email')
+        .eq('id', s.client_id)
         .maybeSingle();
 
-      setReservationId(reservation?.id ?? null);
+      setClient(c || null);
+
+      // 3️⃣ بيانات الوحدة
+      const { data: u } = await supabase
+        .from('units')
+        .select(`
+          unit_code, 
+          block_no, 
+          unit_type,
+          supported_price,
+          project_id,
+          projects (name)
+        `)
+        .eq('id', s.unit_id)
+        .maybeSingle();
+
+      if (u) {
+        setUnit({
+          unit_code: u.unit_code,
+          block_no: u.block_no,
+          unit_type: u.unit_type,
+          supported_price: u.supported_price
+        });
+        
+        // استخراج اسم المشروع
+        if (u.projects && Array.isArray(u.projects) && u.projects.length > 0) {
+          setProjectName(u.projects[0].name || '');
+        } else if (u.projects && typeof u.projects === 'object') {
+          setProjectName((u.projects as any).name || '');
+        }
+      }
+
+      // 4️⃣ بيانات الموظف
+      const { data: e } = await supabase
+        .from('employees')
+        .select('name, role')
+        .eq('id', s.sales_employee_id)
+        .maybeSingle();
+
+      setEmployee(e || null);
     } catch (error) {
-      console.error('Error fetching client data:', error);
+      console.error('Error fetching sale:', error);
     } finally {
       setLoading(false);
     }
   }
 
   /* =====================
-     Status Colors
+     Status Badge Colors
   ===================== */
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
-      case 'lead':
-      case 'متابعة':
-        return 'warning';
-      case 'reserved':
-      case 'محجوز':
-        return 'info';
-      case 'visited':
-      case 'تمت الزيارة':
-        return 'success';
+      case 'active':
+      case 'completed':
       case 'converted':
-      case 'تم البيع':
-        return 'primary';
+        return 'success';
+      case 'pending':
+      case 'waiting':
+        return 'warning';
+      case 'cancelled':
+      case 'expired':
+        return 'danger';
       default:
         return 'default';
     }
   };
 
-  const getEligibilityColor = (eligible: boolean) => {
-    return eligible ? 'success' : 'danger';
-  };
-
-  const getNationalityColor = (nationality: string) => {
-    return nationality === 'saudi' ? 'primary' : 'info';
+  const getFinanceTypeColor = (type: string | null) => {
+    if (!type) return 'default';
+    switch (type.toLowerCase()) {
+      case 'cash':
+      case 'نقدي':
+        return 'success';
+      case 'finance':
+      case 'تمويل':
+        return 'info';
+      case 'installment':
+      case 'تقسيط':
+        return 'primary';
+      default:
+        return 'default';
+    }
   };
 
   /* =====================
@@ -237,7 +244,7 @@ export default function ClientPage() {
             animation: 'spin 1s linear infinite',
             margin: '0 auto 20px'
           }}></div>
-          <div style={{ color: '#666' }}>جاري تحميل بيانات العميل...</div>
+          <div style={{ color: '#666' }}>جاري تحميل بيانات التنفيذ...</div>
         </div>
         <style jsx>{`
           @keyframes spin {
@@ -249,7 +256,7 @@ export default function ClientPage() {
     );
   }
 
-  if (!client) {
+  if (!sale || !client) {
     return (
       <div className="page">
         <div style={{
@@ -260,37 +267,19 @@ export default function ClientPage() {
           textAlign: 'center',
           marginBottom: '20px'
         }}>
-          <h3 style={{ color: '#856404', marginBottom: '10px' }}>العميل غير موجود</h3>
-          <p style={{ color: '#666' }}>قد يكون العميل قد تم حذفه أو لا يوجد لديك صلاحية للوصول إليه.</p>
+          <h3 style={{ color: '#856404', marginBottom: '10px' }}>التنفيذ غير موجود</h3>
+          <p style={{ color: '#666' }}>قد يكون التنفيذ قد تم حذفه أو لا يوجد لديك صلاحية للوصول إليه.</p>
           <div style={{ marginTop: '15px' }}>
             <Button 
-              onClick={() => router.push('/dashboard/clients')}
+              onClick={() => router.push('/dashboard/sales')}
             >
-              ↩ العودة لقائمة العملاء
+              ↩ العودة لقائمة التنفيذات
             </Button>
           </div>
         </div>
       </div>
     );
   }
-
-  /* =====================
-     Helper Functions
-  ===================== */
-
-  function translateStatus(status: string) {
-    switch (status) {
-      case 'lead': return 'متابعة';
-      case 'reserved': return 'محجوز';
-      case 'visited': return 'تمت الزيارة';
-      case 'converted': return 'تم البيع';
-      default: return status;
-    }
-  }
-
-  const residencyArabic = client.residency_type
-    ? RESIDENCY_LABELS[client.residency_type] ?? client.residency_type
-    : '-';
 
   return (
     <div className="page">
@@ -312,7 +301,7 @@ export default function ClientPage() {
             color: '#2c3e50',
             fontSize: '28px'
           }}>
-            ملف العميل
+            تفاصيل التنفيذ
           </h1>
           <div style={{ 
             display: 'flex', 
@@ -320,215 +309,256 @@ export default function ClientPage() {
             gap: '10px',
             flexWrap: 'wrap'
           }}>
-            <StatusBadge status={getStatusColor(client.status)}>
-              {translateStatus(client.status)}
+            <StatusBadge status="success">
+              ✅ تم البيع
             </StatusBadge>
             <span style={{ color: '#666', fontSize: '14px' }}>
-              رقم العميل: {client.id.substring(0, 8).toUpperCase()}
+              رقم التنفيذ: {sale.id.substring(0, 8).toUpperCase()}
             </span>
             <span style={{ color: '#666', fontSize: '14px' }}>
-              تاريخ التسجيل: {new Date(client.created_at).toLocaleDateString('ar-SA')}
+              تاريخ الإنشاء: {new Date(sale.created_at).toLocaleDateString('ar-SA')}
             </span>
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <Button 
-            variant={tab === 'details' ? 'primary' : 'secondary'}
-            onClick={() => setTab('details')}
+            variant="secondary" 
+            onClick={() => window.print()}
           >
-            📋 البيانات الأساسية
+            🖨️ طباعة
           </Button>
+
           <Button 
-            variant={tab === 'followups' ? 'primary' : 'secondary'}
-            onClick={() => setTab('followups')}
+            onClick={() => router.push('/dashboard/sales')}
           >
-            📞 المتابعات
+            ↩ العودة للقائمة
           </Button>
+
           <Button 
-            onClick={() => router.push(`/dashboard/clients/${clientId}/reservation`)}
+            variant="danger" 
+            onClick={deleteSale}
           >
-            📅 حجز جديد
+            🗑️ حذف التنفيذ
           </Button>
-          {reservationId && (
-            <Button 
-              onClick={() => router.push(`/dashboard/clients/${clientId}/reservation/${reservationId}`)}
-            >
-              🏠 عرض الحجز
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* ===== MAIN CONTENT ===== */}
-      {tab === 'details' ? (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-          gap: '25px',
-          marginBottom: '30px'
-        }}>
-          
-          {/* البيانات الأساسية */}
-          <div>
-            <div style={{ marginBottom: '20px' }}>
-              <Card title="👤 المعلومات الشخصية">
-                <DetailGrid>
-                  <DetailItem 
-                    label="الاسم الكامل" 
-                    value={client.name} 
-                    icon="👤"
-                  />
-                  <DetailItem 
-                    label="رقم الجوال" 
-                    value={client.mobile} 
-                    icon="📱"
-                    copyable
-                  />
-                  <DetailItem 
-                    label="البريد الإلكتروني" 
-                    value={client.email || 'غير متوفر'} 
-                    icon="✉️"
-                  />
-                  <DetailItem 
-                    label="حالة العميل" 
-                    value={
-                      <StatusBadge status={getStatusColor(client.status)}>
-                        {translateStatus(client.status)}
-                      </StatusBadge>
-                    }
-                  />
-                  <DetailItem 
-                    label="مسجل بواسطة" 
-                    value={savedByName} 
-                    icon="👨‍💼"
-                  />
-                  <DetailItem 
-                    label="تاريخ التسجيل" 
-                    value={new Date(client.created_at).toLocaleString('ar-SA')} 
-                    icon="📅"
-                  />
-                </DetailGrid>
-              </Card>
-            </div>
-
-            {/* الهوية والجنسية */}
-            <div style={{ marginBottom: '20px' }}>
-              <Card title="🆔 الهوية والجنسية">
-                <DetailGrid>
-                  <DetailItem 
-                    label="الحالة الاستحقاقية" 
-                    value={
-                      <StatusBadge status={getEligibilityColor(client.eligible)}>
-                        {client.eligible ? 'مستحق' : 'غير مستحق'}
-                      </StatusBadge>
-                    }
-                  />
-                  <DetailItem 
-                    label="الجنسية" 
-                    value={
-                      <StatusBadge status={getNationalityColor(client.nationality)}>
-                        {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
-                      </StatusBadge>
-                    }
-                  />
-                  <DetailItem 
-                    label="نوع الهوية" 
-                    value={client.identity_type || 'غير محدد'} 
-                    icon="🆔"
-                  />
-                  <DetailItem 
-                    label="رقم الهوية/الإقامة" 
-                    value={client.identity_no || 'غير متوفر'} 
-                    icon="#️⃣"
-                    copyable
-                  />
-                  <DetailItem 
-                    label="نوع الإقامة" 
-                    value={residencyArabic} 
-                    icon="🏢"
-                  />
-                </DetailGrid>
-              </Card>
-            </div>
-          </div>
-
-          {/* العمل والبنوك */}
-          <div>
-            <Card title="🏦 العمل والخدمات البنكية">
+      {/* ===== MAIN CONTENT - 2 COLUMNS ===== */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: '25px',
+        marginBottom: '30px'
+      }}>
+        
+        {/* COLUMN 1 */}
+        <div>
+          {/* بيانات العميل */}
+          <div style={{ marginBottom: '20px' }}>
+            <Card title="👤 بيانات العميل">
               <DetailGrid>
                 <DetailItem 
-                  label="القطاع الوظيفي" 
-                  value={jobSectorName || 'غير محدد'} 
-                  icon="💼"
+                  label="الاسم الكامل" 
+                  value={client.name} 
+                  icon="👤"
                 />
                 <DetailItem 
-                  label="بنك الراتب" 
-                  value={salaryBankName || 'غير محدد'} 
+                  label="رقم الجوال" 
+                  value={client.mobile} 
+                  icon="📱"
+                  copyable
+                />
+                <DetailItem 
+                  label="البريد الإلكتروني" 
+                  value={client.email || 'غير متوفر'} 
+                  icon="✉️"
+                />
+                <DetailItem 
+                  label="حالة العميل" 
+                  value={
+                    <StatusBadge status={getStatusColor(client.status)}>
+                      {client.status}
+                    </StatusBadge>
+                  }
+                />
+              </DetailGrid>
+            </Card>
+          </div>
+
+          {/* بيانات الوحدة */}
+          <div style={{ marginBottom: '20px' }}>
+            <Card title="🏠 بيانات الوحدة">
+              <DetailGrid>
+                <DetailItem 
+                  label="كود الوحدة" 
+                  value={unit?.unit_code || 'غير محدد'} 
+                  icon="#️⃣"
+                />
+                <DetailItem 
+                  label="رقم البلوك" 
+                  value={unit?.block_no || 'غير محدد'} 
+                  icon="🏗️"
+                />
+                <DetailItem 
+                  label="نوع الوحدة" 
+                  value={unit?.unit_type || 'غير محدد'} 
+                  icon="🏠"
+                />
+                <DetailItem 
+                  label="السعر المدعوم" 
+                  value={
+                    unit?.supported_price 
+                      ? `${unit.supported_price.toLocaleString()} ريال` 
+                      : 'غير محدد'
+                  } 
                   icon="💰"
                 />
                 <DetailItem 
-                  label="بنك التمويل" 
-                  value={financeBankName || 'غير محدد'} 
-                  icon="🏦"
+                  label="المشروع" 
+                  value={projectName || 'غير محدد'} 
+                  icon="🏢"
                 />
               </DetailGrid>
-              
-              {/* Summary Info */}
-              <div style={{
-                marginTop: '25px',
-                padding: '20px',
-                backgroundColor: '#f8f9fa',
-                borderRadius: '8px',
-                border: '1px solid #e9ecef'
+            </Card>
+          </div>
+
+          {/* بيانات الموظف */}
+          <Card title="👨‍💼 بيانات الموظف">
+            <DetailGrid>
+              <DetailItem 
+                label="اسم الموظف" 
+                value={employee?.name || 'غير محدد'} 
+                icon="👨‍💼"
+              />
+              <DetailItem 
+                label="الدور" 
+                value={
+                  employee?.role ? (
+                    <StatusBadge status="info">
+                      {employee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
+                    </StatusBadge>
+                  ) : 'غير محدد'
+                }
+              />
+            </DetailGrid>
+          </Card>
+        </div>
+
+        {/* COLUMN 2 */}
+        <div>
+          {/* بيانات التنفيذ */}
+          <div style={{ marginBottom: '20px' }}>
+            <Card title="💰 بيانات التنفيذ">
+              <DetailGrid>
+                <DetailItem 
+                  label="رقم التنفيذ" 
+                  value={sale.id.substring(0, 8).toUpperCase()} 
+                  icon="#️⃣"
+                />
+                <DetailItem 
+                  label="تاريخ البيع" 
+                  value={new Date(sale.sale_date).toLocaleDateString('ar-SA', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })} 
+                  icon="📅"
+                />
+                <DetailItem 
+                  label="السعر قبل الضريبة" 
+                  value={`${sale.price_before_tax.toLocaleString()} ريال`} 
+                  icon="💵"
+                />
+                <DetailItem 
+                  label="نوع التمويل" 
+                  value={
+                    <StatusBadge status={getFinanceTypeColor(sale.finance_type)}>
+                      {sale.finance_type || 'غير محدد'}
+                    </StatusBadge>
+                  }
+                />
+                <DetailItem 
+                  label="جهة التمويل" 
+                  value={sale.finance_entity || 'غير محدد'} 
+                  icon="🏦"
+                />
+                <DetailItem 
+                  label="تاريخ الإنشاء" 
+                  value={new Date(sale.created_at).toLocaleString('ar-SA')} 
+                  icon="⏰"
+                />
+              </DetailGrid>
+            </Card>
+          </div>
+
+          {/* بيانات العقد */}
+          <div style={{ marginBottom: '20px' }}>
+            <Card title="📝 بيانات العقد">
+              <DetailGrid>
+                <DetailItem 
+                  label="رقم عقد الدعم" 
+                  value={sale.contract_support_no || 'غير محدد'} 
+                  icon="📄"
+                />
+                <DetailItem 
+                  label="رقم عقد تالاد" 
+                  value={sale.contract_talad_no || 'غير محدد'} 
+                  icon="📋"
+                />
+                <DetailItem 
+                  label="نوع العقد" 
+                  value={sale.contract_type || 'غير محدد'} 
+                  icon="⚖️"
+                />
+              </DetailGrid>
+            </Card>
+          </div>
+
+          {/* ملخص مالي */}
+          <Card title="🧮 ملخص مالي">
+            <div style={{
+              backgroundColor: '#f8f9fa',
+              padding: '20px',
+              borderRadius: '8px',
+              border: '1px solid #e9ecef'
+            }}>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: '1fr 1fr', 
+                gap: '15px',
+                marginBottom: '15px'
               }}>
-                <div style={{ 
-                  fontSize: '14px', 
-                  fontWeight: 'bold',
-                  color: '#495057',
-                  marginBottom: '10px'
-                }}>
-                  ملخص الملف
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6c757d' }}>القيمة الإجمالية</div>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>
+                    {sale.price_before_tax.toLocaleString()} ريال
+                  </div>
                 </div>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '1fr 1fr', 
-                  gap: '15px',
-                  fontSize: '13px',
-                  color: '#6c757d'
-                }}>
-                  <div>
-                    <div style={{ fontWeight: '500' }}>رقم العميل:</div>
-                    <div>{client.id.substring(0, 8).toUpperCase()}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '500' }}>حالة الاستحقاق:</div>
-                    <div>
-                      <StatusBadge status={getEligibilityColor(client.eligible)} small>
-                        {client.eligible ? 'مستحق' : 'غير مستحق'}
-                      </StatusBadge>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '500' }}>الجنسية:</div>
-                    <div>
-                      <StatusBadge status={getNationalityColor(client.nationality)} small>
-                        {client.nationality === 'saudi' ? 'سعودي' : 'غير سعودي'}
-                      </StatusBadge>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '500' }}>آخر تحديث:</div>
-                    <div>{new Date().toLocaleString('ar-SA')}</div>
+                <div>
+                  <div style={{ fontSize: '12px', color: '#6c757d' }}>تاريخ التنفيذ</div>
+                  <div style={{ fontSize: '16px', fontWeight: '500' }}>
+                    {new Date(sale.sale_date).toLocaleDateString('ar-SA')}
                   </div>
                 </div>
               </div>
-            </Card>
-          </div>
+              
+              <div style={{ 
+                backgroundColor: '#e9ecef', 
+                height: '1px', 
+                margin: '15px 0' 
+              }} />
+              
+              <div style={{ fontSize: '12px', color: '#6c757d', textAlign: 'center' }}>
+                رقم العميل: {sale.client_id.substring(0, 8)} | 
+                رقم الوحدة: {unit?.unit_code || 'غير محدد'} | 
+                تم الإنشاء بواسطة: {employee?.name || 'غير محدد'}
+              </div>
+            </div>
+          </Card>
         </div>
-      ) : (
-        <FollowUps clientId={client.id} />
-      )}
+      </div>
 
       {/* ===== FOOTER INFO ===== */}
       <div style={{
@@ -542,13 +572,59 @@ export default function ClientPage() {
         border: '1px dashed #dee2e6'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-          <span>رقم العميل: {client.id.substring(0, 8)}</span>
-          <span>تاريخ التسجيل: {new Date(client.created_at).toLocaleDateString('ar-SA')}</span>
+          <span>رقم التنفيذ: {sale.id.substring(0, 8)}</span>
+          <span>رقم العميل: {sale.client_id.substring(0, 8)}</span>
           <span>آخر تحديث: {new Date().toLocaleString('ar-SA')}</span>
         </div>
       </div>
     </div>
   );
+}
+
+/* =====================
+   Delete Sale Function
+===================== */
+
+async function deleteSale() {
+  // تأكد من وجود sale في السياق
+  const sale = (window as any).currentSale;
+  if (!sale) return;
+  
+  if (!confirm('هل أنت متأكد من حذف التنفيذ؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+
+  try {
+    // 1️⃣ حذف التنفيذ
+    await supabase
+      .from('sales')
+      .delete()
+      .eq('id', sale.id);
+
+    // 2️⃣ رجوع حالة الوحدة
+    await supabase
+      .from('units')
+      .update({ status: 'available' })
+      .eq('id', sale.unit_id);
+
+    // 3️⃣ التحقق من وجود تنفيذات أخرى للعميل
+    const { data: otherSales } = await supabase
+      .from('sales')
+      .select('id')
+      .eq('client_id', sale.client_id)
+      .limit(1);
+
+    if (!otherSales || otherSales.length === 0) {
+      await supabase
+        .from('clients')
+        .update({ status: 'active' })
+        .eq('id', sale.client_id);
+    }
+
+    alert('تم حذف التنفيذ بنجاح');
+    (window as any).router?.push('/dashboard/sales');
+  } catch (error) {
+    console.error('Error deleting sale:', error);
+    alert('حدث خطأ أثناء حذف التنفيذ');
+  }
 }
 
 /* =====================
@@ -639,7 +715,7 @@ function DetailItem({
             {value}
           </div>
           
-          {copyable && typeof value === 'string' && value !== 'غير محدد' && value !== 'غير متوفر' && (
+          {copyable && typeof value === 'string' && value !== 'غير محدد' && (
             <button
               onClick={handleCopy}
               style={{

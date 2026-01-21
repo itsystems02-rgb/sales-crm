@@ -200,9 +200,11 @@ export default function ClientsPage() {
       const emp = await getCurrentEmployee();
       setEmployee(emp);
       setUserLoading(false);
-      fetchClients();
-      fetchBanks();
-      fetchJobSectors();
+      if (emp) {
+        await fetchClients(emp);
+        await fetchBanks();
+        await fetchJobSectors();
+      }
     }
     init();
   }, []);
@@ -216,22 +218,35 @@ export default function ClientsPage() {
   /* =====================
      LOAD DATA
   ===================== */
-  async function fetchClients() {
+  async function fetchClients(emp: Employee) {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('id, name, mobile, eligible, status, created_at, saved_by')
-      .order('created_at', { ascending: false });
     
-    if (error) { 
-      console.error('Error fetching clients:', error);
-      alert(error.message); 
+    try {
+      let query = supabase
+        .from('clients')
+        .select('id, name, mobile, eligible, status, created_at, saved_by');
+      
+      // إذا كان المستخدم ليس admin، يرى فقط العملاء الذين أضافهم
+      if (emp.role !== 'admin') {
+        query = query.eq('saved_by', emp.id);
+      }
+      
+      const { data, error } = await query.order('created_at', { ascending: false });
+      
+      if (error) { 
+        console.error('Error fetching clients:', error);
+        alert(error.message); 
+        setLoading(false);
+        return; 
+      }
+      
+      setClients(data || []);
+    } catch (error) {
+      console.error('Error in fetchClients:', error);
+      alert('حدث خطأ في تحميل العملاء');
+    } finally {
       setLoading(false);
-      return; 
     }
-    
-    setClients(data || []);
-    setLoading(false);
   }
 
   async function fetchBanks() {
@@ -263,6 +278,8 @@ export default function ClientsPage() {
   }
 
   async function handleSubmit() {
+    if (!employee) return;
+    
     if (!name || !mobile) { 
       alert('الاسم ورقم الجوال مطلوبين'); 
       return; 
@@ -294,7 +311,7 @@ export default function ClientsPage() {
       finance_bank_id: financeBankId || null,
       job_sector_id: jobSectorId || null,
       status: 'lead',
-      saved_by: employee?.id || null,
+      saved_by: employee.id,
     };
 
     const res = await supabase.from('clients').insert(payload);
@@ -305,7 +322,7 @@ export default function ClientsPage() {
 
     alert('تم إضافة العميل بنجاح');
     resetForm();
-    fetchClients();
+    await fetchClients(employee);
   }
 
   /* =====================
@@ -313,7 +330,7 @@ export default function ClientsPage() {
   ===================== */
   async function deleteClient(clientId: string, clientName: string) {
     // التحقق من أن المستخدم الحالي هو admin
-    if (employee?.role !== 'admin') {
+    if (!employee || employee.role !== 'admin') {
       alert('غير مصرح لك بحذف العملاء. هذه الميزة متاحة للإداريين فقط.');
       return;
     }
@@ -357,7 +374,7 @@ export default function ClientsPage() {
       }
 
       alert('تم حذف العميل بنجاح');
-      fetchClients();
+      await fetchClients(employee);
     } catch (error) {
       console.error('Error deleting client:', error);
       alert('حدث خطأ أثناء حذف العميل');

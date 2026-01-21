@@ -602,8 +602,8 @@ export default function UnitsPage() {
           setImportProgress(30);
 
           // إضافة الوحدات إلى قاعدة البيانات
-          const successCount = 0;
-          const errorCount = 0;
+          let successCount = 0;
+          let errorCount = 0;
           
           for (let i = 0; i < processedUnits.length; i++) {
             const unit = processedUnits[i];
@@ -612,10 +612,10 @@ export default function UnitsPage() {
               const { error } = await supabase.from('units').insert(unit);
               
               if (error) {
-                errorCount++;
+                errorCount = errorCount + 1;
                 console.error(`Error importing unit ${i + 1}:`, error);
               } else {
-                successCount++;
+                successCount = successCount + 1;
               }
               
               // تحديث التقدم
@@ -623,7 +623,7 @@ export default function UnitsPage() {
               setImportProgress(progress);
               
             } catch (unitError) {
-              errorCount++;
+              errorCount = errorCount + 1;
               console.error(`Error importing unit ${i + 1}:`, unitError);
             }
           }

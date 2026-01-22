@@ -1386,12 +1386,19 @@ export default function ClientsPage() {
             {/* Search Bar */}
             <div style={{ marginBottom: '15px' }}>
               <div style={{ position: 'relative' }}>
-                <Input 
-                  placeholder="ابحث بالاسم أو رقم الجوال..." 
+                <input
+                  type="text"
+                  placeholder="ابحث بالاسم أو رقم الجوال..."
                   value={filters.search}
                   onChange={(e) => updateFilter('search', e.target.value)}
                   onKeyDown={handleSearchKeyDown}
-                  style={{ width: '100%', paddingRight: '40px' }}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px 40px 8px 12px',
+                    borderRadius: '4px',
+                    border: '1px solid #dee2e6',
+                    fontSize: '14px'
+                  }}
                 />
                 <button
                   onClick={applyFilters}

@@ -19,6 +19,15 @@ type Employee = {
   email: string;
 };
 
+type EmployeeStat = {
+  id: string;
+  name: string;
+  followUps: number;
+  reservations: number;
+  sales: number;
+  totalActivity: number;
+};
+
 type DashboardStats = {
   // إحصائيات عامة
   totalClients: number;
@@ -30,14 +39,7 @@ type DashboardStats = {
   mySales: number;
   
   // إحصائيات الموظفين الآخرين (للأدمن فقط)
-  otherEmployeesStats: Array<{
-    id: string;
-    name: string;
-    followUps: number;
-    reservations: number;
-    sales: number;
-    totalActivity: number;
-  }>;
+  otherEmployeesStats: EmployeeStat[];
   
   // إحصائيات إضافية
   clientsByStatus: {
@@ -371,7 +373,7 @@ export default function DashboardPage() {
         .gte('created_at', startDate);
 
       // ===== 8. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
-      let otherEmployeesStats = [];
+      let otherEmployeesStats: EmployeeStat[] = [];
       if (emp.role === 'admin') {
         const { data: allEmployees } = await supabase
           .from('employees')

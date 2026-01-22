@@ -32,7 +32,7 @@ type Unit = {
   block_no: string | null;
   unit_no: string | null;
 
-  unit_type: 'villa' | 'duplex' | 'apartment';
+  unit_type: 'villa' | 'duplex' | 'apartment'| 'townhouse';
   status: 'available' | 'reserved' | 'sold';
 
   supported_price: number;
@@ -50,6 +50,7 @@ const UNIT_TYPES = [
   { value: 'villa', label: 'فيلا' },
   { value: 'duplex', label: 'دوبلكس' },
   { value: 'apartment', label: 'شقة' },
+  { value: 'townhouse', label: 'تاون هاوس' },
 ] as const;
 
 /* =====================
@@ -65,6 +66,7 @@ function statusLabel(s: Unit['status']) {
 function typeLabel(t: Unit['unit_type']) {
   if (t === 'villa') return 'فيلا';
   if (t === 'duplex') return 'دوبلكس';
+  if (t === 'townhouse') return 'تاون هاوس';
   return 'شقة';
 }
 
@@ -226,9 +228,11 @@ async function processImportedUnits(data: any[], projects: ProjectOption[], mode
         'فيلا': 'villa',
         'دوبلكس': 'duplex',
         'شقة': 'apartment',
+        'تاون هاوس': 'townhouse',
         'villa': 'villa',
         'duplex': 'duplex',
         'apartment': 'apartment'
+        'townhouse': 'townhouse',
       };
       
       const typeText = row['النوع'] || row['type'] || row['Type'] || 'apartment';

@@ -887,13 +887,20 @@ export default function UnitsPage() {
                     marginBottom: '10px'
                   }}>
                     <strong style={{ color: '#c62828' }}>أخطاء الاستيراد ({importErrors.length})</strong>
-                    <Button 
-                      variant="danger"
+                    <button
                       onClick={() => setShowImportErrors(false)}
-                      style={{ padding: '5px 10px', fontSize: '12px' }}
+                      style={{ 
+                        padding: '5px 10px',
+                        fontSize: '12px',
+                        backgroundColor: '#dc2626',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
                     >
                       إغلاق
-                    </Button>
+                    </button>
                   </div>
                   <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                     {importErrors.map((error, index) => (
@@ -1064,20 +1071,38 @@ export default function UnitsPage() {
               </div>
               
               <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                <Button 
+                <button
                   onClick={() => handlePageChange(1)}
                   disabled={currentPage === 1}
-                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === 1 ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === 1 ? 0.6 : 1
+                  }}
                 >
                   ⟨⟨
-                </Button>
-                <Button 
+                </button>
+                <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === 1 ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === 1 ? 0.6 : 1
+                  }}
                 >
                   ⟨
-                </Button>
+                </button>
                 
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   let pageNum;
@@ -1092,31 +1117,57 @@ export default function UnitsPage() {
                   }
                   
                   return (
-                    <Button 
+                    <button
                       key={pageNum}
                       onClick={() => handlePageChange(pageNum)}
-                      variant={currentPage === pageNum ? "primary" : "default"}
-                      style={{ padding: '5px 10px', minWidth: '40px' }}
+                      style={{ 
+                        padding: '5px 10px', 
+                        minWidth: '40px',
+                        backgroundColor: currentPage === pageNum ? '#1d4ed8' : '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: currentPage === pageNum ? 'bold' : 'normal'
+                      }}
                     >
                       {pageNum}
-                    </Button>
+                    </button>
                   );
                 })}
                 
-                <Button 
+                <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === totalPages ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === totalPages ? 0.6 : 1
+                  }}
                 >
                   ⟩
-                </Button>
-                <Button 
+                </button>
+                <button
                   onClick={() => handlePageChange(totalPages)}
                   disabled={currentPage === totalPages}
-                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === totalPages ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === totalPages ? 0.6 : 1
+                  }}
                 >
                   ⟩⟩
-                </Button>
+                </button>
               </div>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

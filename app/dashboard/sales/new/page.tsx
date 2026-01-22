@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 
 /* =====================
    Types
@@ -20,13 +22,33 @@ type Reservation = {
   id: string;
   unit_id: string;
   reservation_date: string;
+  status: string;
 };
 
 type Unit = {
   id: string;
   unit_code: string;
   project_id: string;
+  status: string;
 };
+
+/* =====================
+   Constants
+===================== */
+
+const CONTRACT_TYPES = [
+  { value: '', label: 'اختر نوع العقد' },
+  { value: 'direct', label: 'مباشر' },
+  { value: 'mortgage', label: 'رهن' },
+  { value: 'installment', label: 'تقسيط' },
+];
+
+const FINANCE_TYPES = [
+  { value: '', label: 'اختر نوع التمويل' },
+  { value: 'cash', label: 'نقدي' },
+  { value: 'bank', label: 'بنكي' },
+  { value: 'mortgage', label: 'رهن عقاري' },
+];
 
 /* =====================
    Page
@@ -38,12 +60,10 @@ export default function NewSalePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [unit, setUnit] = useState<Unit | null>(null);
+  const [employee, setEmployee] = useState<{ id: string; role: string } | null>(null);
 
   const [clientId, setClientId] = useState('');
   const [reservationId, setReservationId] = useState('');
-
-  // الموظف الحالي من جدول employees (مش auth user id)
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     contract_support_no: '',
@@ -56,6 +76,8 @@ export default function NewSalePage() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   /* =====================
      Initial Load
@@ -68,69 +90,136 @@ export default function NewSalePage() {
   }, []);
 
   async function fetchClients() {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('id, name')
-      .order('name');
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, name')
+        .order('name');
 
-    if (error) {
+      if (error) {
+        console.error(error);
+        setError('حدث خطأ في تحميل العملاء');
+        setClients([]);
+        return;
+      }
+
+      setClients(data || []);
+    } catch (error) {
       console.error(error);
+      setError('حدث خطأ في تحميل العملاء');
       setClients([]);
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setClients(data || []);
   }
 
   async function fetchCurrentEmployee() {
-    const { data: { user }, error: authErr } = await supabase.auth.getUser();
-    if (authErr) console.error(authErr);
-    if (!user?.email) return;
-
-    const { data, error } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('email', user.email)
-      .maybeSingle();
-
-    if (error) console.error(error);
-    if (data?.id) setEmployeeId(data.id);
+    try {
+      const emp = await getCurrentEmployee();
+      setEmployee(emp);
+    } catch (error) {
+      console.error('Error fetching employee:', error);
+      setError('حدث خطأ في جلب بيانات الموظف');
+    }
   }
 
   async function fetchReservations(cid: string) {
-    const { data, error } = await supabase
-      .from('reservations')
-      .select('id, unit_id, reservation_date')
-      .eq('client_id', cid)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false });
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('reservations')
+        .select('id, unit_id, reservation_date, status')
+        .eq('client_id', cid)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
 
-    if (error) {
+      if (error) {
+        console.error(error);
+        setReservations([]);
+        setError('حدث خطأ في تحميل الحجوزات');
+      } else {
+        setReservations(data || []);
+      }
+
+      // reset
+      setReservationId('');
+      setUnit(null);
+    } catch (error) {
       console.error(error);
       setReservations([]);
-    } else {
-      setReservations(data || []);
+      setError('حدث خطأ في تحميل الحجوزات');
+    } finally {
+      setLoading(false);
     }
-
-    // reset
-    setReservationId('');
-    setUnit(null);
   }
 
   async function fetchUnit(unitId: string) {
-    const { data, error } = await supabase
-      .from('units')
-      .select('id, unit_code, project_id')
-      .eq('id', unitId)
-      .maybeSingle();
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('units')
+        .select('id, unit_code, project_id, status')
+        .eq('id', unitId)
+        .maybeSingle();
 
-    if (error) {
+      if (error) {
+        console.error(error);
+        setUnit(null);
+        setError('حدث خطأ في تحميل بيانات الوحدة');
+        return;
+      }
+
+      setUnit(data || null);
+    } catch (error) {
       console.error(error);
       setUnit(null);
-      return;
+      setError('حدث خطأ في تحميل بيانات الوحدة');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* =====================
+     Validation
+  ===================== */
+
+  function validateForm(): boolean {
+    if (!clientId) {
+      setError('الرجاء اختيار العميل');
+      return false;
     }
 
-    setUnit(data || null);
+    if (!reservationId) {
+      setError('الرجاء اختيار الحجز');
+      return false;
+    }
+
+    if (!unit) {
+      setError('الرجاء اختيار الحجز أولاً');
+      return false;
+    }
+
+    if (!form.sale_date) {
+      setError('تاريخ البيع مطلوب');
+      return false;
+    }
+
+    if (!form.price_before_tax || Number(form.price_before_tax) <= 0) {
+      setError('سعر البيع يجب أن يكون أكبر من صفر');
+      return false;
+    }
+
+    return true;
+  }
+
+  function getUnitStatusText(status: string): string {
+    switch (status) {
+      case 'available': return 'متاحة';
+      case 'reserved': return 'محجوزة';
+      case 'sold': return 'مباعة';
+      default: return status;
+    }
   }
 
   /* =====================
@@ -147,64 +236,157 @@ export default function NewSalePage() {
     !!reservationId &&
     !!unit &&
     !!unit.project_id &&
-    !!employeeId &&
+    !!employee?.id &&
     clientHasActiveReservations &&
     !!form.sale_date &&
-    !!form.price_before_tax;
+    !!form.price_before_tax &&
+    Number(form.price_before_tax) > 0;
 
   async function handleSubmit() {
-    if (!canSubmit || !unit) return;
+    if (!validateForm() || !unit || !employee) return;
 
-    setLoading(true);
+    setSubmitting(true);
+    setError(null);
 
-    // 1) insert sale
-    const { error: saleError } = await supabase.from('sales').insert({
-      client_id: clientId,
-      unit_id: unit.id,
-      project_id: unit.project_id,
-      sales_employee_id: employeeId,
+    try {
+      // التحقق من أن الوحدة محجوزة
+      if (unit.status !== 'reserved') {
+        setError('الوحدة ليست محجوزة. لا يمكن بيع وحدة غير محجوزة');
+        setSubmitting(false);
+        return;
+      }
 
-      contract_support_no: form.contract_support_no || null,
-      contract_talad_no: form.contract_talad_no || null,
-      contract_type: form.contract_type || null,
-      finance_type: form.finance_type || null,
-      finance_entity: form.finance_entity || null,
+      // التحقق من عدم وجود عملية بيع سابقة للوحدة
+      const { data: existingSale } = await supabase
+        .from('sales')
+        .select('id')
+        .eq('unit_id', unit.id)
+        .maybeSingle();
 
-      sale_date: form.sale_date, // NOT NULL في DB
-      price_before_tax: Number(form.price_before_tax), // NOT NULL في DB
-    });
+      if (existingSale) {
+        setError('هذه الوحدة تم بيعها مسبقاً');
+        setSubmitting(false);
+        return;
+      }
 
-    if (saleError) {
-      console.error(saleError);
-      alert(saleError.message);
-      setLoading(false);
-      return;
+      // 1) insert sale
+      const { error: saleError } = await supabase.from('sales').insert({
+        client_id: clientId,
+        unit_id: unit.id,
+        project_id: unit.project_id,
+        sales_employee_id: employee.id,
+
+        contract_support_no: form.contract_support_no.trim() || null,
+        contract_talad_no: form.contract_talad_no.trim() || null,
+        contract_type: form.contract_type.trim() || null,
+        finance_type: form.finance_type.trim() || null,
+        finance_entity: form.finance_entity.trim() || null,
+
+        sale_date: form.sale_date,
+        price_before_tax: Number(form.price_before_tax),
+      });
+
+      if (saleError) {
+        console.error(saleError);
+        if (saleError.code === '23505') { // unique violation
+          setError('هذه الوحدة تم بيعها مسبقاً');
+        } else {
+          setError(`حدث خطأ في حفظ عملية البيع: ${saleError.message}`);
+        }
+        setSubmitting(false);
+        return;
+      }
+
+      // 2) update statuses (بعد نجاح insert فقط)
+      const updates = [];
+      
+      // تحديث حالة الحجز
+      const { error: resErr } = await supabase
+        .from('reservations')
+        .update({ status: 'converted' })
+        .eq('id', reservationId);
+      
+      if (resErr) {
+        console.error(resErr);
+        updates.push('الحجز');
+      }
+
+      // تحديث حالة الوحدة
+      const { error: unitErr } = await supabase
+        .from('units')
+        .update({ status: 'sold' })
+        .eq('id', unit.id);
+
+      if (unitErr) {
+        console.error(unitErr);
+        updates.push('الوحدة');
+      }
+
+      // تحديث حالة العميل
+      const { error: clientErr } = await supabase
+        .from('clients')
+        .update({ status: 'converted' })
+        .eq('id', clientId);
+
+      if (clientErr) {
+        console.error(clientErr);
+        updates.push('العميل');
+      }
+
+      // إذا كانت هناك أخطاء في التحديثات
+      if (updates.length > 0) {
+        console.warn(`Failed to update: ${updates.join(', ')}`);
+      }
+
+      alert('تم تنفيذ عملية البيع بنجاح!');
+      router.push('/dashboard/sales');
+
+    } catch (error: any) {
+      console.error('Error in handleSubmit:', error);
+      setError(error.message || 'حدث خطأ غير متوقع');
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    // 2) update statuses (بعد نجاح insert فقط)
-    const { error: resErr } = await supabase
-      .from('reservations')
-      .update({ status: 'converted' })
-      .eq('id', reservationId);
+  /* =====================
+     Handlers
+  ===================== */
 
-    if (resErr) console.error(resErr);
+  function handleClientChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const cid = e.target.value;
+    setClientId(cid);
+    setError(null);
+    if (cid) {
+      fetchReservations(cid);
+    } else {
+      setReservations([]);
+      setReservationId('');
+      setUnit(null);
+    }
+  }
 
-    const { error: unitErr } = await supabase
-      .from('units')
-      .update({ status: 'sold' })
-      .eq('id', unit.id);
+  function handleReservationChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const rid = e.target.value;
+    setReservationId(rid);
+    setError(null);
+    const r = reservations.find(x => x.id === rid);
+    if (r) {
+      fetchUnit(r.unit_id);
+    } else {
+      setUnit(null);
+    }
+  }
 
-    if (unitErr) console.error(unitErr);
+  function handleFormChange(field: keyof typeof form, value: string) {
+    setForm(prev => ({ ...prev, [field]: value }));
+    setError(null);
+  }
 
-    const { error: clientErr } = await supabase
-      .from('clients')
-      .update({ status: 'converted' })
-      .eq('id', clientId);
-
-    if (clientErr) console.error(clientErr);
-
-    setLoading(false);
-    router.push('/dashboard/sales');
+  function handleCancel() {
+    if (window.confirm('هل تريد إلغاء عملية البيع؟ سيتم فقدان جميع البيانات المدخلة.')) {
+      router.push('/dashboard/sales');
+    }
   }
 
   /* =====================
@@ -213,33 +395,56 @@ export default function NewSalePage() {
 
   return (
     <div className="page">
-
       {/* ===== TABS ===== */}
-      <div className="tabs" style={{ display: 'flex', gap: 10 }}>
+      <div className="tabs" style={{ display: 'flex', gap: 10, marginBottom: '20px' }}>
         <Button onClick={() => router.push('/dashboard/sales')}>
           التنفيذات
         </Button>
         <Button variant="primary">تنفيذ جديد</Button>
       </div>
 
+      {/* ===== ERROR MESSAGE ===== */}
+      {error && (
+        <div style={{
+          backgroundColor: '#ffebee',
+          color: '#c62828',
+          padding: '12px 16px',
+          borderRadius: '4px',
+          marginBottom: '20px',
+          border: '1px solid #ffcdd2',
+          fontSize: '14px'
+        }}>
+          {error}
+        </div>
+      )}
+
       <div className="details-layout">
         <Card title="تنفيذ بيع وحدة">
-          <div className="details-grid">
+          <div className="details-grid" style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '20px',
+            padding: '20px'
+          }}>
 
-            <div className="form-field">
-              <label>العميل</label>
+            {/* العميل */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                العميل *
+              </label>
               <select
                 value={clientId}
-                onChange={e => {
-                  const cid = e.target.value;
-                  setClientId(cid);
-                  if (cid) fetchReservations(cid);
-                  else {
-                    setReservations([]);
-                    setReservationId('');
-                    setUnit(null);
-                  }
+                onChange={handleClientChange}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: clientId ? '#fff' : '#f9f9f9',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.7 : 1
                 }}
+                disabled={loading}
               >
                 <option value="">اختر العميل</option>
                 {clients.map(c => (
@@ -250,94 +455,177 @@ export default function NewSalePage() {
               </select>
 
               {clientId && !clientHasActiveReservations && (
-                <small style={{ color: '#c00' }}>
+                <small style={{ color: '#c00', fontSize: '12px', marginTop: '4px' }}>
                   هذا العميل لا يمتلك حجوزات نشطة
                 </small>
               )}
             </div>
 
-            <div className="form-field">
-              <label>الحجز</label>
+            {/* الحجز */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                الحجز *
+              </label>
               <select
                 value={reservationId}
-                disabled={!clientId || reservations.length === 0}
-                onChange={e => {
-                  const rid = e.target.value;
-                  setReservationId(rid);
-                  const r = reservations.find(x => x.id === rid);
-                  if (r) fetchUnit(r.unit_id);
-                  else setUnit(null);
+                disabled={!clientId || reservations.length === 0 || loading}
+                onChange={handleReservationChange}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: !clientId || reservations.length === 0 ? '#f9f9f9' : '#fff',
+                  cursor: !clientId || reservations.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: !clientId || reservations.length === 0 ? 0.7 : 1
                 }}
               >
                 <option value="">اختر الحجز</option>
                 {reservations.map(r => (
                   <option key={r.id} value={r.id}>
-                    حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString()}
+                    حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString('ar-SA')}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="form-field">
-              <label>الوحدة</label>
-              <input value={unit?.unit_code || ''} disabled />
+            {/* الوحدة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                الوحدة
+              </label>
+              <input 
+                value={unit ? `${unit.unit_code} ${unit.status ? `(${getUnitStatusText(unit.status)})` : ''}` : ''} 
+                disabled
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#f9f9f9',
+                  color: unit?.status === 'sold' ? '#c00' : '#666'
+                }}
+              />
             </div>
 
-            <div className="form-field">
-              <label>رقم عقد الدعم</label>
-              <input
+            {/* رقم عقد الدعم */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد الدعم
+              </label>
+              <Input
                 value={form.contract_support_no}
-                onChange={e => setForm({ ...form, contract_support_no: e.target.value })}
+                onChange={(e) => handleFormChange('contract_support_no', e.target.value)}
+                placeholder="اختياري"
+                style={{ width: '100%' }}
               />
             </div>
 
-            <div className="form-field">
-              <label>رقم عقد تلاد</label>
-              <input
+            {/* رقم عقد تلاد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد تلاد
+              </label>
+              <Input
                 value={form.contract_talad_no}
-                onChange={e => setForm({ ...form, contract_talad_no: e.target.value })}
+                onChange={(e) => handleFormChange('contract_talad_no', e.target.value)}
+                placeholder="اختياري"
+                style={{ width: '100%' }}
               />
             </div>
 
-            <div className="form-field">
-              <label>نوع العقد</label>
-              <input
+            {/* نوع العقد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع العقد
+              </label>
+              <select
                 value={form.contract_type}
-                onChange={e => setForm({ ...form, contract_type: e.target.value })}
-              />
+                onChange={(e) => handleFormChange('contract_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer'
+                }}
+              >
+                {CONTRACT_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="form-field">
-              <label>نوع التمويل</label>
-              <input
+            {/* نوع التمويل */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع التمويل
+              </label>
+              <select
                 value={form.finance_type}
-                onChange={e => setForm({ ...form, finance_type: e.target.value })}
-              />
+                onChange={(e) => handleFormChange('finance_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer'
+                }}
+              >
+                {FINANCE_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="form-field">
-              <label>اسم الجهة التمويلية</label>
-              <input
+            {/* اسم الجهة التمويلية */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                اسم الجهة التمويلية
+              </label>
+              <Input
                 value={form.finance_entity}
-                onChange={e => setForm({ ...form, finance_entity: e.target.value })}
+                onChange={(e) => handleFormChange('finance_entity', e.target.value)}
+                placeholder="مثال: البنك الأهلي"
+                style={{ width: '100%' }}
               />
             </div>
 
-            <div className="form-field">
-              <label>تاريخ بيع الوحدة</label>
-              <input
+            {/* تاريخ بيع الوحدة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                تاريخ بيع الوحدة *
+              </label>
+              <Input
                 type="date"
                 value={form.sale_date}
-                onChange={e => setForm({ ...form, sale_date: e.target.value })}
+                onChange={(e) => handleFormChange('sale_date', e.target.value)}
+                required
+                max={new Date().toISOString().split('T')[0]} // لا يمكن اختيار تاريخ مستقبلي
+                style={{ width: '100%' }}
               />
             </div>
 
-            <div className="form-field">
-              <label>سعر بيع الوحدة قبل الضريبة</label>
-              <input
+            {/* سعر بيع الوحدة قبل الضريبة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                سعر بيع الوحدة قبل الضريبة *
+              </label>
+              <Input
                 type="number"
                 value={form.price_before_tax}
-                onChange={e => setForm({ ...form, price_before_tax: e.target.value })}
+                onChange={(e) => handleFormChange('price_before_tax', e.target.value)}
+                min="0"
+                step="0.01"
+                required
+                placeholder="0.00"
+                style={{ width: '100%' }}
               />
             </div>
 
@@ -346,14 +634,51 @@ export default function NewSalePage() {
       </div>
 
       {/* ===== ACTIONS ===== */}
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ 
+        display: 'flex', 
+        gap: 10, 
+        marginTop: '30px',
+        padding: '20px',
+        backgroundColor: '#f9f9f9',
+        borderRadius: '4px',
+        border: '1px solid #eee'
+      }}>
         <Button
           variant="primary"
           onClick={handleSubmit}
-          disabled={!canSubmit || loading}
+          disabled={!canSubmit || submitting || loading}
+          style={{ padding: '12px 24px', fontSize: '16px' }}
         >
-          {loading ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
+          {submitting ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
         </Button>
+        
+        <Button
+          onClick={handleCancel}
+          variant="danger"
+          style={{ padding: '12px 24px', fontSize: '16px' }}
+        >
+          إلغاء
+        </Button>
+      </div>
+
+      {/* ===== INFO BOX ===== */}
+      <div style={{ 
+        marginTop: '20px', 
+        padding: '15px 20px', 
+        backgroundColor: '#f0f7ff', 
+        borderRadius: '4px',
+        border: '1px solid #d0e7ff',
+        fontSize: '14px',
+        color: '#0056b3'
+      }}>
+        <h4 style={{ margin: '0 0 10px 0', color: '#0056b3' }}>معلومات هامة:</h4>
+        <ul style={{ margin: '0', paddingLeft: '20px' }}>
+          <li>بعد تأكيد البيع سيتم تغيير حالة الوحدة إلى "مباعة"</li>
+          <li>سيتم تغيير حالة العميل إلى "تم البيع"</li>
+          <li>سيتم تغيير حالة الحجز إلى "تم التحويل"</li>
+          <li>لا يمكن التراجع عن عملية البيع بعد تأكيدها</li>
+          <li>الحقول المميزة بعلامة (*) إجبارية</li>
+        </ul>
       </div>
 
     </div>

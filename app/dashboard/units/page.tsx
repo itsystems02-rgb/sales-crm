@@ -42,6 +42,13 @@ type Unit = {
 type ProjectOption = { id: string; name: string; code: string | null };
 type ModelOption = { id: string; name: string };
 
+type UnitStats = {
+  available: number;
+  reserved: number;
+  sold: number;
+  total: number;
+};
+
 const UNIT_TYPES = [
   { value: 'villa', label: 'فيلا' },
   { value: 'duplex', label: 'دوبلكس' },
@@ -301,6 +308,14 @@ export default function UnitsPage() {
   const [totalUnits, setTotalUnits] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   
+  // Statistics states
+  const [unitStats, setUnitStats] = useState<UnitStats>({
+    available: 0,
+    reserved: 0,
+    sold: 0,
+    total: 0
+  });
+  
   // Excel import states
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -337,6 +352,7 @@ export default function UnitsPage() {
       await loadProjects();
       await loadUnits(emp);
       await fetchTotalCount(emp);
+      await fetchUnitStats(emp);
     } catch (err) {
       console.error('Error in init():', err);
     }
@@ -400,6 +416,56 @@ export default function UnitsPage() {
     } catch (err) {
       console.error('Error fetching total count:', err);
       setTotalUnits(0);
+    }
+  }
+
+  // دالة جديدة لجلب إحصائيات الوحدات
+  async function fetchUnitStats(emp: Employee | null = null) {
+    try {
+      let query = supabase
+        .from('units')
+        .select('status', { count: 'exact' });
+
+      if (emp && emp.role === 'sales') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
+        query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+
+      // حساب الإحصائيات
+      const stats: UnitStats = {
+        available: 0,
+        reserved: 0,
+        sold: 0,
+        total: count || 0
+      };
+
+      (data || []).forEach((unit: any) => {
+        if (unit.status === 'available') {
+          stats.available += 1;
+        } else if (unit.status === 'reserved') {
+          stats.reserved += 1;
+        } else if (unit.status === 'sold') {
+          stats.sold += 1;
+        }
+      });
+
+      setUnitStats(stats);
+    } catch (err) {
+      console.error('Error fetching unit stats:', err);
+      setUnitStats({
+        available: 0,
+        reserved: 0,
+        sold: 0,
+        total: 0
+      });
     }
   }
 
@@ -567,6 +633,7 @@ export default function UnitsPage() {
     resetForm();
     await loadUnits(employee, currentPage);
     await fetchTotalCount(employee);
+    await fetchUnitStats(employee);
   }
 
   async function startEdit(u: Unit) {
@@ -608,6 +675,7 @@ export default function UnitsPage() {
 
     await loadUnits(employee, currentPage);
     await fetchTotalCount(employee);
+    await fetchUnitStats(employee);
   }
 
   /* =====================
@@ -773,9 +841,10 @@ export default function UnitsPage() {
           
           alert(message);
           
-          // إعادة تحميل البيانات
+          // إعادة تحميل البيانات والإحصائيات
           await loadUnits(employee, currentPage);
           await fetchTotalCount(employee);
+          await fetchUnitStats(employee);
           
           // إعادة تعيين حقل الملف
           if (fileInputRef.current) {
@@ -964,59 +1033,63 @@ export default function UnitsPage() {
 
         {/* TABLE */}
         <Card title={`قائمة الوحدات (${totalUnits.toLocaleString()})`}>
-          {/* Pagination Controls */}
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            padding: '10px 15px', 
-            backgroundColor: '#f5f5f5', 
-            borderBottom: '1px solid #e0e0e0',
-            marginBottom: '15px',
-            borderRadius: '4px 4px 0 0',
-            flexWrap: 'wrap',
-            gap: '10px'
-          }}>
-            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '14px', color: '#666' }}>
-                <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                  {units.filter(u => u.status === 'available').length}
-                </span> متاحة
-              </span>
-              <span style={{ fontSize: '14px', color: '#666' }}>
-                <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
-                  {units.filter(u => u.status === 'reserved').length}
-                </span> محجوزة
-              </span>
-              <span style={{ fontSize: '14px', color: '#666' }}>
-                <span style={{ color: '#F44336', fontWeight: 'bold' }}>
-                  {units.filter(u => u.status === 'sold').length}
-                </span> مباعة
-              </span>
-            </div>
+          {/* Statistics Section - للادمن فقط */}
+          {employee?.role === 'admin' && (
+            <div style={{ 
+              padding: '10px 15px', 
+              backgroundColor: '#f5f5f5', 
+              borderBottom: '1px solid #e0e0e0',
+              marginBottom: '15px',
+              borderRadius: '4px 4px 0 0',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                    {unitStats.available.toLocaleString()}
+                  </span> متاحة
+                </span>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
+                    {unitStats.reserved.toLocaleString()}
+                  </span> محجوزة
+                </span>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#F44336', fontWeight: 'bold' }}>
+                    {unitStats.sold.toLocaleString()}
+                  </span> مباعة
+                </span>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>
+                    {unitStats.total.toLocaleString()}
+                  </span> إجمالي
+                </span>
+              </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '14px', color: '#666' }}>
-                عرض:
-              </span>
-              <select 
-                value={itemsPerPage} 
-                onChange={handleItemsPerPageChange}
-                style={{ 
-                  padding: '5px 10px',
-                  borderRadius: '4px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
-              >
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-                <option value={500}>500</option>
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  عرض:
+                </span>
+                <select 
+                  value={itemsPerPage} 
+                  onChange={handleItemsPerPageChange}
+                  style={{ 
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
             </div>
-          </div>
+          )}
           
           <div className="units-scroll">
             <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>

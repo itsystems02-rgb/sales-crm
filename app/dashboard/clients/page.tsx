@@ -1361,7 +1361,6 @@ export default function ClientsPage() {
                 <Button 
                   onClick={() => setShowFilters(!showFilters)}
                   variant={showFilters ? 'danger' : 'primary'}
-                  style={{ padding: '8px 15px' }}
                 >
                   {showFilters ? 'إخفاء الفلاتر' : 'إظهار الفلاتر'}
                 </Button>
@@ -1370,7 +1369,6 @@ export default function ClientsPage() {
                   <Button 
                     onClick={resetFilters}
                     variant="danger"
-                    style={{ padding: '8px 15px' }}
                   >
                     إعادة تعيين الفلاتر
                   </Button>
@@ -1717,7 +1715,6 @@ export default function ClientsPage() {
                   <Button 
                     onClick={applyFilters}
                     disabled={loading}
-                    style={{ padding: '10px 25px', fontSize: '14px' }}
                   >
                     {loading ? 'جاري التطبيق...' : 'تطبيق الفلاتر'}
                   </Button>

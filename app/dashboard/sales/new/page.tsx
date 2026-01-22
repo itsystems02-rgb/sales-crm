@@ -205,6 +205,13 @@ export default function NewSalePage() {
       return false;
     }
 
+    // التحقق من أن التاريخ ليس مستقبلياً
+    const today = new Date().toISOString().split('T')[0];
+    if (form.sale_date > today) {
+      setError('لا يمكن اختيار تاريخ مستقبلي');
+      return false;
+    }
+
     if (!form.price_before_tax || Number(form.price_before_tax) <= 0) {
       setError('سعر البيع يجب أن يكون أكبر من صفر');
       return false;
@@ -381,6 +388,20 @@ export default function NewSalePage() {
   function handleFormChange(field: keyof typeof form, value: string) {
     setForm(prev => ({ ...prev, [field]: value }));
     setError(null);
+  }
+
+  // معالجة تغيير تاريخ البيع مع التحقق
+  function handleSaleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (value > today) {
+      setError('لا يمكن اختيار تاريخ مستقبلي');
+    } else {
+      setError(null);
+    }
+    
+    setForm(prev => ({ ...prev, sale_date: value }));
   }
 
   function handleCancel() {
@@ -602,9 +623,8 @@ export default function NewSalePage() {
               <Input
                 type="date"
                 value={form.sale_date}
-                onChange={(e) => handleFormChange('sale_date', e.target.value)}
-                required
-                max={new Date().toISOString().split('T')[0]} // لا يمكن اختيار تاريخ مستقبلي
+                onChange={handleSaleDateChange}
+                placeholder="YYYY-MM-DD"
               />
             </div>
 
@@ -619,7 +639,6 @@ export default function NewSalePage() {
                 onChange={(e) => handleFormChange('price_before_tax', e.target.value)}
                 min="0"
                 step="0.01"
-                required
                 placeholder="0.00"
               />
             </div>
@@ -673,6 +692,7 @@ export default function NewSalePage() {
           <li>سيتم تغيير حالة الحجز إلى "تم التحويل"</li>
           <li>لا يمكن التراجع عن عملية البيع بعد تأكيدها</li>
           <li>الحقول المميزة بعلامة (*) إجبارية</li>
+          <li>لا يمكن اختيار تاريخ بيع مستقبلي</li>
         </ul>
       </div>
 

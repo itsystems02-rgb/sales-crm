@@ -517,7 +517,6 @@ export default function NewSalePage() {
                 value={form.contract_support_no}
                 onChange={(e) => handleFormChange('contract_support_no', e.target.value)}
                 placeholder="اختياري"
-                style={{ width: '100%' }}
               />
             </div>
 
@@ -530,7 +529,6 @@ export default function NewSalePage() {
                 value={form.contract_talad_no}
                 onChange={(e) => handleFormChange('contract_talad_no', e.target.value)}
                 placeholder="اختياري"
-                style={{ width: '100%' }}
               />
             </div>
 
@@ -593,7 +591,6 @@ export default function NewSalePage() {
                 value={form.finance_entity}
                 onChange={(e) => handleFormChange('finance_entity', e.target.value)}
                 placeholder="مثال: البنك الأهلي"
-                style={{ width: '100%' }}
               />
             </div>
 
@@ -608,7 +605,6 @@ export default function NewSalePage() {
                 onChange={(e) => handleFormChange('sale_date', e.target.value)}
                 required
                 max={new Date().toISOString().split('T')[0]} // لا يمكن اختيار تاريخ مستقبلي
-                style={{ width: '100%' }}
               />
             </div>
 
@@ -625,7 +621,6 @@ export default function NewSalePage() {
                 step="0.01"
                 required
                 placeholder="0.00"
-                style={{ width: '100%' }}
               />
             </div>
 

@@ -82,6 +82,83 @@ export default function DashboardPage() {
   const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('month');
 
   /* =====================
+     Helper Functions
+  ===================== */
+  function getStartDate(range: 'today' | 'week' | 'month' | 'all'): string {
+    const now = new Date();
+    
+    switch (range) {
+      case 'today':
+        now.setHours(0, 0, 0, 0);
+        break;
+      case 'week':
+        now.setDate(now.getDate() - 7);
+        break;
+      case 'month':
+        now.setMonth(now.getMonth() - 1);
+        break;
+      case 'all':
+        return '1970-01-01'; // بداية الوقت
+    }
+    
+    return now.toISOString();
+  }
+
+  function getActivityLevel(activity: number): { label: string; color: string; bgColor: string } {
+    if (activity >= 20) return { label: 'ممتاز', color: '#0d8a3e', bgColor: '#e6f4ea' };
+    if (activity >= 10) return { label: 'جيد جداً', color: '#34a853', bgColor: '#e8f5e9' };
+    if (activity >= 5) return { label: 'جيد', color: '#fbbc04', bgColor: '#fff8e1' };
+    if (activity >= 1) return { label: 'ضعيف', color: '#ea4335', bgColor: '#ffebee' };
+    return { label: 'لا يوجد نشاط', color: '#666', bgColor: '#f5f5f5' };
+  }
+
+  // دالة جديدة لحساب النسب المئوية للرسوم البيانية
+  function calculatePercentage(value: number, total: number): number {
+    if (total === 0) return 0;
+    return Math.min((value / total) * 100, 100);
+  }
+
+  // دالة مساعدة لجلب كل الوحدات باستخدام Pagination
+  async function getAllUnits(projectIds?: string[]) {
+    let allUnits: any[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      let query = supabase
+        .from('units')
+        .select('status, project_id')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+      
+      if (projectIds && projectIds.length > 0) {
+        query = query.in('project_id', projectIds);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching units:', error);
+        break;
+      }
+      
+      if (data && data.length > 0) {
+        allUnits = [...allUnits, ...data];
+        page++;
+        
+        // إذا كانت البيانات أقل من pageSize، فهذا يعني وصلنا للنهاية
+        if (data.length < pageSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    return allUnits;
+  }
+
+  /* =====================
      INIT
   ===================== */
   useEffect(() => {
@@ -146,11 +223,6 @@ export default function DashboardPage() {
         .from('clients')
         .select('*', { count: 'exact', head: true });
 
-      // ===== 3. توزيع الوحدات حسب الصلاحيات =====
-      let unitsQuery = supabase
-        .from('units')
-        .select('status, project_id');
-
       // التحقق من حالة موظف المبيعات بدون مشاريع
       if (emp.role === 'sales' && allowedProjectIds.length === 0) {
         // إذا كان موظف مبيعات بدون مشاريع، إرجاع إحصائيات صفرية
@@ -188,21 +260,15 @@ export default function DashboardPage() {
         return;
       }
 
-      // تطبيق فلترة المشاريع لموظفي المبيعات
-      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
-        unitsQuery = unitsQuery.in('project_id', allowedProjectIds);
-      }
-
-      const { data: unitsData } = await unitsQuery;
-
-      // تصفية الوحدات حسب الصلاحيات
-      let filteredUnits = [];
+      // ===== 3. جلب كل الوحدات حسب الصلاحيات =====
+      let filteredUnits: any[] = [];
+      
       if (emp.role === 'admin') {
         // الأدمن يرى كل الوحدات
-        filteredUnits = unitsData || [];
+        filteredUnits = await getAllUnits();
       } else {
         // موظف المبيعات يرى فقط وحدات المشاريع المسموحة
-        filteredUnits = (unitsData || []).filter(unit => allowedProjectIds.includes(unit.project_id));
+        filteredUnits = await getAllUnits(allowedProjectIds);
       }
 
       const unitsByStatus = {
@@ -212,49 +278,80 @@ export default function DashboardPage() {
       };
 
       // ===== 4. عدد الوحدات المتاحة حسب الصلاحيات =====
-      let myAvailableUnitsQuery = supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'available');
+      // دالة مساعدة لجلب عدد الوحدات المتاحة باستخدام Pagination
+      const getAvailableUnitsCount = async (projectIds?: string[]) => {
+        let count = 0;
+        let page = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        
+        while (hasMore) {
+          let query = supabase
+            .from('units')
+            .select('id', { count: 'exact', head: false })
+            .eq('status', 'available')
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          
+          if (projectIds && projectIds.length > 0) {
+            query = query.in('project_id', projectIds);
+          }
+          
+          const { data, error, count: pageCount } = await query;
+          
+          if (error) {
+            console.error('Error counting available units:', error);
+            break;
+          }
+          
+          if (data) {
+            count += data.length;
+            page++;
+            
+            // إذا كانت البيانات أقل من pageSize، فهذا يعني وصلنا للنهاية
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        return count;
+      };
 
-      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
-        myAvailableUnitsQuery = myAvailableUnitsQuery.in('project_id', allowedProjectIds);
-      }
-
-      const { count: myAvailableUnits } = await myAvailableUnitsQuery;
-
-      // ===== 5. كل الوحدات المتاحة (للعرض فقط للأدمن) =====
+      let myAvailableUnits = 0;
       let totalAvailableUnitsForAdmin = 0;
+
       if (emp.role === 'admin') {
-        const { count: allAvailable } = await supabase
-          .from('units')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'available');
-        totalAvailableUnitsForAdmin = allAvailable || 0;
+        // الأدمن: جلب كل الوحدات المتاحة
+        totalAvailableUnitsForAdmin = await getAvailableUnitsCount();
+      } else {
+        // موظف المبيعات: جلب الوحدات المتاحة في المشاريع المسموحة
+        myAvailableUnits = await getAvailableUnitsCount(allowedProjectIds);
       }
 
-      // ===== 6. المتابعات الخاصة بالموظف الحالي =====
+      // ===== 5. المتابعات الخاصة بالموظف الحالي =====
       const { count: myFollowUps } = await supabase
         .from('client_followups')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 7. الحجوزات الخاصة بالموظف الحالي =====
+      // ===== 6. الحجوزات الخاصة بالموظف الحالي =====
       const { count: myReservations } = await supabase
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 8. التنفيذات الخاصة بالموظف الحالي =====
+      // ===== 7. التنفيذات الخاصة بالموظف الحالي =====
       const { count: mySales } = await supabase
         .from('sales')
         .select('*', { count: 'exact', head: true })
         .eq('sales_employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 9. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
+      // ===== 8. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
       let otherEmployeesStats = [];
       if (emp.role === 'admin') {
         const { data: allEmployees } = await supabase
@@ -299,7 +396,7 @@ export default function DashboardPage() {
         }
       }
 
-      // ===== 10. توزيع العملاء حسب الحالة =====
+      // ===== 9. توزيع العملاء حسب الحالة =====
       const { data: clientsByStatusData } = await supabase
         .from('clients')
         .select('status');
@@ -311,7 +408,7 @@ export default function DashboardPage() {
         visited: clientsByStatusData?.filter(c => c.status === 'visited').length || 0
       };
 
-      // ===== 11. حساب المتوسطات =====
+      // ===== 10. حساب المتوسطات =====
       const { data: allSalesEmployees } = await supabase
         .from('employees')
         .select('id')
@@ -323,7 +420,7 @@ export default function DashboardPage() {
       const totalReservations = otherEmployeesStats.reduce((sum, emp) => sum + emp.reservations, myReservations || 0);
       const totalSales = otherEmployeesStats.reduce((sum, emp) => sum + emp.sales, mySales || 0);
 
-      // ===== 12. حساب معدلات التحويل =====
+      // ===== 11. حساب معدلات التحويل =====
       const conversionRate = totalClients && totalSales 
         ? Math.round((totalSales / totalClients) * 100) 
         : 0;
@@ -332,10 +429,10 @@ export default function DashboardPage() {
         ? Math.round((totalSales / totalReservations) * 100)
         : 0;
 
-      // ===== 13. تجميع كل الإحصائيات =====
+      // ===== 12. تجميع كل الإحصائيات =====
       const dashboardStats: DashboardStats = {
         totalClients: totalClients || 0,
-        totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : (myAvailableUnits || 0),
+        totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : myAvailableUnits,
         
         myFollowUps: myFollowUps || 0,
         myReservations: myReservations || 0,
@@ -363,43 +460,6 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  /* =====================
-     Helper Functions
-  ===================== */
-  function getStartDate(range: 'today' | 'week' | 'month' | 'all'): string {
-    const now = new Date();
-    
-    switch (range) {
-      case 'today':
-        now.setHours(0, 0, 0, 0);
-        break;
-      case 'week':
-        now.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        now.setMonth(now.getMonth() - 1);
-        break;
-      case 'all':
-        return '1970-01-01'; // بداية الوقت
-    }
-    
-    return now.toISOString();
-  }
-
-  function getActivityLevel(activity: number): { label: string; color: string; bgColor: string } {
-    if (activity >= 20) return { label: 'ممتاز', color: '#0d8a3e', bgColor: '#e6f4ea' };
-    if (activity >= 10) return { label: 'جيد جداً', color: '#34a853', bgColor: '#e8f5e9' };
-    if (activity >= 5) return { label: 'جيد', color: '#fbbc04', bgColor: '#fff8e1' };
-    if (activity >= 1) return { label: 'ضعيف', color: '#ea4335', bgColor: '#ffebee' };
-    return { label: 'لا يوجد نشاط', color: '#666', bgColor: '#f5f5f5' };
-  }
-
-  // دالة جديدة لحساب النسب المئوية للرسوم البيانية
-  function calculatePercentage(value: number, total: number): number {
-    if (total === 0) return 0;
-    return Math.min((value / total) * 100, 100);
   }
 
   /* =====================

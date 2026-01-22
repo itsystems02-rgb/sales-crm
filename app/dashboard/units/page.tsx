@@ -231,7 +231,7 @@ async function processImportedUnits(data: any[], projects: ProjectOption[], mode
         'تاون هاوس': 'townhouse',
         'villa': 'villa',
         'duplex': 'duplex',
-        'apartment': 'apartment'
+        'apartment': 'apartment',
         'townhouse': 'townhouse',
       };
       

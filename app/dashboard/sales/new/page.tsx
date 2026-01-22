@@ -664,22 +664,37 @@ export default function NewSalePage() {
         borderRadius: '4px',
         border: '1px solid #eee'
       }}>
-        <Button
-          variant="primary"
+        <button
           onClick={handleSubmit}
           disabled={!canSubmit || submitting || loading}
-          style={{ padding: '12px 24px', fontSize: '16px' }}
+          style={{ 
+            padding: '12px 24px',
+            fontSize: '16px',
+            backgroundColor: '#2563eb',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: (!canSubmit || submitting || loading) ? 'not-allowed' : 'pointer',
+            opacity: (!canSubmit || submitting || loading) ? 0.5 : 1
+          }}
         >
           {submitting ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
-        </Button>
+        </button>
         
-        <Button
+        <button
           onClick={handleCancel}
-          variant="danger"
-          style={{ padding: '12px 24px', fontSize: '16px' }}
+          style={{ 
+            padding: '12px 24px',
+            fontSize: '16px',
+            backgroundColor: '#dc2626',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
         >
           إلغاء
-        </Button>
+        </button>
       </div>
 
       {/* ===== INFO BOX ===== */}

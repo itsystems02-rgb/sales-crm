@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -466,6 +466,13 @@ export default function ClientsPage() {
            filters.job_sector_id !== null ||
            filters.from_date ||
            filters.to_date;
+  };
+
+  // دالة للتعامل مع ضغط المفاتيح
+  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      applyFilters();
+    }
   };
 
   /* =====================
@@ -1378,15 +1385,33 @@ export default function ClientsPage() {
             
             {/* Search Bar */}
             <div style={{ marginBottom: '15px' }}>
-              <Input 
-                placeholder="ابحث بالاسم أو رقم الجوال..." 
-                value={filters.search}
-                onChange={(e) => updateFilter('search', e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') applyFilters();
-                }}
-                style={{ width: '100%' }}
-              />
+              <div style={{ position: 'relative' }}>
+                <Input 
+                  placeholder="ابحث بالاسم أو رقم الجوال..." 
+                  value={filters.search}
+                  onChange={(e) => updateFilter('search', e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  style={{ width: '100%', paddingRight: '40px' }}
+                />
+                <button
+                  onClick={applyFilters}
+                  style={{
+                    position: 'absolute',
+                    left: '5px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '5px 10px',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  بحث
+                </button>
+              </div>
             </div>
             
             {/* Advanced Filters */}

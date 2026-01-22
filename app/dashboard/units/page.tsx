@@ -351,8 +351,7 @@ export default function UnitsPage() {
       setEmployee(emp);
       await loadProjects();
       await loadUnits(emp);
-      await fetchTotalCount(emp);
-      await fetchUnitStats(emp);
+      await fetchUnitStats(emp); // هذا سيجلب الإحصائيات ويحدد totalUnits
     } catch (err) {
       console.error('Error in init():', err);
     }
@@ -392,72 +391,66 @@ export default function UnitsPage() {
     setModels(data || []);
   }
 
-  async function fetchTotalCount(emp: Employee | null = null) {
-    try {
-      let query = supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true });
-
-      if (emp && emp.role === 'sales') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
-
-        const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
-        query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
-      }
-
-      const { count, error } = await query;
-      if (error) throw error;
-
-      setTotalUnits(count || 0);
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage));
-    } catch (err) {
-      console.error('Error fetching total count:', err);
-      setTotalUnits(0);
-    }
-  }
-
-  // دالة جديدة لجلب إحصائيات الوحدات
+  // دالة لجلب الإحصائيات
   async function fetchUnitStats(emp: Employee | null = null) {
     try {
-      let query = supabase
-        .from('units')
-        .select('status', { count: 'exact' });
+      // دالة مساعدة للحصول على العدد
+      const getCount = async (status?: Unit['status']) => {
+        let query = supabase
+          .from('units')
+          .select('id', { count: 'exact', head: true });
 
-      if (emp && emp.role === 'sales') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
+        if (status) {
+          query = query.eq('status', status);
+        }
 
-        const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
-        query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
-      }
+        if (emp && emp.role === 'sales') {
+          const { data: employeeProjects } = await supabase
+            .from('employee_projects')
+            .select('project_id')
+            .eq('employee_id', emp.id);
 
-      const { data, error, count } = await query;
-      if (error) throw error;
+          const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
+          
+          if (allowedProjectIds.length > 0) {
+            query = query.in('project_id', allowedProjectIds);
+          } else {
+            return 0;
+          }
+        }
 
-      // حساب الإحصائيات
-      const stats: UnitStats = {
-        available: 0,
-        reserved: 0,
-        sold: 0,
-        total: count || 0
+        const { count, error } = await query;
+        if (error) throw error;
+        return count || 0;
       };
 
-      (data || []).forEach((unit: any) => {
-        if (unit.status === 'available') {
-          stats.available += 1;
-        } else if (unit.status === 'reserved') {
-          stats.reserved += 1;
-        } else if (unit.status === 'sold') {
-          stats.sold += 1;
-        }
+      // جلب جميع الإحصائيات بالتوازي
+      const [available, reserved, sold, total] = await Promise.all([
+        getCount('available'),
+        getCount('reserved'),
+        getCount('sold'),
+        getCount() // بدون status للحصول على الإجمالي
+      ]);
+
+      const stats: UnitStats = {
+        available,
+        reserved,
+        sold,
+        total
+      };
+
+      console.log('Unit Statistics:', {
+        available,
+        reserved,
+        sold,
+        total,
+        sum: available + reserved + sold,
+        isValid: (available + reserved + sold) === total
       });
 
       setUnitStats(stats);
+      setTotalUnits(total);
+      setTotalPages(Math.ceil(total / itemsPerPage));
     } catch (err) {
       console.error('Error fetching unit stats:', err);
       setUnitStats({
@@ -466,6 +459,8 @@ export default function UnitsPage() {
         sold: 0,
         total: 0
       });
+      setTotalUnits(0);
+      setTotalPages(1);
     }
   }
 
@@ -527,6 +522,7 @@ export default function UnitsPage() {
 
       setUnits(normalized);
       if (count !== null) {
+        // تحديث totalUnits من count الصفحة الحالية فقط للتأكد
         setTotalUnits(count);
         setTotalPages(Math.ceil(count / itemsPerPage));
       }
@@ -632,7 +628,6 @@ export default function UnitsPage() {
 
     resetForm();
     await loadUnits(employee, currentPage);
-    await fetchTotalCount(employee);
     await fetchUnitStats(employee);
   }
 
@@ -674,7 +669,6 @@ export default function UnitsPage() {
     }
 
     await loadUnits(employee, currentPage);
-    await fetchTotalCount(employee);
     await fetchUnitStats(employee);
   }
 
@@ -843,7 +837,6 @@ export default function UnitsPage() {
           
           // إعادة تحميل البيانات والإحصائيات
           await loadUnits(employee, currentPage);
-          await fetchTotalCount(employee);
           await fetchUnitStats(employee);
           
           // إعادة تعيين حقل الملف

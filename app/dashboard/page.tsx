@@ -139,12 +139,6 @@ export default function DashboardPage() {
           .eq('employee_id', emp.id);
 
         allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-      } else {
-        // الأدمن يرى كل المشاريع
-        const { data: allProjects } = await supabase
-          .from('projects')
-          .select('id');
-        allowedProjectIds = (allProjects || []).map(p => p.id);
       }
 
       // ===== 2. عدد العملاء (عام) =====
@@ -152,42 +146,74 @@ export default function DashboardPage() {
         .from('clients')
         .select('*', { count: 'exact', head: true });
 
-      // ===== 3. عدد الوحدات المتاحة =====
-      // 3.1 كل الوحدات المتاحة (للعرض فقط)
-      const { count: totalAvailableUnits } = await supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'available');
-
-      // 3.2 الوحدات المتاحة حسب صلاحيات الموظف
-      let myAvailableUnitsQuery = supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'available');
-
-      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
-        myAvailableUnitsQuery = myAvailableUnitsQuery.in('project_id', allowedProjectIds);
-      } else if (emp.role === 'sales' && allowedProjectIds.length === 0) {
-        myAvailableUnitsQuery = myAvailableUnitsQuery.eq('project_id', 'no-projects'); // لا يظهر شيئاً
-      }
-
-      const { count: myAvailableUnits } = await myAvailableUnitsQuery;
-
-      // ===== 4. توزيع الوحدات حسب الصلاحيات =====
+      // ===== 3. توزيع الوحدات حسب الصلاحيات =====
       let unitsQuery = supabase
         .from('units')
         .select('status, project_id');
 
       if (emp.role === 'sales' && allowedProjectIds.length > 0) {
         unitsQuery = unitsQuery.in('project_id', allowedProjectIds);
+      } else if (emp.role === 'sales' && allowedProjectIds.length === 0) {
+        // إذا كان موظف مبيعات بدون مشاريع، فلن يرى أي وحدات
+        const unitsByStatus = {
+          available: 0,
+          reserved: 0,
+          sold: 0
+        };
+
+        // ===== 4. عدد الوحدات المتاحة حسب الصلاحيات =====
+        let myAvailableUnits = 0;
+        
+        // ===== 5. كل الوحدات المتاحة (للعرض فقط للأدمن) =====
+        let totalAvailableUnitsForAdmin = 0;
+        
+        if (emp.role === 'admin') {
+          const { count: allAvailable } = await supabase
+            .from('units')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'available');
+          totalAvailableUnitsForAdmin = allAvailable || 0;
+        }
+
+        // تجميع الإحصائيات
+        const dashboardStats: DashboardStats = {
+          totalClients: totalClients || 0,
+          totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : 0,
+          
+          myFollowUps: 0,
+          myReservations: 0,
+          mySales: 0,
+          
+          otherEmployeesStats: [],
+          
+          clientsByStatus: { lead: 0, reserved: 0, converted: 0, visited: 0 },
+          unitsByStatus,
+          
+          avgFollowUpsPerEmployee: 0,
+          avgReservationsPerEmployee: 0,
+          avgSalesPerEmployee: 0,
+          
+          conversionRate: 0,
+          reservationToSaleRate: 0,
+          
+          myProjectsUnits: unitsByStatus
+        };
+
+        setStats(dashboardStats);
+        return;
       }
 
       const { data: unitsData } = await unitsQuery;
 
       // تصفية الوحدات حسب الصلاحيات
-      const filteredUnits = emp.role === 'admin' 
-        ? unitsData || []
-        : (unitsData || []).filter(unit => allowedProjectIds.includes(unit.project_id));
+      let filteredUnits = [];
+      if (emp.role === 'admin') {
+        // الأدمن يرى كل الوحدات
+        filteredUnits = unitsData || [];
+      } else {
+        // موظف المبيعات يرى فقط وحدات المشاريع المسموحة
+        filteredUnits = (unitsData || []).filter(unit => allowedProjectIds.includes(unit.project_id));
+      }
 
       const unitsByStatus = {
         available: filteredUnits.filter(u => u.status === 'available').length,
@@ -195,28 +221,50 @@ export default function DashboardPage() {
         sold: filteredUnits.filter(u => u.status === 'sold').length
       };
 
-      // ===== 5. المتابعات الخاصة بالموظف الحالي =====
+      // ===== 4. عدد الوحدات المتاحة حسب الصلاحيات =====
+      let myAvailableUnitsQuery = supabase
+        .from('units')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'available');
+
+      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
+        myAvailableUnitsQuery = myAvailableUnitsQuery.in('project_id', allowedProjectIds);
+      }
+
+      const { count: myAvailableUnits } = await myAvailableUnitsQuery;
+
+      // ===== 5. كل الوحدات المتاحة (للعرض فقط للأدمن) =====
+      let totalAvailableUnitsForAdmin = 0;
+      if (emp.role === 'admin') {
+        const { count: allAvailable } = await supabase
+          .from('units')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'available');
+        totalAvailableUnitsForAdmin = allAvailable || 0;
+      }
+
+      // ===== 6. المتابعات الخاصة بالموظف الحالي =====
       const { count: myFollowUps } = await supabase
         .from('client_followups')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 6. الحجوزات الخاصة بالموظف الحالي =====
+      // ===== 7. الحجوزات الخاصة بالموظف الحالي =====
       const { count: myReservations } = await supabase
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 7. التنفيذات الخاصة بالموظف الحالي =====
+      // ===== 8. التنفيذات الخاصة بالموظف الحالي =====
       const { count: mySales } = await supabase
         .from('sales')
         .select('*', { count: 'exact', head: true })
         .eq('sales_employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 8. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
+      // ===== 9. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
       let otherEmployeesStats = [];
       if (emp.role === 'admin') {
         const { data: allEmployees } = await supabase
@@ -261,7 +309,7 @@ export default function DashboardPage() {
         }
       }
 
-      // ===== 9. توزيع العملاء حسب الحالة =====
+      // ===== 10. توزيع العملاء حسب الحالة =====
       const { data: clientsByStatusData } = await supabase
         .from('clients')
         .select('status');
@@ -273,7 +321,7 @@ export default function DashboardPage() {
         visited: clientsByStatusData?.filter(c => c.status === 'visited').length || 0
       };
 
-      // ===== 10. حساب المتوسطات =====
+      // ===== 11. حساب المتوسطات =====
       const { data: allSalesEmployees } = await supabase
         .from('employees')
         .select('id')
@@ -285,7 +333,7 @@ export default function DashboardPage() {
       const totalReservations = otherEmployeesStats.reduce((sum, emp) => sum + emp.reservations, myReservations || 0);
       const totalSales = otherEmployeesStats.reduce((sum, emp) => sum + emp.sales, mySales || 0);
 
-      // ===== 11. حساب معدلات التحويل =====
+      // ===== 12. حساب معدلات التحويل =====
       const conversionRate = totalClients && totalSales 
         ? Math.round((totalSales / totalClients) * 100) 
         : 0;
@@ -294,10 +342,10 @@ export default function DashboardPage() {
         ? Math.round((totalSales / totalReservations) * 100)
         : 0;
 
-      // ===== 12. تجميع كل الإحصائيات =====
+      // ===== 13. تجميع كل الإحصائيات =====
       const dashboardStats: DashboardStats = {
         totalClients: totalClients || 0,
-        totalAvailableUnits: emp.role === 'admin' ? (totalAvailableUnits || 0) : (myAvailableUnits || 0),
+        totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : (myAvailableUnits || 0),
         
         myFollowUps: myFollowUps || 0,
         myReservations: myReservations || 0,

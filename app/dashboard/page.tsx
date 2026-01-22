@@ -151,34 +151,19 @@ export default function DashboardPage() {
         .from('units')
         .select('status, project_id');
 
-      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
-        unitsQuery = unitsQuery.in('project_id', allowedProjectIds);
-      } else if (emp.role === 'sales' && allowedProjectIds.length === 0) {
-        // إذا كان موظف مبيعات بدون مشاريع، فلن يرى أي وحدات
+      // التحقق من حالة موظف المبيعات بدون مشاريع
+      if (emp.role === 'sales' && allowedProjectIds.length === 0) {
+        // إذا كان موظف مبيعات بدون مشاريع، إرجاع إحصائيات صفرية
         const unitsByStatus = {
           available: 0,
           reserved: 0,
           sold: 0
         };
 
-        // ===== 4. عدد الوحدات المتاحة حسب الصلاحيات =====
-        let myAvailableUnits = 0;
-        
-        // ===== 5. كل الوحدات المتاحة (للعرض فقط للأدمن) =====
-        let totalAvailableUnitsForAdmin = 0;
-        
-        if (emp.role === 'admin') {
-          const { count: allAvailable } = await supabase
-            .from('units')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'available');
-          totalAvailableUnitsForAdmin = allAvailable || 0;
-        }
-
-        // تجميع الإحصائيات
+        // تجميع الإحصائيات الأساسية
         const dashboardStats: DashboardStats = {
           totalClients: totalClients || 0,
-          totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : 0,
+          totalAvailableUnits: 0,
           
           myFollowUps: 0,
           myReservations: 0,
@@ -201,6 +186,11 @@ export default function DashboardPage() {
 
         setStats(dashboardStats);
         return;
+      }
+
+      // تطبيق فلترة المشاريع لموظفي المبيعات
+      if (emp.role === 'sales' && allowedProjectIds.length > 0) {
+        unitsQuery = unitsQuery.in('project_id', allowedProjectIds);
       }
 
       const { data: unitsData } = await unitsQuery;

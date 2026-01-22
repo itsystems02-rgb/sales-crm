@@ -633,13 +633,20 @@ export default function NewSalePage() {
               <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
                 سعر بيع الوحدة قبل الضريبة *
               </label>
-              <Input
+              <input
                 type="number"
                 value={form.price_before_tax}
                 onChange={(e) => handleFormChange('price_before_tax', e.target.value)}
                 min="0"
                 step="0.01"
                 placeholder="0.00"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff'
+                }}
               />
             </div>
 

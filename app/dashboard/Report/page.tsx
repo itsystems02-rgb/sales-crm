@@ -185,6 +185,71 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false);
 
   /* =====================
+     Helper Functions
+  ===================== */
+
+  // دالة لجلب عدد الوحدات مباشرة (أكثر كفاءة)
+  async function getUnitsCount(status?: string, projectId?: string): Promise<number> {
+    let query = supabase
+      .from('units')
+      .select('id', { count: 'exact', head: true });
+    
+    if (status) {
+      query = query.eq('status', status);
+    }
+    
+    if (projectId) {
+      query = query.eq('project_id', projectId);
+    }
+    
+    const { count, error } = await query;
+    
+    if (error) {
+      console.error('Error counting units:', error);
+      return 0;
+    }
+    
+    return count || 0;
+  }
+
+  // دالة لجلب كل الوحدات باستخدام Pagination
+  async function getAllUnits(): Promise<any[]> {
+    let allUnits: any[] = [];
+    let from = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('units')
+        .select('unit_type, status, supported_price, project_id')
+        .range(from, from + pageSize - 1);
+      
+      if (error) {
+        console.error('Error fetching units:', error);
+        break;
+      }
+      
+      if (data && data.length > 0) {
+        allUnits = [...allUnits, ...data];
+        from += pageSize;
+        
+        // إذا كانت البيانات أقل من pageSize، فهذا يعني وصلنا للنهاية
+        if (data.length < pageSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+      
+      // إضافة تأخير بسيط لتجنب rate limiting
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    return allUnits;
+  }
+
+  /* =====================
      INIT
   ===================== */
   useEffect(() => {
@@ -300,28 +365,17 @@ export default function ReportsPage() {
     const projectsByUnits = [];
     
     for (const project of (projects || [])) {
-      const { count: totalUnits } = await supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('project_id', project.id);
-      
-      const { count: availableUnits } = await supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('project_id', project.id)
-        .eq('status', 'available');
-      
-      const { count: reservedUnits } = await supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('project_id', project.id)
-        .eq('status', 'reserved');
-      
-      const { count: soldUnits } = await supabase
-        .from('units')
-        .select('*', { count: 'exact', head: true })
-        .eq('project_id', project.id)
-        .eq('status', 'sold');
+      const [
+        totalUnits,
+        availableUnits,
+        reservedUnits,
+        soldUnits
+      ] = await Promise.all([
+        getUnitsCount(undefined, project.id),
+        getUnitsCount('available', project.id),
+        getUnitsCount('reserved', project.id),
+        getUnitsCount('sold', project.id)
+      ]);
       
       const { data: projectSales } = await supabase
         .from('sales')
@@ -349,48 +403,38 @@ export default function ReportsPage() {
   }
   
   async function fetchUnitsStats() {
-    const { data: units } = await supabase.from('units').select('*');
-    const { data: unitsWithPrice } = await supabase
-      .from('units')
-      .select('supported_price, unit_type, status');
+    // جلب كل الوحدات باستخدام Pagination
+    const allUnits = await getAllUnits();
     
     const unitsByType = {
-      villa: units?.filter(u => u.unit_type === 'villa').length || 0,
-      duplex: units?.filter(u => u.unit_type === 'duplex').length || 0,
-      apartment: units?.filter(u => u.unit_type === 'apartment').length || 0
+      villa: allUnits.filter(u => u.unit_type === 'villa').length,
+      duplex: allUnits.filter(u => u.unit_type === 'duplex').length,
+      apartment: allUnits.filter(u => u.unit_type === 'apartment').length
     };
     
     const unitsByStatus = {
-      available: units?.filter(u => u.status === 'available').length || 0,
-      reserved: units?.filter(u => u.status === 'reserved').length || 0,
-      sold: units?.filter(u => u.status === 'sold').length || 0
+      available: allUnits.filter(u => u.status === 'available').length,
+      reserved: allUnits.filter(u => u.status === 'reserved').length,
+      sold: allUnits.filter(u => u.status === 'sold').length
     };
     
     // حساب توزيع الوحدات حسب المشروع
-    const { data: unitsData } = await supabase
-      .from('units')
-      .select('project_id, projects(id, name)');
-    
     const projectCounts: Record<string, number> = {};
-    const projectNames: Record<string, string> = {};
     
     // الحصول على أسماء المشاريع أولاً
     const { data: allProjects } = await supabase
       .from('projects')
       .select('id, name');
     
+    const projectNames: Record<string, string> = {};
     allProjects?.forEach(project => {
       projectNames[project.id] = project.name;
     });
     
-    unitsData?.forEach(unit => {
+    allUnits.forEach(unit => {
       let projectName = 'غير معروف';
       
-      if (unit.projects && Array.isArray(unit.projects) && unit.projects.length > 0) {
-        // إذا كانت projects مصفوفة (كيفية Supabase لعلاقات many-to-one)
-        projectName = unit.projects[0]?.name || 'غير معروف';
-      } else if (unit.project_id && projectNames[unit.project_id]) {
-        // إذا كان لدينا معرف المشروع مباشرة
+      if (unit.project_id && projectNames[unit.project_id]) {
         projectName = projectNames[unit.project_id];
       }
       
@@ -402,7 +446,7 @@ export default function ReportsPage() {
       count
     }));
     
-    const prices = (unitsWithPrice || []).map(u => u.supported_price || 0).filter(p => p > 0);
+    const prices = allUnits.map(u => u.supported_price || 0).filter(p => p > 0);
     const priceRange = {
       min: prices.length > 0 ? Math.min(...prices) : 0,
       max: prices.length > 0 ? Math.max(...prices) : 0,
@@ -410,7 +454,7 @@ export default function ReportsPage() {
     };
     
     return {
-      totalUnits: units?.length || 0,
+      totalUnits: allUnits.length,
       byType: unitsByType,
       byStatus: unitsByStatus,
       byProject: unitsByProject,
@@ -419,23 +463,58 @@ export default function ReportsPage() {
   }
   
   async function fetchClientsStats() {
-    const { data: clients } = await supabase.from('clients').select('*');
+    // دالة لجلب كل العملاء باستخدام Pagination
+    async function getAllClients() {
+      let allClients: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('clients')
+          .select('*')
+          .range(from, from + pageSize - 1);
+        
+        if (error) {
+          console.error('Error fetching clients:', error);
+          break;
+        }
+        
+        if (data && data.length > 0) {
+          allClients = [...allClients, ...data];
+          from += pageSize;
+          
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      return allClients;
+    }
+    
+    const clients = await getAllClients();
     
     const byStatus = {
-      lead: clients?.filter(c => c.status === 'lead').length || 0,
-      reserved: clients?.filter(c => c.status === 'reserved').length || 0,
-      converted: clients?.filter(c => c.status === 'converted').length || 0,
-      visited: clients?.filter(c => c.status === 'visited').length || 0
+      lead: clients.filter(c => c.status === 'lead').length,
+      reserved: clients.filter(c => c.status === 'reserved').length,
+      converted: clients.filter(c => c.status === 'converted').length,
+      visited: clients.filter(c => c.status === 'visited').length
     };
     
     const byNationality = {
-      saudi: clients?.filter(c => c.nationality === 'saudi').length || 0,
-      non_saudi: clients?.filter(c => c.nationality === 'non_saudi').length || 0
+      saudi: clients.filter(c => c.nationality === 'saudi').length,
+      non_saudi: clients.filter(c => c.nationality === 'non_saudi').length
     };
     
     const byEligibility = {
-      eligible: clients?.filter(c => c.eligible).length || 0,
-      notEligible: clients?.filter(c => !c.eligible).length || 0
+      eligible: clients.filter(c => c.eligible).length,
+      notEligible: clients.filter(c => !c.eligible).length
     };
     
     const topSources = [
@@ -447,7 +526,7 @@ export default function ReportsPage() {
     ].sort((a, b) => b.count - a.count);
     
     return {
-      totalClients: clients?.length || 0,
+      totalClients: clients.length,
       byStatus,
       byNationality,
       byEligibility,
@@ -513,14 +592,47 @@ export default function ReportsPage() {
   }
   
   async function fetchSalesStats() {
-    const { data: sales } = await supabase
-      .from('sales')
-      .select('price_before_tax, sale_date');
+    // دالة لجلب كل المبيعات باستخدام Pagination
+    async function getAllSales() {
+      let allSales: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('sales')
+          .select('price_before_tax, sale_date')
+          .range(from, from + pageSize - 1);
+        
+        if (error) {
+          console.error('Error fetching sales:', error);
+          break;
+        }
+        
+        if (data && data.length > 0) {
+          allSales = [...allSales, ...data];
+          from += pageSize;
+          
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      return allSales;
+    }
     
-    const prices = sales?.map(s => s.price_before_tax || 0).filter(p => p > 0) || [];
+    const sales = await getAllSales();
+    
+    const prices = sales.map(s => s.price_before_tax || 0).filter(p => p > 0);
     
     return {
-      totalSales: sales?.length || 0,
+      totalSales: sales.length,
       totalSalesAmount: prices.reduce((sum, price) => sum + price, 0),
       avgSalePrice: prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0,
       maxSalePrice: prices.length > 0 ? Math.max(...prices) : 0,
@@ -529,9 +641,42 @@ export default function ReportsPage() {
   }
   
   async function fetchReservationsStats() {
-    const { data: reservations } = await supabase
-      .from('reservations')
-      .select('status, created_at, reservation_date');
+    // دالة لجلب كل الحجوزات باستخدام Pagination
+    async function getAllReservations() {
+      let allReservations: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('reservations')
+          .select('status, created_at, reservation_date')
+          .range(from, from + pageSize - 1);
+        
+        if (error) {
+          console.error('Error fetching reservations:', error);
+          break;
+        }
+        
+        if (data && data.length > 0) {
+          allReservations = [...allReservations, ...data];
+          from += pageSize;
+          
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      return allReservations;
+    }
+    
+    const reservations = await getAllReservations();
     
     const byMonth = Array.from({ length: 12 }, (_, i) => {
       const month = new Date(2024, i, 1).toLocaleDateString('ar-SA', { month: 'long' });
@@ -540,29 +685,62 @@ export default function ReportsPage() {
     });
     
     return {
-      totalReservations: reservations?.length || 0,
-      active: reservations?.filter(r => r.status === 'active').length || 0,
-      converted: reservations?.filter(r => r.status === 'converted').length || 0,
-      cancelled: reservations?.filter(r => r.status === 'cancelled').length || 0,
+      totalReservations: reservations.length,
+      active: reservations.filter(r => r.status === 'active').length,
+      converted: reservations.filter(r => r.status === 'converted').length,
+      cancelled: reservations.filter(r => r.status === 'cancelled').length,
       byMonth,
       avgReservationToSaleDays: Math.floor(Math.random() * 30) + 7
     };
   }
   
   async function fetchFollowUpsStats() {
-    const { data: followUps } = await supabase
-      .from('client_followups')
-      .select('type, employee_id, employees(id, name)');
+    // دالة لجلب كل المتابعات باستخدام Pagination
+    async function getAllFollowUps() {
+      let allFollowUps: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('client_followups')
+          .select('type, employee_id, employees(id, name)')
+          .range(from, from + pageSize - 1);
+        
+        if (error) {
+          console.error('Error fetching followups:', error);
+          break;
+        }
+        
+        if (data && data.length > 0) {
+          allFollowUps = [...allFollowUps, ...data];
+          from += pageSize;
+          
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      return allFollowUps;
+    }
+    
+    const followUps = await getAllFollowUps();
     
     const byType = {
-      call: followUps?.filter(f => f.type === 'call').length || 0,
-      whatsapp: followUps?.filter(f => f.type === 'whatsapp').length || 0,
-      visit: followUps?.filter(f => f.type === 'visit').length || 0
+      call: followUps.filter(f => f.type === 'call').length,
+      whatsapp: followUps.filter(f => f.type === 'whatsapp').length,
+      visit: followUps.filter(f => f.type === 'visit').length
     };
     
     const employeeCounts: Record<string, number> = {};
     
-    followUps?.forEach(f => {
+    followUps.forEach(f => {
       let empName = 'غير معروف';
       
       if (f.employees && Array.isArray(f.employees) && f.employees.length > 0) {
@@ -578,7 +756,7 @@ export default function ReportsPage() {
     })).sort((a, b) => b.count - a.count);
     
     return {
-      totalFollowUps: followUps?.length || 0,
+      totalFollowUps: followUps.length,
       byType,
       byEmployee,
       avgFollowUpsPerClient: Math.floor(Math.random() * 5) + 1,

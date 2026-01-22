@@ -27,18 +27,14 @@ type Unit = {
   id: string;
   project_id: string;
   model_id: string | null;
-
   unit_code: string;
   block_no: string | null;
   unit_no: string | null;
-
   unit_type: 'villa' | 'duplex' | 'apartment'| 'townhouse';
   status: 'available' | 'reserved' | 'sold';
-
   supported_price: number;
   land_area: number | null;
   build_area: number | null;
-
   project: ProjectRef | null;
   model: ModelRef | null;
 };
@@ -299,6 +295,12 @@ export default function UnitsPage() {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [totalUnits, setTotalUnits] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  
   // Excel import states
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -334,6 +336,7 @@ export default function UnitsPage() {
       setEmployee(emp);
       await loadProjects();
       await loadUnits(emp);
+      await fetchTotalCount(emp);
     } catch (err) {
       console.error('Error in init():', err);
     }
@@ -373,10 +376,40 @@ export default function UnitsPage() {
     setModels(data || []);
   }
 
-  async function loadUnits(emp: Employee | null = null) {
+  async function fetchTotalCount(emp: Employee | null = null) {
+    try {
+      let query = supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true });
+
+      if (emp && emp.role === 'sales') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
+        query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
+      }
+
+      const { count, error } = await query;
+      if (error) throw error;
+
+      setTotalUnits(count || 0);
+      setTotalPages(Math.ceil((count || 0) / itemsPerPage));
+    } catch (err) {
+      console.error('Error fetching total count:', err);
+      setTotalUnits(0);
+    }
+  }
+
+  async function loadUnits(emp: Employee | null = null, page: number = currentPage) {
     setLoading(true);
 
     try {
+      const from = (page - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
       let query = supabase
         .from('units')
         .select(`
@@ -393,8 +426,9 @@ export default function UnitsPage() {
           build_area,
           project:projects!units_project_id_fkey (name,code),
           model:project_models!units_model_id_fkey (name)
-        `)
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
       if (emp && emp.role === 'sales') {
         const { data: employeeProjects } = await supabase
@@ -406,7 +440,7 @@ export default function UnitsPage() {
         query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
       }
 
-      const { data, error } = await query;
+      const { data, error, count } = await query;
       if (error) throw error;
 
       const normalized: Unit[] = (data || []).map((r: any) => ({
@@ -426,6 +460,10 @@ export default function UnitsPage() {
       }));
 
       setUnits(normalized);
+      if (count !== null) {
+        setTotalUnits(count);
+        setTotalPages(Math.ceil(count / itemsPerPage));
+      }
     } catch (err) {
       console.error('Error loading units:', err);
       setUnits([]);
@@ -446,6 +484,27 @@ export default function UnitsPage() {
       if (!prefillingRef.current) setModelId('');
     })();
   }, [projectId]);
+
+  /* =====================
+     Pagination Handlers
+  ===================== */
+  useEffect(() => {
+    if (employee) {
+      loadUnits(employee, currentPage);
+    }
+  }, [currentPage, itemsPerPage]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = parseInt(e.target.value);
+    setItemsPerPage(value);
+    setCurrentPage(1); // العودة إلى الصفحة الأولى عند تغيير عدد العناصر
+  };
 
   /* =====================
      FORM
@@ -506,7 +565,8 @@ export default function UnitsPage() {
     }
 
     resetForm();
-    await loadUnits(employee);
+    await loadUnits(employee, currentPage);
+    await fetchTotalCount(employee);
   }
 
   async function startEdit(u: Unit) {
@@ -546,7 +606,8 @@ export default function UnitsPage() {
       return;
     }
 
-    await loadUnits(employee);
+    await loadUnits(employee, currentPage);
+    await fetchTotalCount(employee);
   }
 
   /* =====================
@@ -554,13 +615,80 @@ export default function UnitsPage() {
   ===================== */
 
   function handleExportExcel() {
-    if (units.length === 0) {
+    if (totalUnits === 0) {
       alert('لا توجد بيانات للتصدير');
       return;
     }
     
-    const fileName = `وحدات_${new Date().toISOString().split('T')[0]}.xlsx`;
-    exportToExcel(units, fileName);
+    const confirmExport = window.confirm(`هل تريد تصدير جميع الوحدات (${totalUnits.toLocaleString()}) إلى ملف Excel؟`);
+    
+    if (!confirmExport) return;
+
+    setLoading(true);
+    
+    // جلب جميع الوحدات للتصدير
+    const fetchAllUnits = async () => {
+      try {
+        let query = supabase
+          .from('units')
+          .select(`
+            id,
+            project_id,
+            model_id,
+            unit_code,
+            block_no,
+            unit_no,
+            unit_type,
+            status,
+            supported_price,
+            land_area,
+            build_area,
+            project:projects!units_project_id_fkey (name,code),
+            model:project_models!units_model_id_fkey (name)
+          `)
+          .order('created_at', { ascending: false });
+
+        if (employee && employee.role === 'sales') {
+          const { data: employeeProjects } = await supabase
+            .from('employee_projects')
+            .select('project_id')
+            .eq('employee_id', employee.id);
+
+          const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
+          query = query.in('project_id', allowedProjectIds.length > 0 ? allowedProjectIds : ['']);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const normalized: Unit[] = (data || []).map((r: any) => ({
+          id: r.id,
+          project_id: r.project_id,
+          model_id: r.model_id,
+          unit_code: r.unit_code,
+          block_no: r.block_no,
+          unit_no: r.unit_no,
+          unit_type: r.unit_type,
+          status: r.status,
+          supported_price: Number(r.supported_price || 0),
+          land_area: r.land_area === null ? null : Number(r.land_area),
+          build_area: r.build_area === null ? null : Number(r.build_area),
+          project: normalizeRel<ProjectRef>(r.project),
+          model: normalizeRel<ModelRef>(r.model),
+        }));
+
+        const fileName = `وحدات_${new Date().toISOString().split('T')[0]}.xlsx`;
+        exportToExcel(normalized, fileName);
+        
+      } catch (err) {
+        console.error('Error fetching all units for export:', err);
+        alert('حدث خطأ في تحميل البيانات للتصدير');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllUnits();
   }
 
   function handleImportClick() {
@@ -646,7 +774,8 @@ export default function UnitsPage() {
           alert(message);
           
           // إعادة تحميل البيانات
-          await loadUnits(employee);
+          await loadUnits(employee, currentPage);
+          await fetchTotalCount(employee);
           
           // إعادة تعيين حقل الملف
           if (fileInputRef.current) {
@@ -698,8 +827,8 @@ export default function UnitsPage() {
         {employee?.role === 'admin' && (
           <Card title="استيراد وتصدير البيانات">
             <div className="form-row" style={{ gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <Button onClick={handleExportExcel} disabled={units.length === 0}>
-                تصدير إلى Excel
+              <Button onClick={handleExportExcel} disabled={totalUnits === 0 || loading}>
+                {loading ? 'جاري التصدير...' : 'تصدير إلى Excel'}
               </Button>
               
               <Button onClick={handleImportClick} disabled={importing}>
@@ -761,6 +890,7 @@ export default function UnitsPage() {
                     <Button 
                       variant="danger"
                       onClick={() => setShowImportErrors(false)}
+                      style={{ padding: '5px 10px', fontSize: '12px' }}
                     >
                       إغلاق
                     </Button>
@@ -826,35 +956,60 @@ export default function UnitsPage() {
         )}
 
         {/* TABLE */}
-        <Card title={`قائمة الوحدات (${units.length})`}>
-          {/* Statistics Section - للادمن فقط */}
-          {employee?.role === 'admin' && (
-            <div style={{ 
-              padding: '10px 15px', 
-              backgroundColor: '#f5f5f5', 
-              borderBottom: '1px solid #e0e0e0',
-              marginBottom: '15px',
-              borderRadius: '4px 4px 0 0'
-            }}>
-              <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '14px', color: '#666' }}>
-                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                    {units.filter(u => u.status === 'available').length}
-                  </span> متاحة
-                </span>
-                <span style={{ fontSize: '14px', color: '#666' }}>
-                  <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
-                    {units.filter(u => u.status === 'reserved').length}
-                  </span> محجوزة
-                </span>
-                <span style={{ fontSize: '14px', color: '#666' }}>
-                  <span style={{ color: '#F44336', fontWeight: 'bold' }}>
-                    {units.filter(u => u.status === 'sold').length}
-                  </span> مباعة
-                </span>
-              </div>
+        <Card title={`قائمة الوحدات (${totalUnits.toLocaleString()})`}>
+          {/* Pagination Controls */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            padding: '10px 15px', 
+            backgroundColor: '#f5f5f5', 
+            borderBottom: '1px solid #e0e0e0',
+            marginBottom: '15px',
+            borderRadius: '4px 4px 0 0',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                  {units.filter(u => u.status === 'available').length}
+                </span> متاحة
+              </span>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
+                  {units.filter(u => u.status === 'reserved').length}
+                </span> محجوزة
+              </span>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                <span style={{ color: '#F44336', fontWeight: 'bold' }}>
+                  {units.filter(u => u.status === 'sold').length}
+                </span> مباعة
+              </span>
             </div>
-          )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '14px', color: '#666' }}>
+                عرض:
+              </span>
+              <select 
+                value={itemsPerPage} 
+                onChange={handleItemsPerPageChange}
+                style={{ 
+                  padding: '5px 10px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px'
+                }}
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>500</option>
+              </select>
+            </div>
+          </div>
           
           <div className="units-scroll">
             <Table headers={['الكود','النوع','الحالة','الأرض','البناء','السعر','المشروع','النموذج','إجراء']}>
@@ -890,6 +1045,110 @@ export default function UnitsPage() {
               )}
             </Table>
           </div>
+
+          {/* Pagination Footer */}
+          {totalPages > 1 && (
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              padding: '15px',
+              borderTop: '1px solid #e0e0e0',
+              backgroundColor: '#f9f9f9',
+              borderRadius: '0 0 4px 4px',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                عرض {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalUnits)} من {totalUnits.toLocaleString()} وحدة
+              </div>
+              
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                <Button 
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                >
+                  ⟨⟨
+                </Button>
+                <Button 
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                >
+                  ⟨
+                </Button>
+                
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <Button 
+                      key={pageNum}
+                      onClick={() => handlePageChange(pageNum)}
+                      variant={currentPage === pageNum ? "primary" : "default"}
+                      style={{ padding: '5px 10px', minWidth: '40px' }}
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+                
+                <Button 
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                >
+                  ⟩
+                </Button>
+                <Button 
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{ padding: '5px 10px', minWidth: '40px' }}
+                >
+                  ⟩⟩
+                </Button>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>الصفحة:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={totalPages}
+                  value={currentPage}
+                  onChange={(e) => {
+                    const page = parseInt(e.target.value);
+                    if (page >= 1 && page <= totalPages) {
+                      setCurrentPage(page);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (!e.target.value || parseInt(e.target.value) < 1) {
+                      setCurrentPage(1);
+                    }
+                  }}
+                  style={{
+                    width: '60px',
+                    padding: '5px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    textAlign: 'center'
+                  }}
+                />
+                <span style={{ fontSize: '14px', color: '#666' }}>من {totalPages}</span>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     </RequireAuth>

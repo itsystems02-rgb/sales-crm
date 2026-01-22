@@ -42,6 +42,16 @@ type Employee = {
   role: 'admin' | 'sales';
 };
 
+type ClientStats = {
+  leads: number;
+  reserved: number;
+  visited: number;
+  converted: number;
+  eligible: number;
+  nonEligible: number;
+  total: number;
+};
+
 /* =====================
    Constants
 ===================== */
@@ -330,6 +340,23 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [totalClients, setTotalClients] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  
+  // Statistics states
+  const [clientStats, setClientStats] = useState<ClientStats>({
+    leads: 0,
+    reserved: 0,
+    visited: 0,
+    converted: 0,
+    eligible: 0,
+    nonEligible: 0,
+    total: 0
+  });
+  
   // Excel import states
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -361,9 +388,10 @@ export default function ClientsPage() {
       try {
         const emp = await getCurrentEmployee();
         setEmployee(emp);
-        await fetchClients();
         await fetchBanks();
         await fetchJobSectors();
+        await loadClients(emp);
+        await fetchClientStats(emp);
       } catch (error) {
         console.error('Error initializing page:', error);
         alert('حدث خطأ في تحميل البيانات');
@@ -383,12 +411,20 @@ export default function ClientsPage() {
   /* =====================
      LOAD DATA
   ===================== */
-  async function fetchClients() {
+  async function loadClients(emp: Employee | null = null, page: number = currentPage) {
     try {
-      const { data, error } = await supabase
+      const from = (page - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      let query = supabase
         .from('clients')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
+
+      const { data, error, count } = await query;
       
       if (error) { 
         console.error('Error fetching clients:', error);
@@ -397,8 +433,12 @@ export default function ClientsPage() {
       }
       
       setClients(data || []);
+      if (count !== null) {
+        setTotalClients(count);
+        setTotalPages(Math.ceil(count / itemsPerPage));
+      }
     } catch (error) {
-      console.error('Error in fetchClients:', error);
+      console.error('Error in loadClients:', error);
       setClients([]);
     }
   }
@@ -428,6 +468,101 @@ export default function ClientsPage() {
       console.error('Error in fetchJobSectors:', error);
     }
   }
+
+  // دالة جديدة لجلب إحصائيات العملاء
+  async function fetchClientStats(emp: Employee | null = null) {
+    try {
+      // دالة مساعدة للحصول على العدد
+      const getCount = async (field: string, value?: any) => {
+        let query = supabase
+          .from('clients')
+          .select('id', { count: 'exact', head: true });
+
+        if (field === 'status' && value) {
+          query = query.eq('status', value);
+        } else if (field === 'eligible' && value !== undefined) {
+          query = query.eq('eligible', value);
+        }
+
+        // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
+
+        const { count, error } = await query;
+        if (error) throw error;
+        return count || 0;
+      };
+
+      // جلب جميع الإحصائيات بالتوازي
+      const [leads, reserved, visited, converted, eligible, nonEligible, total] = await Promise.all([
+        getCount('status', 'lead'),
+        getCount('status', 'reserved'),
+        getCount('status', 'visited'),
+        getCount('status', 'converted'),
+        getCount('eligible', true),
+        getCount('eligible', false),
+        getCount('') // بدون filter للحصول على الإجمالي
+      ]);
+
+      const stats: ClientStats = {
+        leads,
+        reserved,
+        visited,
+        converted,
+        eligible,
+        nonEligible,
+        total
+      };
+
+      console.log('Client Statistics:', {
+        leads,
+        reserved,
+        visited,
+        converted,
+        eligible,
+        nonEligible,
+        total,
+        sum: leads + reserved + visited + converted,
+        isValid: (leads + reserved + visited + converted) === total
+      });
+
+      setClientStats(stats);
+      setTotalClients(total);
+      setTotalPages(Math.ceil(total / itemsPerPage));
+    } catch (err) {
+      console.error('Error fetching client stats:', err);
+      setClientStats({
+        leads: 0,
+        reserved: 0,
+        visited: 0,
+        converted: 0,
+        eligible: 0,
+        nonEligible: 0,
+        total: 0
+      });
+      setTotalClients(0);
+      setTotalPages(1);
+    }
+  }
+
+  /* =====================
+     Pagination Handlers
+  ===================== */
+  useEffect(() => {
+    if (employee) {
+      loadClients(employee, currentPage);
+    }
+  }, [currentPage, itemsPerPage]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = parseInt(e.target.value);
+    setItemsPerPage(value);
+    setCurrentPage(1); // العودة إلى الصفحة الأولى عند تغيير عدد العناصر
+  };
 
   /* =====================
      FORM HANDLERS
@@ -479,7 +614,8 @@ export default function ClientsPage() {
 
       alert('تم إضافة العميل بنجاح');
       resetForm();
-      await fetchClients();
+      await loadClients(employee, currentPage);
+      await fetchClientStats(employee);
     } catch (error) {
       console.error('Error in handleSubmit:', error);
       alert('حدث خطأ في حفظ البيانات');
@@ -521,7 +657,8 @@ export default function ClientsPage() {
       }
 
       alert('تم حذف العميل بنجاح');
-      await fetchClients();
+      await loadClients(employee, currentPage);
+      await fetchClientStats(employee);
     } catch (error) {
       console.error('Error deleting client:', error);
       alert('حدث خطأ في حذف العميل');
@@ -612,7 +749,8 @@ export default function ClientsPage() {
 
       alert('تم تحديث بيانات العميل بنجاح');
       resetForm();
-      await fetchClients();
+      await loadClients(employee, currentPage);
+      await fetchClientStats(employee);
     } catch (error) {
       console.error('Error in handleSaveEdit:', error);
       alert('حدث خطأ في حفظ البيانات');
@@ -626,13 +764,42 @@ export default function ClientsPage() {
   ===================== */
 
   function handleExportExcel() {
-    if (clients.length === 0) {
+    if (totalClients === 0) {
       alert('لا توجد بيانات للتصدير');
       return;
     }
     
-    const fileName = `العملاء_${new Date().toISOString().split('T')[0]}.xlsx`;
-    exportToExcel(clients, fileName);
+    const confirmExport = window.confirm(`هل تريد تصدير جميع العملاء (${totalClients.toLocaleString()}) إلى ملف Excel؟`);
+    
+    if (!confirmExport) return;
+
+    setLoading(true);
+    
+    // جلب جميع العملاء للتصدير
+    const fetchAllClients = async () => {
+      try {
+        let query = supabase
+          .from('clients')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const fileName = `العملاء_${new Date().toISOString().split('T')[0]}.xlsx`;
+        exportToExcel(data || [], fileName);
+        
+      } catch (err) {
+        console.error('Error fetching all clients for export:', err);
+        alert('حدث خطأ في تحميل البيانات للتصدير');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllClients();
   }
 
   function handleImportClick() {
@@ -717,8 +884,9 @@ export default function ClientsPage() {
           
           alert(message);
           
-          // إعادة تحميل البيانات
-          await fetchClients();
+          // إعادة تحميل البيانات والإحصائيات
+          await loadClients(employee, currentPage);
+          await fetchClientStats(employee);
           
           // إعادة تعيين حقل الملف
           if (fileInputRef.current) {
@@ -772,8 +940,8 @@ export default function ClientsPage() {
         {employee?.role === 'admin' && (
           <Card title="استيراد وتصدير البيانات">
             <div className="form-row" style={{ gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <Button onClick={handleExportExcel} disabled={clients.length === 0}>
-                تصدير إلى Excel
+              <Button onClick={handleExportExcel} disabled={totalClients === 0 || loading}>
+                {loading ? 'جاري التصدير...' : 'تصدير إلى Excel'}
               </Button>
               
               <Button onClick={handleImportClick} disabled={importing}>
@@ -832,12 +1000,20 @@ export default function ClientsPage() {
                     marginBottom: '10px'
                   }}>
                     <strong style={{ color: '#c62828' }}>أخطاء الاستيراد ({importErrors.length})</strong>
-                    <Button 
-                      variant="danger"
+                    <button
                       onClick={() => setShowImportErrors(false)}
+                      style={{ 
+                        padding: '5px 10px',
+                        fontSize: '12px',
+                        backgroundColor: '#dc2626',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
                     >
                       إغلاق
-                    </Button>
+                    </button>
                   </div>
                   <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                     {importErrors.map((error, index) => (
@@ -966,47 +1142,74 @@ export default function ClientsPage() {
         )}
 
         {/* جدول العملاء */}
-        <Card title={`قائمة العملاء (${clients.length})`}>
-          {/* Statistics Section - للادمن فقط */}
-          {employee?.role === 'admin' && (
+        <Card title={`قائمة العملاء (${totalClients.toLocaleString()})`}>
+          {/* Statistics Section */}
+          {(employee?.role === 'admin') && (
             <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
               padding: '10px 15px', 
               backgroundColor: '#f5f5f5', 
               borderBottom: '1px solid #e0e0e0',
               marginBottom: '15px',
-              borderRadius: '4px 4px 0 0'
+              borderRadius: '4px 4px 0 0',
+              flexWrap: 'wrap',
+              gap: '10px'
             }}>
               <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#2196F3', fontWeight: 'bold' }}>
-                    {clients.filter(c => c.status === 'lead').length}
+                    {clientStats.leads.toLocaleString()}
                   </span> متابعة
                 </span>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#FF9800', fontWeight: 'bold' }}>
-                    {clients.filter(c => c.status === 'reserved').length}
+                    {clientStats.reserved.toLocaleString()}
                   </span> محجوز
                 </span>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                    {clients.filter(c => c.status === 'visited').length}
+                    {clientStats.visited.toLocaleString()}
                   </span> تمت الزيارة
                 </span>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#9C27B0', fontWeight: 'bold' }}>
-                    {clients.filter(c => c.status === 'converted').length}
+                    {clientStats.converted.toLocaleString()}
                   </span> تم البيع
                 </span>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                    {clients.filter(c => c.eligible).length}
+                    {clientStats.eligible.toLocaleString()}
                   </span> مستحق
                 </span>
                 <span style={{ fontSize: '14px', color: '#666' }}>
                   <span style={{ color: '#F44336', fontWeight: 'bold' }}>
-                    {clients.filter(c => !c.eligible).length}
+                    {clientStats.nonEligible.toLocaleString()}
                   </span> غير مستحق
                 </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>
+                  عرض:
+                </span>
+                <select 
+                  value={itemsPerPage} 
+                  onChange={handleItemsPerPageChange}
+                  style={{ 
+                    padding: '5px 10px',
+                    borderRadius: '4px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
               </div>
             </div>
           )}
@@ -1059,6 +1262,154 @@ export default function ClientsPage() {
               ))
             )}
           </Table>
+
+          {/* Pagination Footer */}
+          {totalPages > 1 && (
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              padding: '15px',
+              borderTop: '1px solid #e0e0e0',
+              backgroundColor: '#f9f9f9',
+              borderRadius: '0 0 4px 4px',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <div style={{ fontSize: '14px', color: '#666' }}>
+                عرض {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalClients)} من {totalClients.toLocaleString()} عميل
+              </div>
+              
+              <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === 1 ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === 1 ? 0.6 : 1
+                  }}
+                >
+                  ⟨⟨
+                </button>
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === 1 ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === 1 ? 0.6 : 1
+                  }}
+                >
+                  ⟨
+                </button>
+                
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => handlePageChange(pageNum)}
+                      style={{ 
+                        padding: '5px 10px', 
+                        minWidth: '40px',
+                        backgroundColor: currentPage === pageNum ? '#1d4ed8' : '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: currentPage === pageNum ? 'bold' : 'normal'
+                      }}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === totalPages ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === totalPages ? 0.6 : 1
+                  }}
+                >
+                  ⟩
+                </button>
+                <button
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{ 
+                    padding: '5px 10px', 
+                    minWidth: '40px',
+                    backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
+                    color: currentPage === totalPages ? '#9ca3af' : 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                    opacity: currentPage === totalPages ? 0.6 : 1
+                  }}
+                >
+                  ⟩⟩
+                </button>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ fontSize: '14px', color: '#666' }}>الصفحة:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={totalPages}
+                  value={currentPage}
+                  onChange={(e) => {
+                    const page = parseInt(e.target.value);
+                    if (page >= 1 && page <= totalPages) {
+                      setCurrentPage(page);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (!e.target.value || parseInt(e.target.value) < 1) {
+                      setCurrentPage(1);
+                    }
+                  }}
+                  style={{
+                    width: '60px',
+                    padding: '5px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    textAlign: 'center'
+                  }}
+                />
+                <span style={{ fontSize: '14px', color: '#666' }}>من {totalPages}</span>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
     </RequireAuth>

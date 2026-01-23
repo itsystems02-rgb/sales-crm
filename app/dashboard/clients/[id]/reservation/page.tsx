@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, ChangeEvent, KeyboardEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -558,14 +558,14 @@ export default function ReservationPage() {
                 type="text" 
                 placeholder="بحث بالكود أو المشروع..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
               />
             </div>
 
             <div>
               <label>النوع</label>
-              <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
+              <select value={selectedType} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedType(e.target.value)}>
                 <option value="">كل الأنواع</option>
                 <option value="villa">فيلا</option>
                 <option value="duplex">دوبلكس</option>
@@ -580,7 +580,7 @@ export default function ReservationPage() {
                 type="number" 
                 placeholder="الحد الأدنى"
                 value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMinPrice(e.target.value)}
               />
             </div>
 
@@ -590,7 +590,7 @@ export default function ReservationPage() {
                 type="number" 
                 placeholder="الحد الأقصى"
                 value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMaxPrice(e.target.value)}
               />
             </div>
           </div>
@@ -695,14 +695,14 @@ export default function ReservationPage() {
               <Input 
                 type="date" 
                 value={reservationDate} 
-                onChange={e => setReservationDate(e.target.value)} 
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setReservationDate(e.target.value)} 
                 required
               />
             </div>
 
             <div className="form-field">
               <label>اسم البنك</label>
-              <select value={bankName} onChange={e => setBankName(e.target.value)}>
+              <select value={bankName} onChange={(e: ChangeEvent<HTMLSelectElement>) => setBankName(e.target.value)}>
                 <option value="">اختر البنك</option>
                 {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
@@ -710,17 +710,17 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              <Input value={bankEmployeeName} onChange={e => setBankEmployeeName(e.target.value)} />
+              <Input value={bankEmployeeName} onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} />
             </div>
 
             <div className="form-field">
               <label>رقم موظف البنك</label>
-              <Input value={bankEmployeeMobile} onChange={e => setBankEmployeeMobile(e.target.value)} />
+              <Input value={bankEmployeeMobile} onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeMobile(e.target.value)} />
             </div>
 
             <div className="form-field">
               <label>حالة الحجز</label>
-              <select value={status} onChange={e => setStatus(e.target.value as ReservationStatus)}>
+              <select value={status} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as ReservationStatus)}>
                 <option value="">اختر الحالة</option>
                 <option value="active">حجز نشط</option>
                 <option value="converted">تم التحويل (بيع)</option>
@@ -732,7 +732,7 @@ export default function ReservationPage() {
               <label>ملاحظات</label>
               <textarea 
                 value={notes} 
-                onChange={e => setNotes(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
                 style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
               />
             </div>

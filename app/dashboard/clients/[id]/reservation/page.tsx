@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, ChangeEvent, KeyboardEvent } from 'react';
+import { useEffect, useState, ChangeEvent, KeyboardEvent, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -89,6 +89,9 @@ export default function ReservationPage() {
   const [notes, setNotes] = useState('');
   const [reservationId, setReservationId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Search debounce state
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   /* =====================
      INIT
@@ -178,6 +181,30 @@ export default function ReservationPage() {
     }
   }
 
+  /* =====================
+     Search and Load Functions - محسّنة
+  ===================== */
+
+  // دالة البحث المحسنة مع دعم جميع الحقول
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    
+    // إلغاء الوقت السابق إذا كان موجودًا
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    // ضبط وقت جديد للبحث
+    const timeout = setTimeout(() => {
+      setCurrentPage(1);
+      if (employee) {
+        loadUnits(employee, 1);
+      }
+    }, 300); // انتظار 300 مللي ثانية بعد آخر كتابة
+    
+    setSearchTimeout(timeout);
+  }, [employee, searchTimeout]);
+
   async function loadUnits(emp: Employee | null = null, page: number = currentPage) {
     if (!emp) return;
     
@@ -198,6 +225,8 @@ export default function ReservationPage() {
           supported_price,
           land_area,
           build_area,
+          block_no,
+          unit_no,
           project:projects!units_project_id_fkey (name,code),
           model:project_models!units_model_id_fkey (name)
         `, { count: 'exact' })
@@ -239,9 +268,18 @@ export default function ReservationPage() {
         query = query.lte('supported_price', Number(maxPrice));
       }
 
-      // فلتر البحث
-      if (searchTerm) {
-        query = query.or(`unit_code.ilike.%${searchTerm}%,project.name.ilike.%${searchTerm}%,model.name.ilike.%${searchTerm}%`);
+      // فلتر البحث - محسّن بشكل كبير
+      if (searchTerm.trim()) {
+        const searchTermLower = searchTerm.trim().toLowerCase();
+        
+        // البحث في جميع الحقول المهمة
+        query = query.or(
+          `unit_code.ilike.%${searchTermLower}%,` +
+          `projects.name.ilike.%${searchTermLower}%,` +
+          `project_models.name.ilike.%${searchTermLower}%,` +
+          `block_no.ilike.%${searchTermLower}%,` +
+          `unit_no.ilike.%${searchTermLower}%`
+        );
       }
 
       const { data, error, count } = await query;
@@ -275,6 +313,13 @@ export default function ReservationPage() {
         setUnitStats(prev => ({ ...prev, filtered: count }));
       }
       
+      // تسجيل للتصحيح
+      console.log('Units loaded:', normalized.length);
+      if (searchTerm.trim()) {
+        console.log('Search term:', searchTerm);
+        console.log('Search results:', normalized.map(u => u.unit_code));
+      }
+      
     } catch (err) {
       console.error('Error in loadUnits():', err);
       setUnits([]);
@@ -282,6 +327,107 @@ export default function ReservationPage() {
       setLoading(false);
     }
   }
+
+  // دالة البحث السريع بالضغط على Enter
+  const handleSearch = () => {
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    setCurrentPage(1);
+    if (employee) {
+      loadUnits(employee, 1);
+    }
+  };
+
+  // دالة البحث الدقيق (اختياري)
+  async function searchUnitsExact(searchTerm: string) {
+    if (!employee) return;
+    
+    setLoading(true);
+    
+    try {
+      // استعلام منفصل للبحث الدقيق
+      const { data, error } = await supabase
+        .from('units')
+        .select(`
+          id,
+          unit_code,
+          project_id,
+          unit_type,
+          status,
+          supported_price,
+          land_area,
+          build_area,
+          project:projects!units_project_id_fkey (name,code),
+          model:project_models!units_model_id_fkey (name)
+        `)
+        .eq('status', 'available')
+        .ilike('unit_code', `%${searchTerm}%`)
+        .limit(100);
+
+      if (error) {
+        console.error('Search error:', error);
+        return;
+      }
+
+      // تطبيق فلتر الصلاحية إذا كان sales
+      let filteredData = data || [];
+      if (employee.role === 'sales') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', employee.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        if (allowedProjectIds.length > 0) {
+          filteredData = filteredData.filter(unit => 
+            allowedProjectIds.includes(unit.project_id)
+          );
+        } else {
+          filteredData = [];
+        }
+      }
+
+      // تحديث الوحدات
+      const normalized = filteredData.map((item: any) => ({
+        id: item.id,
+        unit_code: item.unit_code,
+        project_id: item.project_id,
+        project_name: item.project?.name || '',
+        project_code: item.project?.code || '',
+        model_name: item.model?.name || '',
+        unit_type: item.unit_type,
+        supported_price: Number(item.supported_price || 0),
+        land_area: item.land_area ? Number(item.land_area) : null,
+        build_area: item.build_area ? Number(item.build_area) : null,
+        status: item.status
+      }));
+
+      setUnits(normalized);
+      setTotalUnits(normalized.length);
+      setTotalPages(Math.ceil(normalized.length / itemsPerPage));
+      setUnitStats(prev => ({ ...prev, filtered: normalized.length }));
+      
+    } catch (err) {
+      console.error('Search error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // دالة البحث المحسنة
+  const handleSearchImproved = () => {
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    setCurrentPage(1);
+    if (employee && searchTerm.trim()) {
+      searchUnitsExact(searchTerm.trim());
+    } else if (employee) {
+      loadUnits(employee, 1);
+    }
+  };
 
   /* =====================
      Pagination Handlers
@@ -291,7 +437,7 @@ export default function ReservationPage() {
     if (employee) {
       loadUnits(employee, currentPage);
     }
-  }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice, searchTerm]);
+  }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -305,13 +451,6 @@ export default function ReservationPage() {
     setCurrentPage(1);
   };
 
-  const handleSearch = () => {
-    setCurrentPage(1);
-    if (employee) {
-      loadUnits(employee, 1);
-    }
-  };
-
   const handleResetFilters = () => {
     setSearchTerm('');
     setSelectedProject('');
@@ -319,6 +458,14 @@ export default function ReservationPage() {
     setMinPrice('');
     setMaxPrice('');
     setCurrentPage(1);
+    
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    if (employee) {
+      loadUnits(employee, 1);
+    }
   };
 
   /* =====================
@@ -548,25 +695,43 @@ export default function ReservationPage() {
       )}
 
       <div className="details-layout">
-        {/* Filters Card */}
+        {/* Filters Card - محسّنة */}
         <Card title="تصفية الوحدات المتاحة">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
             <div>
-              <label>بحث</label>
-              <input
-                type="text"
-                placeholder="بحث بالكود أو المشروع..."
-                value={searchTerm}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
-                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              />
+              <label>بحث سريع</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="ابحث بكود الوحدة، المشروع، النموذج..."
+                  value={searchTerm}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                    handleSearchChange(e.target.value);
+                  }}
+                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px 8px 35px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+                <div style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#666'
+                }}>
+                  🔍
+                </div>
+              </div>
+              <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
+                {searchTerm && (
+                  <span>البحث عن: "<strong>{searchTerm}</strong>"</span>
+                )}
+              </div>
             </div>
 
             <div>
@@ -626,8 +791,34 @@ export default function ReservationPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
-            <Button onClick={handleSearch}>تطبيق الفلاتر</Button>
-            <Button variant="secondary" onClick={handleResetFilters}>إعادة تعيين</Button>
+            <Button onClick={handleSearchImproved}>
+              🔍 تطبيق البحث
+            </Button>
+            
+            <Button variant="secondary" onClick={handleResetFilters}>
+              🔄 إعادة تعيين الفلاتر
+            </Button>
+            
+            {searchTerm && (
+              <div style={{ 
+                padding: '8px 12px', 
+                backgroundColor: totalUnits > 0 ? '#f0f9ff' : '#fee2e2',
+                borderRadius: '4px',
+                fontSize: '13px',
+                color: totalUnits > 0 ? '#0369a1' : '#dc2626',
+                border: totalUnits > 0 ? '1px solid #bae6fd' : '1px solid #fecaca',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}>
+                <span>{totalUnits > 0 ? '✅' : '❌'}</span>
+                <span>
+                  {totalUnits > 0 
+                    ? `تم العثور على ${totalUnits} نتيجة` 
+                    : 'لم يتم العثور على نتائج'}
+                </span>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -710,7 +901,14 @@ export default function ReservationPage() {
                   borderRadius: '8px',
                   border: '1px solid #bae6fd'
                 }}>
-                  <strong>الوحدة المحددة:</strong> {units.find(u => u.id === unitId)?.unit_code}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <strong>الوحدة المحددة:</strong> {units.find(u => u.id === unitId)?.unit_code}
+                    </div>
+                    <div style={{ fontSize: '14px', color: '#666' }}>
+                      تأكد من اختيار الوحدة الصحيحة قبل المتابعة
+                    </div>
+                  </div>
                 </div>
               )}
             </>
@@ -852,9 +1050,13 @@ export default function ReservationPage() {
                 borderRadius: '6px',
                 fontSize: '14px',
                 color: '#666',
-                border: '1px solid #e5e7eb'
+                border: '1px solid #e5e7eb',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
               }}>
-                عرض {units.length} من {totalUnits.toLocaleString()} وحدة متاحة
+                <span>📊</span>
+                <span>عرض {units.length} من {totalUnits.toLocaleString()} وحدة متاحة</span>
               </div>
             )}
           </>
@@ -892,14 +1094,16 @@ export default function ReservationPage() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <div>
-            <strong>ملاحظات:</strong>
+            <strong>ملاحظات مهمة:</strong>
           </div>
           <div style={{ textAlign: 'right', maxWidth: '600px' }}>
-            • يمكنك استخدام الفلاتر للبحث عن وحدات محددة
+            • يمكنك البحث بكود الوحدة، اسم المشروع، أو اسم النموذج
             <br />
-            • الصفحة تعرض {itemsPerPage} وحدة في كل مرة للسرعة والأداء
+            • استخدم الفلاتر للبحث الدقيق حسب النوع والسعر
             <br />
-            • تأكد من صحة البيانات قبل حفظ الحجز
+            • الصفحة تعرض {itemsPerPage} وحدة في كل مرة لتحسين الأداء
+            <br />
+            • تأكد من صحة البيانات واختيار الوحدة الصحيحة قبل الحفظ
           </div>
         </div>
       </div>

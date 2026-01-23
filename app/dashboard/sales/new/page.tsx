@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 
 /* =====================
    Types
@@ -86,7 +85,6 @@ export default function NewSalePage() {
   useEffect(() => {
     fetchClients();
     fetchCurrentEmployee();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function fetchClients() {
@@ -360,7 +358,7 @@ export default function NewSalePage() {
      Handlers
   ===================== */
 
-  function handleClientChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  function handleClientChange(e: ChangeEvent<HTMLSelectElement>) {
     const cid = e.target.value;
     setClientId(cid);
     setError(null);
@@ -373,7 +371,7 @@ export default function NewSalePage() {
     }
   }
 
-  function handleReservationChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  function handleReservationChange(e: ChangeEvent<HTMLSelectElement>) {
     const rid = e.target.value;
     setReservationId(rid);
     setError(null);
@@ -391,7 +389,7 @@ export default function NewSalePage() {
   }
 
   // معالجة تغيير تاريخ البيع مع التحقق
-  function handleSaleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleSaleDateChange(e: ChangeEvent<HTMLInputElement>) {
     const value = e.target.value;
     const today = new Date().toISOString().split('T')[0];
     
@@ -534,10 +532,19 @@ export default function NewSalePage() {
               <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
                 رقم عقد الدعم
               </label>
-              <Input
+              <input
+                type="text"
                 value={form.contract_support_no}
-                onChange={(e) => handleFormChange('contract_support_no', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_support_no', e.target.value)}
                 placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
               />
             </div>
 
@@ -546,10 +553,19 @@ export default function NewSalePage() {
               <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
                 رقم عقد تلاد
               </label>
-              <Input
+              <input
+                type="text"
                 value={form.contract_talad_no}
-                onChange={(e) => handleFormChange('contract_talad_no', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_talad_no', e.target.value)}
                 placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
               />
             </div>
 
@@ -560,14 +576,15 @@ export default function NewSalePage() {
               </label>
               <select
                 value={form.contract_type}
-                onChange={(e) => handleFormChange('contract_type', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('contract_type', e.target.value)}
                 style={{
                   padding: '10px 12px',
                   borderRadius: '4px',
                   border: '1px solid #ddd',
                   fontSize: '14px',
                   backgroundColor: '#fff',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  width: '100%'
                 }}
               >
                 {CONTRACT_TYPES.map(type => (
@@ -585,14 +602,15 @@ export default function NewSalePage() {
               </label>
               <select
                 value={form.finance_type}
-                onChange={(e) => handleFormChange('finance_type', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('finance_type', e.target.value)}
                 style={{
                   padding: '10px 12px',
                   borderRadius: '4px',
                   border: '1px solid #ddd',
                   fontSize: '14px',
                   backgroundColor: '#fff',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  width: '100%'
                 }}
               >
                 {FINANCE_TYPES.map(type => (
@@ -608,10 +626,19 @@ export default function NewSalePage() {
               <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
                 اسم الجهة التمويلية
               </label>
-              <Input
+              <input
+                type="text"
                 value={form.finance_entity}
-                onChange={(e) => handleFormChange('finance_entity', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('finance_entity', e.target.value)}
                 placeholder="مثال: البنك الأهلي"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
               />
             </div>
 
@@ -620,11 +647,18 @@ export default function NewSalePage() {
               <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
                 تاريخ بيع الوحدة *
               </label>
-              <Input
+              <input
                 type="date"
                 value={form.sale_date}
                 onChange={handleSaleDateChange}
-                placeholder="YYYY-MM-DD"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
               />
             </div>
 
@@ -636,7 +670,7 @@ export default function NewSalePage() {
               <input
                 type="number"
                 value={form.price_before_tax}
-                onChange={(e) => handleFormChange('price_before_tax', e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('price_before_tax', e.target.value)}
                 min="0"
                 step="0.01"
                 placeholder="0.00"
@@ -645,7 +679,8 @@ export default function NewSalePage() {
                   borderRadius: '4px',
                   border: '1px solid #ddd',
                   fontSize: '14px',
-                  backgroundColor: '#fff'
+                  backgroundColor: '#fff',
+                  width: '100%'
                 }}
               />
             </div>
@@ -662,39 +697,23 @@ export default function NewSalePage() {
         padding: '20px',
         backgroundColor: '#f9f9f9',
         borderRadius: '4px',
-        border: '1px solid #eee'
+        border: '1px solid #eee',
+        flexWrap: 'wrap'
       }}>
-        <button
+        <Button
           onClick={handleSubmit}
           disabled={!canSubmit || submitting || loading}
-          style={{ 
-            padding: '12px 24px',
-            fontSize: '16px',
-            backgroundColor: '#2563eb',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: (!canSubmit || submitting || loading) ? 'not-allowed' : 'pointer',
-            opacity: (!canSubmit || submitting || loading) ? 0.5 : 1
-          }}
+          variant="primary"
         >
           {submitting ? 'جاري الحفظ...' : 'تأكيد التنفيذ'}
-        </button>
+        </Button>
         
-        <button
+        <Button
           onClick={handleCancel}
-          style={{ 
-            padding: '12px 24px',
-            fontSize: '16px',
-            backgroundColor: '#dc2626',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
+          variant="danger"
         >
           إلغاء
-        </button>
+        </Button>
       </div>
 
       {/* ===== INFO BOX ===== */}
@@ -715,7 +734,29 @@ export default function NewSalePage() {
           <li>لا يمكن التراجع عن عملية البيع بعد تأكيدها</li>
           <li>الحقول المميزة بعلامة (*) إجبارية</li>
           <li>لا يمكن اختيار تاريخ بيع مستقبلي</li>
+          <li>تأكد من أن الوحدة محجوزة قبل عملية البيع</li>
+          <li>تأكد من عدم وجود عملية بيع سابقة للوحدة</li>
         </ul>
+      </div>
+
+      {/* ===== DEBUG INFO (إزالة في الإنتاج) ===== */}
+      <div style={{ 
+        marginTop: '20px', 
+        padding: '15px', 
+        backgroundColor: '#f9f9f9', 
+        borderRadius: '4px',
+        border: '1px solid #eee',
+        fontSize: '12px',
+        color: '#666',
+        display: 'none' /* إخفاء في الإنتاج */
+      }}>
+        <div><strong>حالة النموذج:</strong></div>
+        <div>يمكن الإرسال: {canSubmit ? 'نعم' : 'لا'}</div>
+        <div>العميل: {clientId ? 'مختار' : 'غير مختار'}</div>
+        <div>الحجز: {reservationId ? 'مختار' : 'غير مختار'}</div>
+        <div>الوحدة: {unit ? `مختارة (${unit.unit_code})` : 'غير مختارة'}</div>
+        <div>التاريخ: {form.sale_date ? 'مملوء' : 'غير مملوء'}</div>
+        <div>السعر: {form.price_before_tax ? 'مملوء' : 'غير مملوء'}</div>
       </div>
 
     </div>

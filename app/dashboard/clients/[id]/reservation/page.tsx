@@ -553,7 +553,6 @@ export default function ReservationPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
             <div>
               <label>بحث</label>
-              {/* استخدام input عادي للبحث */}
               <input
                 type="text"
                 placeholder="بحث بالكود أو المشروع..."
@@ -593,7 +592,6 @@ export default function ReservationPage() {
 
             <div>
               <label>السعر من</label>
-              {/* استخدام input عادي للأسعار */}
               <input
                 type="number"
                 placeholder="الحد الأدنى"
@@ -724,7 +722,6 @@ export default function ReservationPage() {
           <div className="details-grid">
             <div className="form-field">
               <label>تاريخ الحجز *</label>
-              {/* استخدام input عادي للتاريخ لأنه يحتاج required */}
               <input
                 type="date"
                 value={reservationDate}
@@ -760,7 +757,6 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              {/* استخدام Input العادي إذا كان لا يحتاج required أو onKeyDown */}
               <Input 
                 value={bankEmployeeName} 
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} 
@@ -831,23 +827,43 @@ export default function ReservationPage() {
       </div>
 
       {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: '10px', marginTop: '30px', justifyContent: 'center' }}>
+      <div style={{ 
+        display: 'flex', 
+        gap: '10px', 
+        marginTop: '30px', 
+        justifyContent: 'center',
+        flexWrap: 'wrap' 
+      }}>
         {!reservationId && (
-          <Button 
-            variant="primary" 
-            onClick={submit} 
-            disabled={saving || !unitId || !reservationDate}
-            style={{ minWidth: '150px', padding: '12px 24px' }}
-          >
-            {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
-          </Button>
+          <>
+            <Button 
+              variant="primary" 
+              onClick={submit} 
+              disabled={saving || !unitId || !reservationDate}
+            >
+              {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
+            </Button>
+            
+            {/* زر عرض المزيد من الوحدات */}
+            {totalUnits > units.length && (
+              <div style={{ 
+                padding: '12px 20px',
+                backgroundColor: '#f3f4f6',
+                borderRadius: '6px',
+                fontSize: '14px',
+                color: '#666',
+                border: '1px solid #e5e7eb'
+              }}>
+                عرض {units.length} من {totalUnits.toLocaleString()} وحدة متاحة
+              </div>
+            )}
+          </>
         )}
         
         {reservationId && (
           <>
             <Button 
               onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}
-              style={{ minWidth: '150px', padding: '12px 24px' }}
             >
               عرض الحجز
             </Button>
@@ -857,12 +873,35 @@ export default function ReservationPage() {
                 setReservationId(null);
                 resetForm();
               }}
-              style={{ minWidth: '150px', padding: '12px 24px' }}
             >
               حجز جديد
             </Button>
           </>
         )}
+      </div>
+
+      {/* معلومات إضافية في الأسفل */}
+      <div style={{ 
+        marginTop: '20px', 
+        padding: '15px',
+        backgroundColor: '#f9fafb',
+        borderRadius: '8px',
+        border: '1px solid #e5e7eb',
+        fontSize: '14px',
+        color: '#666'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <strong>ملاحظات:</strong>
+          </div>
+          <div style={{ textAlign: 'right', maxWidth: '600px' }}>
+            • يمكنك استخدام الفلاتر للبحث عن وحدات محددة
+            <br />
+            • الصفحة تعرض {itemsPerPage} وحدة في كل مرة للسرعة والأداء
+            <br />
+            • تأكد من صحة البيانات قبل حفظ الحجز
+          </div>
+        </div>
       </div>
     </div>
   );

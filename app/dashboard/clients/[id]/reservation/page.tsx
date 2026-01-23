@@ -553,23 +553,21 @@ export default function ReservationPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
             <div>
               <label>بحث</label>
-              {/* استخدام input عادي بدلاً من مكون Input إذا لم يدعم onKeyDown */}
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="text"
-                  placeholder="بحث بالكود أو المشروع..."
-                  value={searchTerm}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px'
-                  }}
-                />
-              </div>
+              {/* استخدام input عادي للبحث */}
+              <input
+                type="text"
+                placeholder="بحث بالكود أو المشروع..."
+                value={searchTerm}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              />
             </div>
 
             <div>
@@ -595,21 +593,36 @@ export default function ReservationPage() {
 
             <div>
               <label>السعر من</label>
-              <Input 
-                type="number" 
+              {/* استخدام input عادي للأسعار */}
+              <input
+                type="number"
                 placeholder="الحد الأدنى"
                 value={minPrice}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setMinPrice(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
               />
             </div>
 
             <div>
               <label>السعر إلى</label>
-              <Input 
-                type="number" 
+              <input
+                type="number"
                 placeholder="الحد الأقصى"
                 value={maxPrice}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setMaxPrice(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
               />
             </div>
           </div>
@@ -711,11 +724,19 @@ export default function ReservationPage() {
           <div className="details-grid">
             <div className="form-field">
               <label>تاريخ الحجز *</label>
-              <Input 
-                type="date" 
-                value={reservationDate} 
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setReservationDate(e.target.value)} 
+              {/* استخدام input عادي للتاريخ لأنه يحتاج required */}
+              <input
+                type="date"
+                value={reservationDate}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setReservationDate(e.target.value)}
                 required
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
               />
             </div>
 
@@ -739,6 +760,7 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
+              {/* استخدام Input العادي إذا كان لا يحتاج required أو onKeyDown */}
               <Input 
                 value={bankEmployeeName} 
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} 

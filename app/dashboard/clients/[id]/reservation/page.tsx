@@ -95,7 +95,6 @@ export default function ReservationPage() {
   ===================== */
   useEffect(() => {
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function init() {
@@ -554,18 +553,38 @@ export default function ReservationPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
             <div>
               <label>بحث</label>
-              <Input 
-                type="text" 
-                placeholder="بحث بالكود أو المشروع..."
-                value={searchTerm}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
-                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
-              />
+              {/* استخدام input عادي بدلاً من مكون Input إذا لم يدعم onKeyDown */}
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  placeholder="بحث بالكود أو المشروع..."
+                  value={searchTerm}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
             </div>
 
             <div>
               <label>النوع</label>
-              <select value={selectedType} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedType(e.target.value)}>
+              <select 
+                value={selectedType} 
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedType(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              >
                 <option value="">كل الأنواع</option>
                 <option value="villa">فيلا</option>
                 <option value="duplex">دوبلكس</option>
@@ -702,7 +721,17 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم البنك</label>
-              <select value={bankName} onChange={(e: ChangeEvent<HTMLSelectElement>) => setBankName(e.target.value)}>
+              <select 
+                value={bankName} 
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setBankName(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              >
                 <option value="">اختر البنك</option>
                 {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
@@ -710,17 +739,33 @@ export default function ReservationPage() {
 
             <div className="form-field">
               <label>اسم موظف البنك</label>
-              <Input value={bankEmployeeName} onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} />
+              <Input 
+                value={bankEmployeeName} 
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} 
+              />
             </div>
 
             <div className="form-field">
               <label>رقم موظف البنك</label>
-              <Input value={bankEmployeeMobile} onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeMobile(e.target.value)} />
+              <Input 
+                value={bankEmployeeMobile} 
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeMobile(e.target.value)} 
+              />
             </div>
 
             <div className="form-field">
               <label>حالة الحجز</label>
-              <select value={status} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as ReservationStatus)}>
+              <select 
+                value={status} 
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as ReservationStatus)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px'
+                }}
+              >
                 <option value="">اختر الحالة</option>
                 <option value="active">حجز نشط</option>
                 <option value="converted">تم التحويل (بيع)</option>

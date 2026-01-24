@@ -308,16 +308,12 @@ export default function EmployeeActivityReportPage() {
 
       setDebugInfo(prev => prev + `\n📊 الموظف: ${employee.name} - التاريخ: ${selectedDate}`);
 
-      // جلب جميع البيانات بالتوازي مع معالجة الأخطاء
-      const dataPromises = [
-        fetchFollowUps(employee.id, startISO, endISO),
-        fetchReservations(employee.id, startISO, endISO),
-        fetchSales(employee.id, startISO, endISO),
-        fetchClientCreations(employee.id, startISO, endISO),
-        fetchUnitUpdates(employee.id, startISO, endISO)
-      ];
-
-      const [followUps, reservations, sales, clientCreations, unitUpdates] = await Promise.all(dataPromises);
+      // جلب جميع البيانات بالتوازي - إصلاح هنا
+      const followUps = await fetchFollowUps(employee.id, startISO, endISO);
+      const reservations = await fetchReservations(employee.id, startISO, endISO);
+      const sales = await fetchSales(employee.id, startISO, endISO);
+      const clientCreations = await fetchClientCreations(employee.id, startISO, endISO);
+      const unitUpdates = await fetchUnitUpdates(employee.id, startISO, endISO);
 
       setDebugInfo(prev => prev + 
         `\n📈 البيانات المجمعة:` +
@@ -438,7 +434,7 @@ export default function EmployeeActivityReportPage() {
   }
 
   /* =====================
-     Fetch Functions - مع معالجة أفضل للأخطاء
+     Fetch Functions
   ===================== */
   async function fetchFollowUps(employeeId: string, startDate: string, endDate: string): Promise<FollowUp[]> {
     try {

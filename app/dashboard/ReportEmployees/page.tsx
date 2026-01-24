@@ -302,9 +302,7 @@ export default function EmployeeActivityReportPage() {
       return [];
     }
 
-    // الإصلاح: معالجة البيانات من Supabase بشكل صحيح
     return (data || []).map((f: any) => {
-      // clients قد تكون مصفوفة، نأخذ أول عنصر
       const client = Array.isArray(f.clients) ? f.clients[0] : f.clients;
       
       return {
@@ -427,7 +425,6 @@ export default function EmployeeActivityReportPage() {
 
   async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
     try {
-      // محاولة جلب سجل التحديثات من جدول logs إذا كان موجوداً
       const { data, error } = await supabase
         .from('logs')
         .select('*')
@@ -790,14 +787,17 @@ export default function EmployeeActivityReportPage() {
               />
             </div>
             
+            {/* **تم الإصلاح هنا: إزالة خاصية style من Button ** */}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <Button 
-                onClick={generateReport} 
-                disabled={generating || !selectedEmployeeId || !selectedDate}
-                style={{ width: '100%' }}
-              >
-                {generating ? 'جاري التوليد...' : 'توليد التقرير'}
-              </Button>
+              <div style={{ width: '100%' }}>
+                <Button 
+                  onClick={generateReport} 
+                  disabled={generating || !selectedEmployeeId || !selectedDate}
+                  fullWidth
+                >
+                  {generating ? 'جاري التوليد...' : 'توليد التقرير'}
+                </Button>
+              </div>
             </div>
           </div>
           

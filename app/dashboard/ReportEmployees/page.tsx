@@ -7,7 +7,6 @@ import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import Table from '@/components/ui/Table';
 
 /* =====================
    Types
@@ -1221,27 +1220,66 @@ export default function EmployeeActivityReportPage() {
             <div style={{ marginBottom: '20px' }}>
               <Card title="تفاصيل الأنشطة">
                 {filteredActivities.length > 0 ? (
-                  <Table
-                    columns={[
-                      { key: 'action', header: 'النشاط', width: '150px' },
-                      { key: 'details', header: 'التفاصيل', width: '300px' },
-                      { key: 'client_name', header: 'العميل', width: '150px' },
-                      { key: 'timestamp', header: 'الوقت', width: '150px' },
-                      { key: 'duration', header: 'المدة (دقيقة)', width: '120px' },
-                      { key: 'status', header: 'الحالة', width: '120px' }
-                    ]}
-                    data={filteredActivities.map(a => ({
-                      ...a,
-                      timestamp: new Date(a.timestamp).toLocaleString('ar-SA', {
-                        dateStyle: 'short',
-                        timeStyle: 'short'
-                      }),
-                      duration: `${a.duration || 0}`
-                    }))}
-                    onRowClick={(row) => {
-                      alert(`تفاصيل النشاط:\n${row.details}\n\nملاحظات: ${row.notes || 'لا توجد'}`);
-                    }}
-                  />
+                  <div className="table-container" style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>النشاط</th>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>التفاصيل</th>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>العميل</th>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>الوقت</th>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>المدة (دقيقة)</th>
+                          <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>الحالة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredActivities.map((activity, index) => (
+                          <tr 
+                            key={activity.id} 
+                            onClick={() => {
+                              alert(`تفاصيل النشاط:\n${activity.details}\n\nملاحظات: ${activity.notes || 'لا توجد'}`);
+                            }}
+                            style={{ 
+                              borderBottom: '1px solid #e9ecef',
+                              cursor: 'pointer',
+                              backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa',
+                              transition: 'background-color 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e9ecef'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa'}
+                          >
+                            <td style={{ padding: '12px', textAlign: 'right' }}>{activity.action}</td>
+                            <td style={{ padding: '12px', textAlign: 'right', maxWidth: '300px', wordWrap: 'break-word' }}>
+                              {activity.details}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>{activity.client_name || '-'}</td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              {new Date(activity.timestamp).toLocaleString('ar-SA', {
+                                dateStyle: 'short',
+                                timeStyle: 'short'
+                              })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>{activity.duration || 0}</td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              <span style={{
+                                padding: '4px 8px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                backgroundColor: activity.status === 'مكتمل' ? '#e6f4ea' : 
+                                               activity.status === 'قيد المعالجة' ? '#fff8e1' : 
+                                               activity.status === 'ملغى' ? '#ffebee' : '#f8f9fa',
+                                color: activity.status === 'مكتمل' ? '#0d8a3e' : 
+                                       activity.status === 'قيد المعالجة' ? '#fbbc04' : 
+                                       activity.status === 'ملغى' ? '#ea4335' : '#666'
+                              }}>
+                                {activity.status || 'غير محدد'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
                     لا توجد أنشطة تطابق معايير البحث
@@ -1258,59 +1296,136 @@ export default function EmployeeActivityReportPage() {
                     {detailedData.followUps.length > 0 && (
                       <div>
                         <h3 style={{ marginBottom: '10px', color: '#fbbc04' }}>المتابعات ({detailedData.followUps.length})</h3>
-                        <Table
-                          columns={[
-                            { key: 'client_name', header: 'العميل', width: '150px' },
-                            { key: 'type', header: 'النوع', width: '100px' },
-                            { key: 'notes', header: 'ملاحظات', width: '200px' },
-                            { key: 'created_at', header: 'الوقت', width: '150px' },
-                            { key: 'duration', header: 'المدة', width: '80px' }
-                          ]}
-                          data={detailedData.followUps.map(f => ({
-                            ...f,
-                            created_at: new Date(f.created_at).toLocaleString('ar-SA'),
-                            duration: `${f.duration || 0} دقيقة`
-                          }))}
-                        />
+                        <div className="table-container" style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>العميل</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>النوع</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>ملاحظات</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>الوقت</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>المدة</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detailedData.followUps.map((followUp, index) => (
+                                <tr 
+                                  key={followUp.id}
+                                  style={{ 
+                                    borderBottom: '1px solid #e9ecef',
+                                    backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa'
+                                  }}
+                                >
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{followUp.client_name}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    {followUp.type === 'call' ? 'مكالمة' : 
+                                     followUp.type === 'whatsapp' ? 'واتساب' : 
+                                     followUp.type === 'visit' ? 'زيارة' : 'بريد إلكتروني'}
+                                  </td>
+                                  <td style={{ padding: '12px', textAlign: 'right', maxWidth: '200px', wordWrap: 'break-word' }}>
+                                    {followUp.notes || '-'}
+                                  </td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    {new Date(followUp.created_at).toLocaleString('ar-SA')}
+                                  </td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{followUp.duration || 0} دقيقة</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 
                     {detailedData.reservations.length > 0 && (
                       <div>
                         <h3 style={{ marginBottom: '10px', color: '#34a853' }}>الحجوزات ({detailedData.reservations.length})</h3>
-                        <Table
-                          columns={[
-                            { key: 'client_name', header: 'العميل', width: '150px' },
-                            { key: 'unit_code', header: 'كود الوحدة', width: '120px' },
-                            { key: 'project_name', header: 'المشروع', width: '150px' },
-                            { key: 'status', header: 'الحالة', width: '100px' },
-                            { key: 'reservation_date', header: 'تاريخ الحجز', width: '120px' }
-                          ]}
-                          data={detailedData.reservations.map(r => ({
-                            ...r,
-                            reservation_date: new Date(r.reservation_date).toLocaleDateString('ar-SA')
-                          }))}
-                        />
+                        <div className="table-container" style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>العميل</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>كود الوحدة</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>المشروع</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>الحالة</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>تاريخ الحجز</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detailedData.reservations.map((reservation, index) => (
+                                <tr 
+                                  key={reservation.id}
+                                  style={{ 
+                                    borderBottom: '1px solid #e9ecef',
+                                    backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa'
+                                  }}
+                                >
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{reservation.client_name}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{reservation.unit_code}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{reservation.project_name || '-'}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    <span style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '12px',
+                                      fontSize: '12px',
+                                      backgroundColor: reservation.status === 'مؤكدة' ? '#e6f4ea' : 
+                                                     reservation.status === 'قيد المراجعة' ? '#fff8e1' : 
+                                                     reservation.status === 'ملغية' ? '#ffebee' : '#f8f9fa',
+                                      color: reservation.status === 'مؤكدة' ? '#0d8a3e' : 
+                                             reservation.status === 'قيد المراجعة' ? '#fbbc04' : 
+                                             reservation.status === 'ملغية' ? '#ea4335' : '#666'
+                                    }}>
+                                      {reservation.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    {new Date(reservation.reservation_date).toLocaleDateString('ar-SA')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
 
                     {detailedData.sales.length > 0 && (
                       <div>
                         <h3 style={{ marginBottom: '10px', color: '#0d8a3e' }}>المبيعات ({detailedData.sales.length})</h3>
-                        <Table
-                          columns={[
-                            { key: 'client_name', header: 'العميل', width: '150px' },
-                            { key: 'unit_code', header: 'كود الوحدة', width: '120px' },
-                            { key: 'price_before_tax', header: 'القيمة', width: '120px' },
-                            { key: 'contract_type', header: 'نوع العقد', width: '120px' },
-                            { key: 'sale_date', header: 'تاريخ البيع', width: '120px' }
-                          ]}
-                          data={detailedData.sales.map(s => ({
-                            ...s,
-                            price_before_tax: s.price_before_tax ? `${s.price_before_tax.toLocaleString()} د.ك` : '-',
-                            sale_date: new Date(s.sale_date).toLocaleDateString('ar-SA')
-                          }))}
-                        />
+                        <div className="table-container" style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>العميل</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>كود الوحدة</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>القيمة</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>نوع العقد</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: '#333' }}>تاريخ البيع</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {detailedData.sales.map((sale, index) => (
+                                <tr 
+                                  key={sale.id}
+                                  style={{ 
+                                    borderBottom: '1px solid #e9ecef',
+                                    backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa'
+                                  }}
+                                >
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{sale.client_name}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{sale.unit_code}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    {sale.price_before_tax ? `${sale.price_before_tax.toLocaleString()} د.ك` : '-'}
+                                  </td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>{sale.contract_type || '-'}</td>
+                                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                                    {new Date(sale.sale_date).toLocaleDateString('ar-SA')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>

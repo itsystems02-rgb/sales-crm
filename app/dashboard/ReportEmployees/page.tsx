@@ -1,52 +1,13 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
-
-// وظيفة لفحص هيكل البيانات
-async function debugDataStructure() {
-  console.log('🔍 فحص هيكل البيانات...');
-  
-  try {
-    // 1. فحص جدول الموظفين
-    const { data: employees, error: empError } = await supabase
-      .from('employees')
-      .select('*')
-      .limit(5);
-    
-    if (empError) {
-      console.error('❌ خطأ في جلب الموظفين:', empError);
-    } else {
-      console.log('✅ الموظفين (5 أول):', employees);
-      console.log('📊 عدد الموظفين:', employees?.length);
-    }
-    
-    // 2. فحص المستخدم الحالي
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log('👤 المستخدم الحالي:', user?.email);
-    
-    // 3. فحص صلاحيات المستخدم
-    if (user?.email) {
-      const { data: currentEmp } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
-      
-      console.log('👨‍💼 بيانات الموظف الحالي:', currentEmp);
-    }
-    
-    return true;
-  } catch (err) {
-    console.error('❌ خطأ في فحص البيانات:', err);
-    return false;
-  }
-}
 
 /* =====================
    Types
@@ -110,6 +71,7 @@ type DetailedActivity = {
 ===================== */
 
 export default function EmployeeActivityReportPage() {
+  const router = useRouter();
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
@@ -125,10 +87,10 @@ export default function EmployeeActivityReportPage() {
   
   const [activityTypes, setActivityTypes] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   /* =====================
-     INIT - الإصدار المعدل
+     INIT
   ===================== */
   useEffect(() => {
     init();
@@ -136,107 +98,130 @@ export default function EmployeeActivityReportPage() {
 
   async function init() {
     try {
-      console.log('🔄 بدء تهيئة الصفحة...');
+      setDebugInfo('جاري التحقق من المستخدم الحالي...');
       
-      // فحص هيكل البيانات أولاً
-      await debugDataStructure();
-      
+      // التحقق من توفر Supabase
+      if (!supabase) {
+        setDebugInfo('❌ خطأ: Supabase غير متاح');
+        setLoading(false);
+        return;
+      }
+
       // جلب المستخدم الحالي
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
       
-      if (!user) {
-        console.log('⚠️ لم يتم العثور على مستخدم، إعادة التوجيه...');
+      if (authError) {
+        setDebugInfo(`❌ خطأ في المصادقة: ${authError.message}`);
+        console.error('Auth error:', authError);
         router.push('/login');
         return;
       }
+
+      if (!user) {
+        setDebugInfo('❌ لم يتم العثور على مستخدم مسجل دخول');
+        router.push('/login');
+        return;
+      }
+
+      setDebugInfo(`✅ المستخدم: ${user.email}`);
       
-      console.log('👤 جلب بيانات الموظف الحالي...');
-      
-      // الطريقة الأولى: استخدام getCurrentEmployee إذا كانت تعمل
+      // محاولة جلب الموظف الحالي
       try {
         const emp = await getCurrentEmployee();
-        console.log('✅ الموظف الحالي (من getCurrentEmployee):', emp);
-        setCurrentEmployee(emp);
-      } catch (empError) {
-        console.warn('⚠️ فشل في getCurrentEmployee، تجربة طريقة بديلة...');
-        
-        // الطريقة البديلة: جلب الموظف مباشرة من البريد
-        const { data: employeeData, error: empQueryError } = await supabase
-          .from('employees')
-          .select('id, name, email, role, phone, department')
-          .eq('email', user.email)
-          .maybeSingle();
-        
-        if (empQueryError) {
-          console.error('❌ خطأ في جلب الموظف:', empQueryError);
-        } else if (employeeData) {
-          console.log('✅ الموظف الحالي (من الاستعلام المباشر):', employeeData);
-          setCurrentEmployee(employeeData);
+        if (emp) {
+          setCurrentEmployee(emp);
+          setDebugInfo(prev => prev + `\n✅ الموظف الحالي: ${emp.name}`);
         } else {
-          console.log('⚠️ المستخدم ليس موظفاً في النظام');
+          setDebugInfo(prev => prev + '\n⚠️ المستخدم ليس موظفاً في النظام');
         }
+      } catch (empError) {
+        console.warn('getCurrentEmployee failed:', empError);
+        setDebugInfo(prev => prev + '\n⚠️ فشل في جلب بيانات الموظف الحالي');
       }
-      
+
       // جلب جميع الموظفين
       await fetchAllEmployees();
       
       setLoading(false);
-    } catch (err) {
-      console.error('❌ خطأ في init():', err);
+      setDebugInfo(prev => prev + '\n✅ تم تهيئة الصفحة بنجاح');
+      
+    } catch (err: any) {
+      console.error('Error in init():', err);
+      setDebugInfo(`❌ خطأ غير متوقع: ${err.message}`);
       setLoading(false);
     }
   }
 
   /* =====================
-     جلب جميع الموظفين - الإصدار المحسن
+     جلب جميع الموظفين
   ===================== */
   async function fetchAllEmployees() {
     try {
-      console.log('🔄 جلب جميع الموظفين...');
+      setDebugInfo(prev => prev + '\n🔄 جلب قائمة الموظفين...');
       
-      // محاولة الحصول على اسم العمود الصحيح
-      const { data: employees, error } = await supabase
+      const { data, error } = await supabase
         .from('employees')
-        .select('id, name, email, role, phone, department, created_at')
+        .select('id, name, email, role, phone, department')
         .order('name');
-      
+
       if (error) {
-        console.error('❌ خطأ في جلب الموظفين:', error);
+        console.error('Error fetching employees:', error);
+        setDebugInfo(prev => prev + `\n❌ خطأ في جلب الموظفين: ${error.message}`);
         
-        // محاولة بجدول مختلف
-        console.log('🔍 محاولة البحث في جداول أخرى...');
-        
-        // فحص جداول النظام
-        const { data: tables } = await supabase
-          .from('pg_tables')
-          .select('tablename')
-          .ilike('tablename', '%employee%');
+        // محاولة مع جدول مختلف كبديل
+        const { data: altData, error: altError } = await supabase
+          .from('users')
+          .select('id, name, email, role')
+          .order('name');
           
-        console.log('📋 جداول تشبه employee:', tables);
-        
+        if (!altError && altData) {
+          const mappedEmployees = altData.map((u: any) => ({
+            id: u.id,
+            name: u.name || 'غير معروف',
+            email: u.email || '',
+            role: u.role || 'sales',
+            phone: '',
+            department: ''
+          }));
+          
+          setAllEmployees(mappedEmployees);
+          setDebugInfo(prev => prev + `\n✅ تم جلب ${mappedEmployees.length} موظف من جدول users`);
+        } else {
+          setAllEmployees([]);
+        }
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setDebugInfo(prev => prev + '\n⚠️ جدول employees فارغ');
         setAllEmployees([]);
         return;
       }
+
+      setAllEmployees(data);
+      setDebugInfo(prev => prev + `\n✅ تم جلب ${data.length} موظف`);
       
-      console.log(`✅ تم جلب ${employees?.length || 0} موظف`);
-      console.log('👥 قائمة الموظفين:', employees);
-      
-      setAllEmployees(employees || []);
-      
-      // إذا كان هناك موظف حالي، حدده افتراضياً
-      if (currentEmployee && employees?.length > 0) {
-        setSelectedEmployeeId(currentEmployee.id);
-        console.log(`✅ تحديد الموظف الحالي افتراضياً: ${currentEmployee.name}`);
+      // تحديد الموظف الحالي افتراضياً إذا كان موجوداً
+      if (currentEmployee) {
+        const currentEmpInList = data.find(e => e.id === currentEmployee.id);
+        if (currentEmpInList) {
+          setSelectedEmployeeId(currentEmployee.id);
+          setDebugInfo(prev => prev + `\n✅ تم تحديد الموظف الحالي: ${currentEmployee.name}`);
+        }
+      } else if (data.length > 0) {
+        setSelectedEmployeeId(data[0].id);
+        setDebugInfo(prev => prev + `\n✅ تم تحديد أول موظف: ${data[0].name}`);
       }
       
-    } catch (err) {
-      console.error('❌ خطأ غير متوقع في fetchAllEmployees:', err);
+    } catch (err: any) {
+      console.error('Unexpected error in fetchAllEmployees:', err);
+      setDebugInfo(prev => prev + `\n❌ خطأ غير متوقع: ${err.message}`);
       setAllEmployees([]);
     }
   }
 
   /* =====================
-     توليد التقرير - مع تحسينات
+     توليد التقرير
   ===================== */
   async function generateReport() {
     if (!selectedEmployeeId) {
@@ -253,10 +238,9 @@ export default function EmployeeActivityReportPage() {
     setActivities([]);
     setSummary(null);
     setDetailedData(null);
+    setDebugInfo(prev => prev + '\n🔄 بدء توليد التقرير...');
 
     try {
-      console.log(`📊 توليد تقرير للموظف ${selectedEmployeeId} بتاريخ ${selectedDate}`);
-      
       const startDate = new Date(selectedDate);
       const endDate = new Date(selectedDate);
       endDate.setDate(endDate.getDate() + 1);
@@ -271,40 +255,31 @@ export default function EmployeeActivityReportPage() {
         return;
       }
 
-      console.log(`👨‍💼 الموظف المحدد: ${employee.name}`);
-      
-      // جمع بيانات التتبع مع معالجة الأخطاء
-      const dataPromises = [
-        fetchFollowUps(employee.id, startISO, endISO).catch(err => {
-          console.error('❌ خطأ في جلب المتابعات:', err);
-          return [];
-        }),
-        fetchReservations(employee.id, startISO, endISO).catch(err => {
-          console.error('❌ خطأ في جلب الحجوزات:', err);
-          return [];
-        }),
-        fetchSales(employee.id, startISO, endISO).catch(err => {
-          console.error('❌ خطأ في جلب المبيعات:', err);
-          return [];
-        }),
-        fetchClientCreations(employee.id, startISO, endISO).catch(err => {
-          console.error('❌ خطأ في جلب العملاء الجدد:', err);
-          return [];
-        }),
-        fetchUnitUpdates(employee.id, startISO, endISO).catch(err => {
-          console.error('❌ خطأ في جلب تحديثات الوحدات:', err);
-          return [];
-        })
-      ];
+      setDebugInfo(prev => prev + `\n📊 الموظف: ${employee.name} - التاريخ: ${selectedDate}`);
 
-      const [followUps, reservations, sales, clientCreations, unitUpdates] = await Promise.all(dataPromises);
+      // جلب جميع البيانات بالتوازي مع معالجة الأخطاء
+      const [
+        followUps,
+        reservations,
+        sales,
+        clientCreations,
+        unitUpdates
+      ] = await Promise.all([
+        fetchFollowUps(employee.id, startISO, endISO),
+        fetchReservations(employee.id, startISO, endISO),
+        fetchSales(employee.id, startISO, endISO),
+        fetchClientCreations(employee.id, startISO, endISO),
+        fetchUnitUpdates(employee.id, startISO, endISO)
+      ]);
 
-      console.log(`📈 البيانات المجمعة:`);
-      console.log(`   - المتابعات: ${followUps.length}`);
-      console.log(`   - الحجوزات: ${reservations.length}`);
-      console.log(`   - المبيعات: ${sales.length}`);
-      console.log(`   - عملاء جدد: ${clientCreations.length}`);
-      console.log(`   - تحديثات وحدات: ${unitUpdates.length}`);
+      setDebugInfo(prev => prev + 
+        `\n📈 البيانات المجمعة:` +
+        `\n   - المتابعات: ${followUps.length}` +
+        `\n   - الحجوزات: ${reservations.length}` +
+        `\n   - المبيعات: ${sales.length}` +
+        `\n   - عملاء جدد: ${clientCreations.length}` +
+        `\n   - تحديثات: ${unitUpdates.length}`
+      );
 
       const allActivities: EmployeeActivity[] = [];
       
@@ -358,7 +333,7 @@ export default function EmployeeActivityReportPage() {
           reference_id: s.id,
           duration: 60,
           status: 'مكتمل',
-          notes: `عقد ${s.contract_type} - تمويل ${s.finance_type}`
+          notes: `عقد ${s.contract_type || 'غير محدد'} - تمويل ${s.finance_type || 'غير محدد'}`
         });
       });
 
@@ -368,7 +343,7 @@ export default function EmployeeActivityReportPage() {
           id: c.id,
           type: 'client_creation',
           action: 'إضافة عميل جديد',
-          details: `إضافة العميل ${c.name} (${c.nationality})`,
+          details: `إضافة العميل ${c.name} (${c.nationality || 'غير محدد'})`,
           client_name: c.name,
           timestamp: c.created_at,
           reference_id: c.id,
@@ -395,40 +370,483 @@ export default function EmployeeActivityReportPage() {
         });
       });
 
+      // ترتيب حسب التاريخ (من الأحدث)
       allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-      console.log(`✅ تم تجميع ${allActivities.length} نشاط`);
-      
       setActivities(allActivities);
       setDetailedData({ followUps, reservations, sales, clientCreations, unitUpdates });
       generateSummary(allActivities);
       generateTimeSlots(allActivities);
       extractActivityTypes(allActivities);
 
-    } catch (err) {
-      console.error('❌ خطأ في توليد التقرير:', err);
-      alert(`حدث خطأ أثناء توليد التقرير: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`);
+      setDebugInfo(prev => prev + `\n✅ تم توليد ${allActivities.length} نشاط بنجاح`);
+
+    } catch (err: any) {
+      console.error('Error generating report:', err);
+      setDebugInfo(prev => prev + `\n❌ خطأ في توليد التقرير: ${err.message}`);
+      alert(`حدث خطأ أثناء توليد التقرير: ${err.message}`);
     } finally {
       setGenerating(false);
     }
   }
 
   /* =====================
-     UI Components
+     Fetch Functions - مع معالجة أفضل للأخطاء
   ===================== */
-  
-  // ... باقي الكود كما هو مع إصلاحات سابقة
+  async function fetchFollowUps(employeeId: string, startDate: string, endDate: string) {
+    try {
+      const { data, error } = await supabase
+        .from('client_followups')
+        .select(`
+          id,
+          type,
+          notes,
+          created_at,
+          client_id,
+          duration,
+          clients!inner(name, status)
+        `)
+        .eq('employee_id', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Followups query error:', error);
+        return [];
+      }
+
+      return (data || []).map((f: any) => ({
+        id: f.id,
+        type: f.type,
+        notes: f.notes,
+        created_at: f.created_at,
+        client_id: f.client_id,
+        duration: f.duration,
+        client_name: f.clients?.name || 'غير معروف',
+        client_status: f.clients?.status || 'غير معروف'
+      }));
+    } catch (err) {
+      console.error('Error fetching followups:', err);
+      return [];
+    }
+  }
+
+  async function fetchReservations(employeeId: string, startDate: string, endDate: string) {
+    try {
+      const { data, error } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          reservation_date,
+          status,
+          notes,
+          created_at,
+          client_id,
+          unit_id,
+          clients!inner(name),
+          units!inner(unit_code, project_id),
+          projects!inner(name)
+        `)
+        .eq('employee_id', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Reservations query error:', error);
+        return [];
+      }
+
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        reservation_date: r.reservation_date,
+        status: r.status,
+        notes: r.notes,
+        created_at: r.created_at,
+        client_id: r.client_id,
+        unit_id: r.unit_id,
+        client_name: r.clients?.name || 'غير معروف',
+        unit_code: r.units?.unit_code || 'غير معروف',
+        project_name: r.projects?.name || 'غير معروف'
+      }));
+    } catch (err) {
+      console.error('Error fetching reservations:', err);
+      return [];
+    }
+  }
+
+  async function fetchSales(employeeId: string, startDate: string, endDate: string) {
+    try {
+      const { data, error } = await supabase
+        .from('sales')
+        .select(`
+          id,
+          sale_date,
+          price_before_tax,
+          contract_type,
+          finance_type,
+          created_at,
+          client_id,
+          unit_id,
+          clients!inner(name),
+          units!inner(unit_code, project_id),
+          projects!inner(name)
+        `)
+        .eq('sales_employee_id', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Sales query error:', error);
+        return [];
+      }
+
+      return (data || []).map((s: any) => ({
+        id: s.id,
+        sale_date: s.sale_date,
+        price_before_tax: s.price_before_tax || 0,
+        contract_type: s.contract_type,
+        finance_type: s.finance_type,
+        created_at: s.created_at,
+        client_id: s.client_id,
+        unit_id: s.unit_id,
+        client_name: s.clients?.name || 'غير معروف',
+        unit_code: s.units?.unit_code || 'غير معروف',
+        project_name: s.projects?.name || 'غير معروف'
+      }));
+    } catch (err) {
+      console.error('Error fetching sales:', err);
+      return [];
+    }
+  }
+
+  async function fetchClientCreations(employeeId: string, startDate: string, endDate: string) {
+    try {
+      // أولاً: التحقق من وجود حقل created_by
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, name, nationality, mobile, status, source, created_at, created_by')
+        .eq('created_by', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Client creations query error (with created_by):', error);
+        
+        // إذا لم يكن created_by موجوداً، نجلب جميع العملاء في التاريخ
+        const { data: allClients, error: allError } = await supabase
+          .from('clients')
+          .select('id, name, nationality, mobile, status, source, created_at')
+          .gte('created_at', startDate)
+          .lt('created_at', endDate)
+          .order('created_at', { ascending: false });
+
+        if (allError) {
+          console.warn('All clients query error:', allError);
+          return [];
+        }
+
+        return allClients || [];
+      }
+
+      return data || [];
+    } catch (err) {
+      console.error('Error fetching client creations:', err);
+      return [];
+    }
+  }
+
+  async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
+    try {
+      // محاولة جلب من جدول logs أو audit_logs
+      const { data, error } = await supabase
+        .from('logs')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        // إذا لم يكن logs موجوداً، نرجع مصفوفة فارغة
+        return [];
+      }
+
+      return (data || []).filter((log: any) => 
+        log.action?.includes('unit') || 
+        log.entity_type === 'unit' ||
+        log.description?.includes('وحدة')
+      ).map((log: any) => ({
+        id: log.id,
+        unit_id: log.unit_id || log.entity_id,
+        old_status: log.old_value || 'غير معروف',
+        new_status: log.new_value || 'غير معروف',
+        notes: log.description || log.notes || '',
+        created_at: log.created_at,
+        unit_code: log.unit_code || 'غير معروف',
+        project_name: log.project_name || 'غير معروف'
+      }));
+    } catch (err) {
+      console.error('Error fetching unit updates:', err);
+      return [];
+    }
+  }
 
   /* =====================
-     Render مع معلومات تصحيح
+     Helper Functions
+  ===================== */
+  function generateSummary(activities: EmployeeActivity[]) {
+    const followUps = activities.filter(a => a.type === 'client_followup').length;
+    const reservations = activities.filter(a => a.type === 'reservation').length;
+    const sales = activities.filter(a => a.type === 'sale').length;
+    const newClients = activities.filter(a => a.type === 'client_creation').length;
+    
+    const totalDuration = activities.reduce((sum, a) => sum + (a.duration || 0), 0);
+    const avgActivityDuration = activities.length > 0 ? Math.round(totalDuration / activities.length) : 0;
+    
+    const hourCounts: Record<string, number> = {};
+    activities.forEach(a => {
+      const hour = new Date(a.timestamp).getHours();
+      const hourStr = `${hour}:00 - ${hour + 1}:00`;
+      hourCounts[hourStr] = (hourCounts[hourStr] || 0) + 1;
+    });
+    
+    const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
+    
+    const activityCounts: Record<string, number> = {};
+    activities.forEach(a => {
+      activityCounts[a.action] = (activityCounts[a.action] || 0) + 1;
+    });
+    
+    const busiestActivity = Object.entries(activityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
+    
+    let efficiencyScore = 0;
+    if (activities.length > 0) {
+      const score = (sales * 40) + (reservations * 20) + (followUps * 10) + (newClients * 15);
+      const maxScore = activities.length * 40;
+      efficiencyScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+    }
+    
+    const conversionRate = followUps > 0 ? Math.round((sales / followUps) * 100) : 0;
+
+    setSummary({
+      totalActivities: activities.length,
+      followUps,
+      reservations,
+      sales,
+      newClients,
+      totalDuration,
+      avgActivityDuration,
+      peakHour,
+      busiestActivity,
+      efficiencyScore,
+      conversionRate
+    });
+  }
+
+  function generateTimeSlots(activities: EmployeeActivity[]) {
+    const slots: TimeSlot[] = [];
+    
+    for (let i = 0; i < 24; i++) {
+      const hour = i.toString().padStart(2, '0');
+      const hourStr = `${hour}:00 - ${(i + 1).toString().padStart(2, '0')}:00`;
+      
+      const slotActivities = activities.filter(a => {
+        const activityHour = new Date(a.timestamp).getHours();
+        return activityHour === i;
+      });
+      
+      slots.push({
+        hour: hourStr,
+        activities: slotActivities,
+        count: slotActivities.length
+      });
+    }
+    
+    const activeSlots = slots.filter(slot => slot.count > 0);
+    setTimeSlots(activeSlots);
+  }
+
+  function extractActivityTypes(activities: EmployeeActivity[]) {
+    const types = Array.from(new Set(activities.map(a => a.type)));
+    setActivityTypes(types);
+  }
+
+  /* =====================
+     Export Functions
+  ===================== */
+  async function exportToExcel() {
+    setExporting(true);
+    
+    try {
+      if (!activities.length || !summary) {
+        alert('لا توجد بيانات للتصدير');
+        return;
+      }
+      
+      const reportData = {
+        meta: {
+          employee: allEmployees.find(e => e.id === selectedEmployeeId)?.name,
+          date: selectedDate,
+          generatedAt: new Date().toISOString(),
+          generatedBy: currentEmployee?.name
+        },
+        summary,
+        activities,
+        timeSlots
+      };
+      
+      const dataStr = JSON.stringify(reportData, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const employeeName = allEmployees.find(e => e.id === selectedEmployeeId)?.name.replace(/\s+/g, '_') || 'employee';
+      a.download = `تقرير_${employeeName}_${selectedDate}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      alert('تم تصدير التقرير بنجاح');
+    } catch (err: any) {
+      console.error('Error exporting report:', err);
+      alert('حدث خطأ أثناء التصدير');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function exportToCSV() {
+    if (!activities.length) {
+      alert('لا توجد بيانات للتصدير');
+      return;
+    }
+    
+    const headers = ['النشاط', 'التفاصيل', 'العميل', 'الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
+    
+    const csvRows = [
+      headers.join(','),
+      ...activities.map(a => [
+        a.action,
+        `"${(a.details || '').replace(/"/g, '""')}"`,
+        a.client_name || '',
+        a.unit_code || '',
+        a.project_name || '',
+        a.amount || '',
+        new Date(a.timestamp).toLocaleString('ar-SA'),
+        a.duration || '',
+        a.status || '',
+        (a.notes || '').replace(/"/g, '""')
+      ].join(','))
+    ];
+    
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const employeeName = allEmployees.find(e => e.id === selectedEmployeeId)?.name.replace(/\s+/g, '_') || 'employee';
+    a.download = `تقرير_${employeeName}_${selectedDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function printReport() {
+    window.print();
+  }
+
+  /* =====================
+     Filter Activities
+  ===================== */
+  const filteredActivities = useMemo(() => {
+    let filtered = activities;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(a =>
+        a.action.toLowerCase().includes(term) ||
+        a.details.toLowerCase().includes(term) ||
+        (a.client_name && a.client_name.toLowerCase().includes(term)) ||
+        (a.unit_code && a.unit_code.toLowerCase().includes(term)) ||
+        (a.notes && a.notes.toLowerCase().includes(term))
+      );
+    }
+    
+    return filtered;
+  }, [activities, searchTerm]);
+
+  /* =====================
+     UI Components
+  ===================== */
+  function StatCard({ title, value, icon, color, subtitle }: {
+    title: string;
+    value: string | number;
+    icon: string;
+    color: string;
+    subtitle?: string;
+  }) {
+    return (
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        padding: '15px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        border: `1px solid ${color}20`,
+        borderLeft: `4px solid ${color}`
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ color: '#666', fontSize: '12px', marginBottom: '4px' }}>{title}</div>
+            <div style={{ fontSize: '20px', fontWeight: 'bold', color: color }}>{value}</div>
+            {subtitle && (
+              <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>{subtitle}</div>
+            )}
+          </div>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '8px',
+            backgroundColor: `${color}20`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <span style={{ fontSize: '20px' }}>{icon}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* =====================
+     Loading State
   ===================== */
   if (loading) {
     return (
       <RequireAuth>
         <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري تحميل بيانات الموظفين...</div>
-            <div style={{ color: '#666' }}>يرجى الانتظار</div>
+            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري تحميل تقرير الأنشطة...</div>
+            <div style={{ color: '#666', marginBottom: '20px' }}>يرجى الانتظار</div>
+            <div style={{ 
+              fontSize: '12px', 
+              color: '#999', 
+              backgroundColor: '#f8f9fa', 
+              padding: '10px',
+              borderRadius: '6px',
+              maxWidth: '500px',
+              margin: '0 auto',
+              textAlign: 'left',
+              whiteSpace: 'pre-line'
+            }}>
+              {debugInfo}
+            </div>
           </div>
         </div>
       </RequireAuth>
@@ -455,32 +873,48 @@ export default function EmployeeActivityReportPage() {
             </p>
           </div>
           
-          {/* زر تصحيح */}
-          <Button 
-            variant="secondary" 
-            onClick={() => debugDataStructure()}
-            style={{ fontSize: '12px' }}
-          >
-            🔍 تصحيح البيانات
-          </Button>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <Button 
+              onClick={exportToExcel} 
+              disabled={exporting || !activities.length}
+              variant="secondary"
+            >
+              {exporting ? 'جاري التصدير...' : 'تصدير JSON'}
+            </Button>
+            <Button 
+              onClick={exportToCSV} 
+              disabled={!activities.length}
+              variant="secondary"
+            >
+              تصدير CSV
+            </Button>
+            <Button 
+              onClick={printReport} 
+              disabled={!activities.length}
+            >
+              طباعة التقرير
+            </Button>
+          </div>
         </div>
 
         {/* معلومات التصحيح */}
-        <div style={{ 
-          marginBottom: '20px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          border: '1px solid #e9ecef'
-        }}>
-          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>معلومات النظام:</div>
-          <div style={{ fontSize: '12px', color: '#666' }}>
-            <div>الموظف الحالي: {currentEmployee ? currentEmployee.name : 'غير محدد'}</div>
-            <div>عدد الموظفين في النظام: {allEmployees.length}</div>
-            <div>المستخدم المحدد: {selectedEmployeeId || 'غير محدد'}</div>
-            <div>التاريخ المحدد: {selectedDate}</div>
+        {debugInfo && (
+          <div style={{ 
+            marginBottom: '20px',
+            padding: '15px',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '8px',
+            border: '1px solid #e9ecef',
+            fontSize: '12px',
+            color: '#666',
+            whiteSpace: 'pre-line'
+          }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>سجل النظام:</div>
+            <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+              {debugInfo}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Filter Controls */}
         <Card title="فلترة التقرير">
@@ -491,7 +925,7 @@ export default function EmployeeActivityReportPage() {
             padding: '15px'
           }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>اختر الموظف</label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>اختر الموظف *</label>
               <select 
                 value={selectedEmployeeId} 
                 onChange={e => setSelectedEmployeeId(e.target.value)}
@@ -503,27 +937,18 @@ export default function EmployeeActivityReportPage() {
                 ) : (
                   allEmployees.map(emp => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.role === 'admin' ? 'مدير' : emp.role === 'sales' ? 'مندوب مبيعات' : 'مدير'})
+                      {emp.name} {emp.role === 'admin' ? '(مدير)' : emp.role === 'sales' ? '(مندوب مبيعات)' : ''}
                     </option>
                   ))
                 )}
               </select>
-              {allEmployees.length === 0 && (
-                <div style={{ 
-                  marginTop: '5px', 
-                  fontSize: '12px', 
-                  color: '#dc3545',
-                  padding: '5px',
-                  backgroundColor: '#f8d7da',
-                  borderRadius: '4px'
-                }}>
-                  ⚠️ لم يتم العثور على موظفين. تأكد من وجود بيانات في جدول employees.
-                </div>
-              )}
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '5px' }}>
+                {allEmployees.length} موظف متاح
+              </div>
             </div>
             
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>اختر التاريخ</label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>اختر التاريخ *</label>
               <input
                 type="date"
                 value={selectedDate}
@@ -554,10 +979,7 @@ export default function EmployeeActivityReportPage() {
               </div>
             </div>
           </div>
-        </Card>
-
-        
-           
+          
           {/* Quick Date Selection */}
           <div style={{ 
             display: 'flex', 
@@ -565,13 +987,15 @@ export default function EmployeeActivityReportPage() {
             padding: '10px 15px',
             backgroundColor: '#f8f9fa',
             borderTop: '1px solid #eee',
-            flexWrap: 'wrap'
+            flexWrap: 'wrap',
+            alignItems: 'center'
           }}>
             <span style={{ fontSize: '13px', color: '#666' }}>أيام سريعة:</span>
-            {['أمس', 'اليوم', 'أول أمس'].map((label, index) => {
+            {['أمس', 'اليوم', 'أول أمس', 'غداً'].map((label) => {
               const date = new Date();
               if (label === 'أمس') date.setDate(date.getDate() - 1);
               if (label === 'أول أمس') date.setDate(date.getDate() - 2);
+              if (label === 'غداً') date.setDate(date.getDate() + 1);
               const dateStr = date.toISOString().split('T')[0];
               
               return (
@@ -585,10 +1009,11 @@ export default function EmployeeActivityReportPage() {
                     border: '1px solid #ddd',
                     borderRadius: '4px',
                     fontSize: '12px',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
                   }}
                 >
-                  {label} ({dateStr})
+                  {label}
                 </button>
               );
             })}
@@ -602,10 +1027,23 @@ export default function EmployeeActivityReportPage() {
             padding: '40px', 
             backgroundColor: 'white', 
             borderRadius: '8px',
-            marginBottom: '20px'
+            marginBottom: '20px',
+            border: '1px solid #e9ecef'
           }}>
             <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري توليد التقرير...</div>
             <div style={{ color: '#666' }}>قد تستغرق العملية بضع لحظات</div>
+            <div style={{ 
+              fontSize: '12px', 
+              color: '#999', 
+              marginTop: '20px',
+              backgroundColor: '#f8f9fa',
+              padding: '10px',
+              borderRadius: '6px',
+              textAlign: 'left',
+              whiteSpace: 'pre-line'
+            }}>
+              {debugInfo.split('\n').slice(-5).join('\n')}
+            </div>
           </div>
         )}
 
@@ -623,7 +1061,8 @@ export default function EmployeeActivityReportPage() {
               marginBottom: '20px',
               boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
               flexWrap: 'wrap',
-              gap: '15px'
+              gap: '15px',
+              border: '1px solid #e9ecef'
             }}>
               <div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
@@ -1008,7 +1447,9 @@ export default function EmployeeActivityReportPage() {
                   backgroundColor: '#e6f4ea',
                   borderRadius: '8px',
                   fontSize: '12px',
-                  color: '#666'
+                  color: '#666',
+                  flexWrap: 'wrap',
+                  gap: '10px'
                 }}>
                   <div>
                     <strong>ملاحظة:</strong> تم توليد التقرير في {new Date().toLocaleString('ar-SA')}
@@ -1025,14 +1466,15 @@ export default function EmployeeActivityReportPage() {
           </>
         )}
 
-        {/* Empty State */}
+        {/* Empty State - تم التحديث */}
         {!generating && (!activities.length || !selectedEmployeeId) && (
           <div style={{ 
             textAlign: 'center', 
             padding: '40px', 
             backgroundColor: 'white', 
             borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            border: '1px solid #e9ecef'
           }}>
             <div style={{ fontSize: '24px', color: '#999', marginBottom: '20px' }}>📊</div>
             <div style={{ fontSize: '18px', marginBottom: '10px' }}>تقرير أنشطة الموظف اليومية</div>
@@ -1040,7 +1482,7 @@ export default function EmployeeActivityReportPage() {
               اختر موظفاً وتاريخاً ثم انقر على زر "توليد التقرير" لعرض كل الأنشطة التي قام بها الموظف في ذلك اليوم
             </div>
             
-            {!selectedEmployeeId && (
+            {!selectedEmployeeId && allEmployees.length === 0 && (
               <div style={{ 
                 padding: '15px', 
                 backgroundColor: '#fff8e1', 
@@ -1049,11 +1491,14 @@ export default function EmployeeActivityReportPage() {
                 maxWidth: '400px',
                 margin: '0 auto'
               }}>
-                <strong>ملاحظة:</strong> اختر موظفاً من القائمة أعلاه
+                <strong>⚠️ تحذير:</strong> لم يتم العثور على موظفين في النظام
+                <div style={{ fontSize: '12px', marginTop: '5px' }}>
+                  تأكد من وجود بيانات في جدول employees
+                </div>
               </div>
             )}
             
-            {selectedEmployeeId && !activities.length && (
+            {selectedEmployeeId && allEmployees.length > 0 && (
               <div style={{ 
                 padding: '15px', 
                 backgroundColor: '#f8f9fa', 
@@ -1065,6 +1510,34 @@ export default function EmployeeActivityReportPage() {
                 لا توجد أنشطة مسجلة للموظف في التاريخ المحدد ({selectedDate})
               </div>
             )}
+            
+            <div style={{ marginTop: '20px' }}>
+              <Button 
+                onClick={generateReport} 
+                disabled={!selectedEmployeeId || !selectedDate}
+              >
+                توليد التقرير الآن
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Debug Panel (Development Only) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ 
+            marginTop: '20px',
+            padding: '15px',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '8px',
+            border: '1px solid #e9ecef',
+            fontSize: '11px',
+            color: '#666'
+          }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>معلومات التطوير:</div>
+            <div>عدد الموظفين: {allEmployees.length}</div>
+            <div>الموظف الحالي: {currentEmployee?.name || 'غير محدد'}</div>
+            <div>المستخدم المحدد: {selectedEmployeeId || 'غير محدد'}</div>
+            <div>عدد الأنشطة: {activities.length}</div>
           </div>
         )}
 

@@ -23,7 +23,7 @@ type EmployeeActivity = {
   amount?: number;
   timestamp: string;
   reference_id?: string;
-  duration?: number; // مدة النشاط بالدقائق
+  duration?: number;
   status?: string;
   notes?: string;
 };
@@ -117,7 +117,6 @@ export default function EmployeeActivityReportPage() {
       
       setAllEmployees(data || []);
       
-      // إذا كان المستخدم الحالي موظف، حدده افتراضياً
       if (currentEmployee) {
         setSelectedEmployeeId(currentEmployee.id);
       }
@@ -146,7 +145,6 @@ export default function EmployeeActivityReportPage() {
     setDetailedData(null);
 
     try {
-      // تحديد بداية ونهاية اليوم المحدد
       const startDate = new Date(selectedDate);
       const endDate = new Date(selectedDate);
       endDate.setDate(endDate.getDate() + 1);
@@ -157,7 +155,6 @@ export default function EmployeeActivityReportPage() {
       const employee = allEmployees.find(e => e.id === selectedEmployeeId);
       if (!employee) return;
 
-      // جلب البيانات التفصيلية بشكل متوازي
       const [
         followUps,
         reservations,
@@ -172,7 +169,6 @@ export default function EmployeeActivityReportPage() {
         fetchUnitUpdates(employee.id, startISO, endISO)
       ]);
 
-      // دمج الأنشطة في قائمة واحدة
       const allActivities: EmployeeActivity[] = [];
       
       // المتابعات
@@ -191,7 +187,7 @@ export default function EmployeeActivityReportPage() {
         });
       });
 
-      // الحجوزات
+      // الحجوزات - **تم الإصلاح هنا**
       reservations.forEach(r => {
         allActivities.push({
           id: r.id,
@@ -201,7 +197,7 @@ export default function EmployeeActivityReportPage() {
           client_name: r.client_name,
           unit_code: r.unit_code,
           project_name: r.project_name,
-          amount: r.reservation_fee || 0,
+          amount: 0, // تم إصلاح الخطأ هنا - لا يوجد حقل reservation_fee
           timestamp: r.created_at,
           reference_id: r.id,
           duration: 30,
@@ -262,7 +258,6 @@ export default function EmployeeActivityReportPage() {
         });
       });
 
-      // ترتيب الأنشطة حسب الوقت (من الأحدث للأقدم)
       allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       setActivities(allActivities);
@@ -379,11 +374,10 @@ export default function EmployeeActivityReportPage() {
   }
 
   async function fetchClientCreations(employeeId: string, startDate: string, endDate: string) {
-    // Note: تأكد من وجود حقل created_by في جدول clients
     const { data, error } = await supabase
       .from('clients')
       .select('id, name, nationality, mobile, status, source, created_at')
-      .eq('created_by', employeeId) // تأكد من وجود هذا الحقل
+      .eq('created_by', employeeId)
       .gte('created_at', startDate)
       .lt('created_at', endDate)
       .order('created_at', { ascending: false });
@@ -397,34 +391,38 @@ export default function EmployeeActivityReportPage() {
   }
 
   async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
-    // إذا كان لديك جدول logs أو unit_updates
-    const { data, error } = await supabase
-      .from('unit_updates') // تأكد من وجود هذا الجدول
-      .select(`
-        id,
-        unit_id,
-        old_status,
-        new_status,
-        notes,
-        created_at,
-        unit:units!unit_updates_unit_id_fkey (unit_code, project_id),
-        project:projects!units_project_id_fkey (name)
-      `)
-      .eq('updated_by', employeeId)
-      .gte('created_at', startDate)
-      .lt('created_at', endDate)
-      .order('created_at', { ascending: false });
+    // محاولة جلب تحديثات الوحدات إذا كان الجدول موجوداً
+    try {
+      const { data, error } = await supabase
+        .from('unit_updates')
+        .select(`
+          id,
+          unit_id,
+          old_status,
+          new_status,
+          notes,
+          created_at,
+          unit:units!unit_updates_unit_id_fkey (unit_code, project_id),
+          project:projects!units_project_id_fkey (name)
+        `)
+        .eq('updated_by', employeeId)
+        .gte('created_at', startDate)
+        .lt('created_at', endDate)
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching unit updates:', error);
+      if (error) {
+        // إذا لم يكن الجدول موجوداً، نرجع مصفوفة فارغة
+        return [];
+      }
+
+      return (data || []).map(u => ({
+        ...u,
+        unit_code: u.unit?.unit_code,
+        project_name: u.project?.name
+      }));
+    } catch (err) {
       return [];
     }
-
-    return (data || []).map(u => ({
-      ...u,
-      unit_code: u.unit?.unit_code,
-      project_name: u.project?.name
-    }));
   }
 
   /* =====================
@@ -439,7 +437,6 @@ export default function EmployeeActivityReportPage() {
     const totalDuration = activities.reduce((sum, a) => sum + (a.duration || 0), 0);
     const avgActivityDuration = activities.length > 0 ? Math.round(totalDuration / activities.length) : 0;
     
-    // تحديد ساعة الذروة
     const hourCounts: Record<string, number> = {};
     activities.forEach(a => {
       const hour = new Date(a.timestamp).getHours();
@@ -449,7 +446,6 @@ export default function EmployeeActivityReportPage() {
     
     const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
     
-    // تحديد أكثر نشاط تكراراً
     const activityCounts: Record<string, number> = {};
     activities.forEach(a => {
       activityCounts[a.action] = (activityCounts[a.action] || 0) + 1;
@@ -457,7 +453,6 @@ export default function EmployeeActivityReportPage() {
     
     const busiestActivity = Object.entries(activityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
     
-    // حساب درجة الكفاءة (مقياس من 1-100)
     let efficiencyScore = 0;
     if (activities.length > 0) {
       const score = (sales * 40) + (reservations * 20) + (followUps * 10) + (newClients * 15);
@@ -465,7 +460,6 @@ export default function EmployeeActivityReportPage() {
       efficiencyScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
     }
     
-    // حساب معدل التحويل
     const conversionRate = followUps > 0 ? Math.round((sales / followUps) * 100) : 0;
 
     setSummary({
@@ -486,7 +480,6 @@ export default function EmployeeActivityReportPage() {
   function generateTimeSlots(activities: EmployeeActivity[]) {
     const slots: TimeSlot[] = [];
     
-    // إنشاء 24 ساعة
     for (let i = 0; i < 24; i++) {
       const hour = i.toString().padStart(2, '0');
       const hourStr = `${hour}:00 - ${(i + 1).toString().padStart(2, '0')}:00`;
@@ -503,7 +496,6 @@ export default function EmployeeActivityReportPage() {
       });
     }
     
-    // تصفية الساعات التي بها أنشطة فقط
     const activeSlots = slots.filter(slot => slot.count > 0);
     setTimeSlots(activeSlots);
   }

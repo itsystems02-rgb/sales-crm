@@ -164,7 +164,8 @@ export default function EmployeeActivityReportPage() {
         if ('department' in sampleRow) selectColumns += ', department';
       }
 
-      // جلب الموظفين بالاستعلام الديناميكي
+      // جلب الموظفين - استخدام let بدلاً من const
+      let fetchedData: any[] = [];
       const { data, error } = await supabase
         .from('employees')
         .select(selectColumns)
@@ -185,17 +186,19 @@ export default function EmployeeActivityReportPage() {
           return;
         }
         
-        data = simpleData;
+        fetchedData = simpleData || [];
+      } else {
+        fetchedData = data || [];
       }
 
-      if (!data || data.length === 0) {
+      if (fetchedData.length === 0) {
         setDebugInfo(prev => prev + '\n⚠️ جدول employees فارغ');
         setAllEmployees([]);
         return;
       }
 
       // تحويل البيانات إلى النوع المطلوب
-      const employees: Employee[] = data.map((emp: any) => ({
+      const employees: Employee[] = fetchedData.map((emp: any) => ({
         id: emp.id,
         name: emp.name || 'غير معروف',
         email: emp.email || '',
@@ -558,14 +561,13 @@ export default function EmployeeActivityReportPage() {
   async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
     try {
       // محاولة جلب من جدول audit_logs أو logs
-      let query = supabase
+      let queryResult;
+      const { data, error } = await supabase
         .from('audit_logs')
         .select('*')
         .eq('employee_id', employeeId)
         .gte('created_at', startDate)
         .lt('created_at', endDate);
-
-      const { data, error } = await query;
 
       if (error) {
         // محاولة مع جدول logs
@@ -580,10 +582,12 @@ export default function EmployeeActivityReportPage() {
           return [];
         }
 
-        data = logsData;
+        queryResult = logsData;
+      } else {
+        queryResult = data;
       }
 
-      return (data || []).filter((log: any) => 
+      return (queryResult || []).filter((log: any) => 
         log.action?.includes('unit') || 
         log.entity_type === 'unit' ||
         log.description?.includes('وحدة') ||

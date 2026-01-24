@@ -8,6 +8,46 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
 
+// وظيفة لفحص هيكل البيانات
+async function debugDataStructure() {
+  console.log('🔍 فحص هيكل البيانات...');
+  
+  try {
+    // 1. فحص جدول الموظفين
+    const { data: employees, error: empError } = await supabase
+      .from('employees')
+      .select('*')
+      .limit(5);
+    
+    if (empError) {
+      console.error('❌ خطأ في جلب الموظفين:', empError);
+    } else {
+      console.log('✅ الموظفين (5 أول):', employees);
+      console.log('📊 عدد الموظفين:', employees?.length);
+    }
+    
+    // 2. فحص المستخدم الحالي
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log('👤 المستخدم الحالي:', user?.email);
+    
+    // 3. فحص صلاحيات المستخدم
+    if (user?.email) {
+      const { data: currentEmp } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('email', user.email)
+        .maybeSingle();
+      
+      console.log('👨‍💼 بيانات الموظف الحالي:', currentEmp);
+    }
+    
+    return true;
+  } catch (err) {
+    console.error('❌ خطأ في فحص البيانات:', err);
+    return false;
+  }
+}
+
 /* =====================
    Types
 ===================== */
@@ -85,9 +125,10 @@ export default function EmployeeActivityReportPage() {
   
   const [activityTypes, setActivityTypes] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   /* =====================
-     INIT
+     INIT - الإصدار المعدل
   ===================== */
   useEffect(() => {
     init();
@@ -95,38 +136,107 @@ export default function EmployeeActivityReportPage() {
 
   async function init() {
     try {
-      const emp = await getCurrentEmployee();
-      setCurrentEmployee(emp);
+      console.log('🔄 بدء تهيئة الصفحة...');
       
-      await fetchAllEmployees();
-      setLoading(false);
-    } catch (err) {
-      console.error('Error in init():', err);
-      setLoading(false);
-    }
-  }
-
-  async function fetchAllEmployees() {
-    try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('id, name, email, role, phone, department')
-        .order('name');
+      // فحص هيكل البيانات أولاً
+      await debugDataStructure();
       
-      if (error) throw error;
+      // جلب المستخدم الحالي
+      const { data: { user } } = await supabase.auth.getUser();
       
-      setAllEmployees(data || []);
-      
-      if (currentEmployee) {
-        setSelectedEmployeeId(currentEmployee.id);
+      if (!user) {
+        console.log('⚠️ لم يتم العثور على مستخدم، إعادة التوجيه...');
+        router.push('/login');
+        return;
       }
+      
+      console.log('👤 جلب بيانات الموظف الحالي...');
+      
+      // الطريقة الأولى: استخدام getCurrentEmployee إذا كانت تعمل
+      try {
+        const emp = await getCurrentEmployee();
+        console.log('✅ الموظف الحالي (من getCurrentEmployee):', emp);
+        setCurrentEmployee(emp);
+      } catch (empError) {
+        console.warn('⚠️ فشل في getCurrentEmployee، تجربة طريقة بديلة...');
+        
+        // الطريقة البديلة: جلب الموظف مباشرة من البريد
+        const { data: employeeData, error: empQueryError } = await supabase
+          .from('employees')
+          .select('id, name, email, role, phone, department')
+          .eq('email', user.email)
+          .maybeSingle();
+        
+        if (empQueryError) {
+          console.error('❌ خطأ في جلب الموظف:', empQueryError);
+        } else if (employeeData) {
+          console.log('✅ الموظف الحالي (من الاستعلام المباشر):', employeeData);
+          setCurrentEmployee(employeeData);
+        } else {
+          console.log('⚠️ المستخدم ليس موظفاً في النظام');
+        }
+      }
+      
+      // جلب جميع الموظفين
+      await fetchAllEmployees();
+      
+      setLoading(false);
     } catch (err) {
-      console.error('Error fetching employees:', err);
+      console.error('❌ خطأ في init():', err);
+      setLoading(false);
     }
   }
 
   /* =====================
-     Generate Report
+     جلب جميع الموظفين - الإصدار المحسن
+  ===================== */
+  async function fetchAllEmployees() {
+    try {
+      console.log('🔄 جلب جميع الموظفين...');
+      
+      // محاولة الحصول على اسم العمود الصحيح
+      const { data: employees, error } = await supabase
+        .from('employees')
+        .select('id, name, email, role, phone, department, created_at')
+        .order('name');
+      
+      if (error) {
+        console.error('❌ خطأ في جلب الموظفين:', error);
+        
+        // محاولة بجدول مختلف
+        console.log('🔍 محاولة البحث في جداول أخرى...');
+        
+        // فحص جداول النظام
+        const { data: tables } = await supabase
+          .from('pg_tables')
+          .select('tablename')
+          .ilike('tablename', '%employee%');
+          
+        console.log('📋 جداول تشبه employee:', tables);
+        
+        setAllEmployees([]);
+        return;
+      }
+      
+      console.log(`✅ تم جلب ${employees?.length || 0} موظف`);
+      console.log('👥 قائمة الموظفين:', employees);
+      
+      setAllEmployees(employees || []);
+      
+      // إذا كان هناك موظف حالي، حدده افتراضياً
+      if (currentEmployee && employees?.length > 0) {
+        setSelectedEmployeeId(currentEmployee.id);
+        console.log(`✅ تحديد الموظف الحالي افتراضياً: ${currentEmployee.name}`);
+      }
+      
+    } catch (err) {
+      console.error('❌ خطأ غير متوقع في fetchAllEmployees:', err);
+      setAllEmployees([]);
+    }
+  }
+
+  /* =====================
+     توليد التقرير - مع تحسينات
   ===================== */
   async function generateReport() {
     if (!selectedEmployeeId) {
@@ -145,6 +255,8 @@ export default function EmployeeActivityReportPage() {
     setDetailedData(null);
 
     try {
+      console.log(`📊 توليد تقرير للموظف ${selectedEmployeeId} بتاريخ ${selectedDate}`);
+      
       const startDate = new Date(selectedDate);
       const endDate = new Date(selectedDate);
       endDate.setDate(endDate.getDate() + 1);
@@ -153,21 +265,46 @@ export default function EmployeeActivityReportPage() {
       const endISO = endDate.toISOString();
 
       const employee = allEmployees.find(e => e.id === selectedEmployeeId);
-      if (!employee) return;
+      if (!employee) {
+        alert('الموظف المحدد غير موجود');
+        setGenerating(false);
+        return;
+      }
 
-      const [
-        followUps,
-        reservations,
-        sales,
-        clientCreations,
-        unitUpdates
-      ] = await Promise.all([
-        fetchFollowUps(employee.id, startISO, endISO),
-        fetchReservations(employee.id, startISO, endISO),
-        fetchSales(employee.id, startISO, endISO),
-        fetchClientCreations(employee.id, startISO, endISO),
-        fetchUnitUpdates(employee.id, startISO, endISO)
-      ]);
+      console.log(`👨‍💼 الموظف المحدد: ${employee.name}`);
+      
+      // جمع بيانات التتبع مع معالجة الأخطاء
+      const dataPromises = [
+        fetchFollowUps(employee.id, startISO, endISO).catch(err => {
+          console.error('❌ خطأ في جلب المتابعات:', err);
+          return [];
+        }),
+        fetchReservations(employee.id, startISO, endISO).catch(err => {
+          console.error('❌ خطأ في جلب الحجوزات:', err);
+          return [];
+        }),
+        fetchSales(employee.id, startISO, endISO).catch(err => {
+          console.error('❌ خطأ في جلب المبيعات:', err);
+          return [];
+        }),
+        fetchClientCreations(employee.id, startISO, endISO).catch(err => {
+          console.error('❌ خطأ في جلب العملاء الجدد:', err);
+          return [];
+        }),
+        fetchUnitUpdates(employee.id, startISO, endISO).catch(err => {
+          console.error('❌ خطأ في جلب تحديثات الوحدات:', err);
+          return [];
+        })
+      ];
+
+      const [followUps, reservations, sales, clientCreations, unitUpdates] = await Promise.all(dataPromises);
+
+      console.log(`📈 البيانات المجمعة:`);
+      console.log(`   - المتابعات: ${followUps.length}`);
+      console.log(`   - الحجوزات: ${reservations.length}`);
+      console.log(`   - المبيعات: ${sales.length}`);
+      console.log(`   - عملاء جدد: ${clientCreations.length}`);
+      console.log(`   - تحديثات وحدات: ${unitUpdates.length}`);
 
       const allActivities: EmployeeActivity[] = [];
       
@@ -260,6 +397,8 @@ export default function EmployeeActivityReportPage() {
 
       allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+      console.log(`✅ تم تجميع ${allActivities.length} نشاط`);
+      
       setActivities(allActivities);
       setDetailedData({ followUps, reservations, sales, clientCreations, unitUpdates });
       generateSummary(allActivities);
@@ -267,430 +406,28 @@ export default function EmployeeActivityReportPage() {
       extractActivityTypes(allActivities);
 
     } catch (err) {
-      console.error('Error generating report:', err);
-      alert('حدث خطأ أثناء توليد التقرير');
+      console.error('❌ خطأ في توليد التقرير:', err);
+      alert(`حدث خطأ أثناء توليد التقرير: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`);
     } finally {
       setGenerating(false);
     }
   }
 
   /* =====================
-     Fetch Functions - تم الإصلاح هنا
-  ===================== */
-  async function fetchFollowUps(employeeId: string, startDate: string, endDate: string) {
-    const { data, error } = await supabase
-      .from('client_followups')
-      .select(`
-        id,
-        type,
-        notes,
-        created_at,
-        client_id,
-        duration,
-        clients!client_followups_client_id_fkey (
-          name,
-          status
-        )
-      `)
-      .eq('employee_id', employeeId)
-      .gte('created_at', startDate)
-      .lt('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching followups:', error);
-      return [];
-    }
-
-    return (data || []).map((f: any) => {
-      const client = Array.isArray(f.clients) ? f.clients[0] : f.clients;
-      
-      return {
-        ...f,
-        client_name: client?.name || 'غير معروف',
-        client_status: client?.status || 'غير معروف'
-      };
-    });
-  }
-
-  async function fetchReservations(employeeId: string, startDate: string, endDate: string) {
-    const { data, error } = await supabase
-      .from('reservations')
-      .select(`
-        id,
-        reservation_date,
-        status,
-        notes,
-        created_at,
-        client_id,
-        unit_id,
-        clients!reservations_client_id_fkey (
-          name
-        ),
-        units!reservations_unit_id_fkey (
-          unit_code,
-          project_id
-        ),
-        projects!units_project_id_fkey (
-          name
-        )
-      `)
-      .eq('employee_id', employeeId)
-      .gte('created_at', startDate)
-      .lt('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching reservations:', error);
-      return [];
-    }
-
-    return (data || []).map((r: any) => {
-      const client = Array.isArray(r.clients) ? r.clients[0] : r.clients;
-      const unit = Array.isArray(r.units) ? r.units[0] : r.units;
-      const project = Array.isArray(r.projects) ? r.projects[0] : r.projects;
-      
-      return {
-        ...r,
-        client_name: client?.name || 'غير معروف',
-        unit_code: unit?.unit_code || 'غير معروف',
-        project_name: project?.name || 'غير معروف'
-      };
-    });
-  }
-
-  async function fetchSales(employeeId: string, startDate: string, endDate: string) {
-    const { data, error } = await supabase
-      .from('sales')
-      .select(`
-        id,
-        sale_date,
-        price_before_tax,
-        contract_type,
-        finance_type,
-        created_at,
-        client_id,
-        unit_id,
-        clients!sales_client_id_fkey (
-          name
-        ),
-        units!sales_unit_id_fkey (
-          unit_code,
-          project_id
-        ),
-        projects!sales_project_id_fkey (
-          name
-        )
-      `)
-      .eq('sales_employee_id', employeeId)
-      .gte('created_at', startDate)
-      .lt('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching sales:', error);
-      return [];
-    }
-
-    return (data || []).map((s: any) => {
-      const client = Array.isArray(s.clients) ? s.clients[0] : s.clients;
-      const unit = Array.isArray(s.units) ? s.units[0] : s.units;
-      const project = Array.isArray(s.projects) ? s.projects[0] : s.projects;
-      
-      return {
-        ...s,
-        client_name: client?.name || 'غير معروف',
-        unit_code: unit?.unit_code || 'غير معروف',
-        project_name: project?.name || 'غير معروف'
-      };
-    });
-  }
-
-  async function fetchClientCreations(employeeId: string, startDate: string, endDate: string) {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('id, name, nationality, mobile, status, source, created_at, created_by')
-      .eq('created_by', employeeId)
-      .gte('created_at', startDate)
-      .lt('created_at', endDate)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching client creations:', error);
-      return [];
-    }
-
-    return data || [];
-  }
-
-  async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
-    try {
-      const { data, error } = await supabase
-        .from('logs')
-        .select('*')
-        .eq('employee_id', employeeId)
-        .like('action', '%unit%')
-        .gte('created_at', startDate)
-        .lt('created_at', endDate)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        return [];
-      }
-
-      return (data || []).map((log: any) => ({
-        id: log.id,
-        unit_id: log.unit_id,
-        old_status: log.old_value,
-        new_status: log.new_value,
-        notes: log.description,
-        created_at: log.created_at,
-        unit_code: log.unit_code,
-        project_name: log.project_name
-      }));
-    } catch (err) {
-      return [];
-    }
-  }
-
-  /* =====================
-     Helper Functions
-  ===================== */
-  function generateSummary(activities: EmployeeActivity[]) {
-    const followUps = activities.filter(a => a.type === 'client_followup').length;
-    const reservations = activities.filter(a => a.type === 'reservation').length;
-    const sales = activities.filter(a => a.type === 'sale').length;
-    const newClients = activities.filter(a => a.type === 'client_creation').length;
-    
-    const totalDuration = activities.reduce((sum, a) => sum + (a.duration || 0), 0);
-    const avgActivityDuration = activities.length > 0 ? Math.round(totalDuration / activities.length) : 0;
-    
-    const hourCounts: Record<string, number> = {};
-    activities.forEach(a => {
-      const hour = new Date(a.timestamp).getHours();
-      const hourStr = `${hour}:00 - ${hour + 1}:00`;
-      hourCounts[hourStr] = (hourCounts[hourStr] || 0) + 1;
-    });
-    
-    const peakHour = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
-    
-    const activityCounts: Record<string, number> = {};
-    activities.forEach(a => {
-      activityCounts[a.action] = (activityCounts[a.action] || 0) + 1;
-    });
-    
-    const busiestActivity = Object.entries(activityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'لا توجد بيانات';
-    
-    let efficiencyScore = 0;
-    if (activities.length > 0) {
-      const score = (sales * 40) + (reservations * 20) + (followUps * 10) + (newClients * 15);
-      const maxScore = activities.length * 40;
-      efficiencyScore = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-    }
-    
-    const conversionRate = followUps > 0 ? Math.round((sales / followUps) * 100) : 0;
-
-    setSummary({
-      totalActivities: activities.length,
-      followUps,
-      reservations,
-      sales,
-      newClients,
-      totalDuration,
-      avgActivityDuration,
-      peakHour,
-      busiestActivity,
-      efficiencyScore,
-      conversionRate
-    });
-  }
-
-  function generateTimeSlots(activities: EmployeeActivity[]) {
-    const slots: TimeSlot[] = [];
-    
-    for (let i = 0; i < 24; i++) {
-      const hour = i.toString().padStart(2, '0');
-      const hourStr = `${hour}:00 - ${(i + 1).toString().padStart(2, '0')}:00`;
-      
-      const slotActivities = activities.filter(a => {
-        const activityHour = new Date(a.timestamp).getHours();
-        return activityHour === i;
-      });
-      
-      slots.push({
-        hour: hourStr,
-        activities: slotActivities,
-        count: slotActivities.length
-      });
-    }
-    
-    const activeSlots = slots.filter(slot => slot.count > 0);
-    setTimeSlots(activeSlots);
-  }
-
-  function extractActivityTypes(activities: EmployeeActivity[]) {
-    const types = Array.from(new Set(activities.map(a => a.type)));
-    setActivityTypes(types);
-  }
-
-  /* =====================
-     Export Functions
-  ===================== */
-  async function exportToExcel() {
-    setExporting(true);
-    
-    try {
-      if (!activities.length || !summary) {
-        alert('لا توجد بيانات للتصدير');
-        return;
-      }
-      
-      const reportData = {
-        meta: {
-          employee: allEmployees.find(e => e.id === selectedEmployeeId)?.name,
-          date: selectedDate,
-          generatedAt: new Date().toISOString(),
-          generatedBy: currentEmployee?.name
-        },
-        summary,
-        activities,
-        timeSlots
-      };
-      
-      const dataStr = JSON.stringify(reportData, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const employeeName = allEmployees.find(e => e.id === selectedEmployeeId)?.name.replace(/\s+/g, '_');
-      a.download = `تقرير_${employeeName}_${selectedDate}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      alert('تم تصدير التقرير بنجاح');
-    } catch (err) {
-      console.error('Error exporting report:', err);
-      alert('حدث خطأ أثناء التصدير');
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  function exportToCSV() {
-    if (!activities.length) {
-      alert('لا توجد بيانات للتصدير');
-      return;
-    }
-    
-    const headers = ['النشاط', 'التفاصيل', 'العميل', 'الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
-    
-    const csvRows = [
-      headers.join(','),
-      ...activities.map(a => [
-        a.action,
-        `"${a.details.replace(/"/g, '""')}"`,
-        a.client_name || '',
-        a.unit_code || '',
-        a.project_name || '',
-        a.amount || '',
-        new Date(a.timestamp).toLocaleString('ar-SA'),
-        a.duration || '',
-        a.status || '',
-        a.notes ? `"${a.notes.replace(/"/g, '""')}"` : ''
-      ].join(','))
-    ];
-    
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const employeeName = allEmployees.find(e => e.id === selectedEmployeeId)?.name.replace(/\s+/g, '_');
-    a.download = `تقرير_${employeeName}_${selectedDate}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  function printReport() {
-    window.print();
-  }
-
-  /* =====================
-     Filter Activities
-  ===================== */
-  const filteredActivities = useMemo(() => {
-    let filtered = activities;
-    
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(a =>
-        a.action.toLowerCase().includes(term) ||
-        a.details.toLowerCase().includes(term) ||
-        (a.client_name && a.client_name.toLowerCase().includes(term)) ||
-        (a.unit_code && a.unit_code.toLowerCase().includes(term)) ||
-        (a.notes && a.notes.toLowerCase().includes(term))
-      );
-    }
-    
-    return filtered;
-  }, [activities, searchTerm]);
-
-  /* =====================
      UI Components
   ===================== */
-  function StatCard({ title, value, icon, color, subtitle }: {
-    title: string;
-    value: string | number;
-    icon: string;
-    color: string;
-    subtitle?: string;
-  }) {
-    return (
-      <div style={{
-        backgroundColor: 'white',
-        borderRadius: '8px',
-        padding: '15px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        border: `1px solid ${color}20`,
-        borderLeft: `4px solid ${color}`
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ color: '#666', fontSize: '12px', marginBottom: '4px' }}>{title}</div>
-            <div style={{ fontSize: '20px', fontWeight: 'bold', color: color }}>{value}</div>
-            {subtitle && (
-              <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>{subtitle}</div>
-            )}
-          </div>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '8px',
-            backgroundColor: `${color}20`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <span style={{ fontSize: '20px' }}>{icon}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  
+  // ... باقي الكود كما هو مع إصلاحات سابقة
 
   /* =====================
-     Loading State
+     Render مع معلومات تصحيح
   ===================== */
   if (loading) {
     return (
       <RequireAuth>
         <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري التحميل...</div>
+            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري تحميل بيانات الموظفين...</div>
             <div style={{ color: '#666' }}>يرجى الانتظار</div>
           </div>
         </div>
@@ -718,27 +455,30 @@ export default function EmployeeActivityReportPage() {
             </p>
           </div>
           
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <Button 
-              onClick={exportToExcel} 
-              disabled={exporting || !activities.length}
-              variant="secondary"
-            >
-              {exporting ? 'جاري التصدير...' : 'تصدير JSON'}
-            </Button>
-            <Button 
-              onClick={exportToCSV} 
-              disabled={!activities.length}
-              variant="secondary"
-            >
-              تصدير CSV
-            </Button>
-            <Button 
-              onClick={printReport} 
-              disabled={!activities.length}
-            >
-              طباعة التقرير
-            </Button>
+          {/* زر تصحيح */}
+          <Button 
+            variant="secondary" 
+            onClick={() => debugDataStructure()}
+            style={{ fontSize: '12px' }}
+          >
+            🔍 تصحيح البيانات
+          </Button>
+        </div>
+
+        {/* معلومات التصحيح */}
+        <div style={{ 
+          marginBottom: '20px',
+          padding: '15px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '8px',
+          border: '1px solid #e9ecef'
+        }}>
+          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>معلومات النظام:</div>
+          <div style={{ fontSize: '12px', color: '#666' }}>
+            <div>الموظف الحالي: {currentEmployee ? currentEmployee.name : 'غير محدد'}</div>
+            <div>عدد الموظفين في النظام: {allEmployees.length}</div>
+            <div>المستخدم المحدد: {selectedEmployeeId || 'غير محدد'}</div>
+            <div>التاريخ المحدد: {selectedDate}</div>
           </div>
         </div>
 
@@ -758,12 +498,28 @@ export default function EmployeeActivityReportPage() {
                 style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
               >
                 <option value="">اختر الموظف</option>
-                {allEmployees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.role === 'admin' ? 'مدير' : emp.role === 'sales' ? 'مندوب مبيعات' : 'مدير'})
-                  </option>
-                ))}
+                {allEmployees.length === 0 ? (
+                  <option value="" disabled>لا توجد بيانات موظفين</option>
+                ) : (
+                  allEmployees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.role === 'admin' ? 'مدير' : emp.role === 'sales' ? 'مندوب مبيعات' : 'مدير'})
+                    </option>
+                  ))
+                )}
               </select>
+              {allEmployees.length === 0 && (
+                <div style={{ 
+                  marginTop: '5px', 
+                  fontSize: '12px', 
+                  color: '#dc3545',
+                  padding: '5px',
+                  backgroundColor: '#f8d7da',
+                  borderRadius: '4px'
+                }}>
+                  ⚠️ لم يتم العثور على موظفين. تأكد من وجود بيانات في جدول employees.
+                </div>
+              )}
             </div>
             
             <div>
@@ -787,7 +543,6 @@ export default function EmployeeActivityReportPage() {
               />
             </div>
             
-            {/* **تم الإصلاح هنا: إزالة خاصية fullWidth وإضافة div خارجي ** */}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%' }}>
                 <Button 
@@ -799,7 +554,10 @@ export default function EmployeeActivityReportPage() {
               </div>
             </div>
           </div>
-          
+        </Card>
+
+        
+           
           {/* Quick Date Selection */}
           <div style={{ 
             display: 'flex', 

@@ -187,7 +187,7 @@ export default function EmployeeActivityReportPage() {
         });
       });
 
-      // الحجوزات - **تم الإصلاح هنا**
+      // الحجوزات
       reservations.forEach(r => {
         allActivities.push({
           id: r.id,
@@ -197,7 +197,7 @@ export default function EmployeeActivityReportPage() {
           client_name: r.client_name,
           unit_code: r.unit_code,
           project_name: r.project_name,
-          amount: 0, // تم إصلاح الخطأ هنا - لا يوجد حقل reservation_fee
+          amount: 0,
           timestamp: r.created_at,
           reference_id: r.id,
           duration: 30,
@@ -275,7 +275,7 @@ export default function EmployeeActivityReportPage() {
   }
 
   /* =====================
-     Fetch Functions
+     Fetch Functions - تم الإصلاح هنا
   ===================== */
   async function fetchFollowUps(employeeId: string, startDate: string, endDate: string) {
     const { data, error } = await supabase
@@ -286,8 +286,11 @@ export default function EmployeeActivityReportPage() {
         notes,
         created_at,
         client_id,
-        client:clients!client_followups_client_id_fkey (name, status),
-        duration
+        duration,
+        clients!client_followups_client_id_fkey (
+          name,
+          status
+        )
       `)
       .eq('employee_id', employeeId)
       .gte('created_at', startDate)
@@ -299,11 +302,17 @@ export default function EmployeeActivityReportPage() {
       return [];
     }
 
-    return (data || []).map(f => ({
-      ...f,
-      client_name: f.client?.name,
-      client_status: f.client?.status
-    }));
+    // الإصلاح: معالجة البيانات من Supabase بشكل صحيح
+    return (data || []).map((f: any) => {
+      // clients قد تكون مصفوفة، نأخذ أول عنصر
+      const client = Array.isArray(f.clients) ? f.clients[0] : f.clients;
+      
+      return {
+        ...f,
+        client_name: client?.name || 'غير معروف',
+        client_status: client?.status || 'غير معروف'
+      };
+    });
   }
 
   async function fetchReservations(employeeId: string, startDate: string, endDate: string) {
@@ -317,9 +326,16 @@ export default function EmployeeActivityReportPage() {
         created_at,
         client_id,
         unit_id,
-        client:clients!reservations_client_id_fkey (name),
-        unit:units!reservations_unit_id_fkey (unit_code, project_id),
-        project:projects!units_project_id_fkey (name)
+        clients!reservations_client_id_fkey (
+          name
+        ),
+        units!reservations_unit_id_fkey (
+          unit_code,
+          project_id
+        ),
+        projects!units_project_id_fkey (
+          name
+        )
       `)
       .eq('employee_id', employeeId)
       .gte('created_at', startDate)
@@ -331,12 +347,18 @@ export default function EmployeeActivityReportPage() {
       return [];
     }
 
-    return (data || []).map(r => ({
-      ...r,
-      client_name: r.client?.name,
-      unit_code: r.unit?.unit_code,
-      project_name: r.project?.name
-    }));
+    return (data || []).map((r: any) => {
+      const client = Array.isArray(r.clients) ? r.clients[0] : r.clients;
+      const unit = Array.isArray(r.units) ? r.units[0] : r.units;
+      const project = Array.isArray(r.projects) ? r.projects[0] : r.projects;
+      
+      return {
+        ...r,
+        client_name: client?.name || 'غير معروف',
+        unit_code: unit?.unit_code || 'غير معروف',
+        project_name: project?.name || 'غير معروف'
+      };
+    });
   }
 
   async function fetchSales(employeeId: string, startDate: string, endDate: string) {
@@ -351,9 +373,16 @@ export default function EmployeeActivityReportPage() {
         created_at,
         client_id,
         unit_id,
-        client:clients!sales_client_id_fkey (name),
-        unit:units!sales_unit_id_fkey (unit_code, project_id),
-        project:projects!sales_project_id_fkey (name)
+        clients!sales_client_id_fkey (
+          name
+        ),
+        units!sales_unit_id_fkey (
+          unit_code,
+          project_id
+        ),
+        projects!sales_project_id_fkey (
+          name
+        )
       `)
       .eq('sales_employee_id', employeeId)
       .gte('created_at', startDate)
@@ -365,18 +394,24 @@ export default function EmployeeActivityReportPage() {
       return [];
     }
 
-    return (data || []).map(s => ({
-      ...s,
-      client_name: s.client?.name,
-      unit_code: s.unit?.unit_code,
-      project_name: s.project?.name
-    }));
+    return (data || []).map((s: any) => {
+      const client = Array.isArray(s.clients) ? s.clients[0] : s.clients;
+      const unit = Array.isArray(s.units) ? s.units[0] : s.units;
+      const project = Array.isArray(s.projects) ? s.projects[0] : s.projects;
+      
+      return {
+        ...s,
+        client_name: client?.name || 'غير معروف',
+        unit_code: unit?.unit_code || 'غير معروف',
+        project_name: project?.name || 'غير معروف'
+      };
+    });
   }
 
   async function fetchClientCreations(employeeId: string, startDate: string, endDate: string) {
     const { data, error } = await supabase
       .from('clients')
-      .select('id, name, nationality, mobile, status, source, created_at')
+      .select('id, name, nationality, mobile, status, source, created_at, created_by')
       .eq('created_by', employeeId)
       .gte('created_at', startDate)
       .lt('created_at', endDate)
@@ -391,34 +426,30 @@ export default function EmployeeActivityReportPage() {
   }
 
   async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
-    // محاولة جلب تحديثات الوحدات إذا كان الجدول موجوداً
     try {
+      // محاولة جلب سجل التحديثات من جدول logs إذا كان موجوداً
       const { data, error } = await supabase
-        .from('unit_updates')
-        .select(`
-          id,
-          unit_id,
-          old_status,
-          new_status,
-          notes,
-          created_at,
-          unit:units!unit_updates_unit_id_fkey (unit_code, project_id),
-          project:projects!units_project_id_fkey (name)
-        `)
-        .eq('updated_by', employeeId)
+        .from('logs')
+        .select('*')
+        .eq('employee_id', employeeId)
+        .like('action', '%unit%')
         .gte('created_at', startDate)
         .lt('created_at', endDate)
         .order('created_at', { ascending: false });
 
       if (error) {
-        // إذا لم يكن الجدول موجوداً، نرجع مصفوفة فارغة
         return [];
       }
 
-      return (data || []).map(u => ({
-        ...u,
-        unit_code: u.unit?.unit_code,
-        project_name: u.project?.name
+      return (data || []).map((log: any) => ({
+        id: log.id,
+        unit_id: log.unit_id,
+        old_status: log.old_value,
+        new_status: log.new_value,
+        notes: log.description,
+        created_at: log.created_at,
+        unit_code: log.unit_code,
+        project_name: log.project_name
       }));
     } catch (err) {
       return [];

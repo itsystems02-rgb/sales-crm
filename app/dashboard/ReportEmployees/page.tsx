@@ -787,13 +787,12 @@ export default function EmployeeActivityReportPage() {
               />
             </div>
             
-            {/* **تم الإصلاح هنا: إزالة خاصية style من Button ** */}
+            {/* **تم الإصلاح هنا: إزالة خاصية fullWidth وإضافة div خارجي ** */}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%' }}>
                 <Button 
                   onClick={generateReport} 
                   disabled={generating || !selectedEmployeeId || !selectedDate}
-                  fullWidth
                 >
                   {generating ? 'جاري التوليد...' : 'توليد التقرير'}
                 </Button>

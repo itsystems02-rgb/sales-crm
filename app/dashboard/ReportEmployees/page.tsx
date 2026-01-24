@@ -58,12 +58,73 @@ type TimeSlot = {
   count: number;
 };
 
+// أنواع جديدة للبيانات التفصيلية
+type FollowUp = {
+  id: string;
+  type: 'call' | 'whatsapp' | 'visit' | 'email';
+  notes?: string;
+  created_at: string;
+  client_id: string;
+  duration?: number;
+  client_name: string;
+  client_status?: string;
+};
+
+type Reservation = {
+  id: string;
+  reservation_date: string;
+  status: string;
+  notes?: string;
+  created_at: string;
+  client_id: string;
+  unit_id: string;
+  client_name: string;
+  unit_code: string;
+  project_name?: string;
+};
+
+type Sale = {
+  id: string;
+  sale_date: string;
+  price_before_tax?: number;
+  contract_type?: string;
+  finance_type?: string;
+  created_at: string;
+  client_id: string;
+  unit_id: string;
+  client_name: string;
+  unit_code: string;
+  project_name?: string;
+};
+
+type ClientCreation = {
+  id: string;
+  name: string;
+  nationality?: string;
+  mobile?: string;
+  status?: string;
+  source?: string;
+  created_at: string;
+  created_by?: string;
+};
+
+type UnitUpdate = {
+  id: string;
+  unit_id?: string;
+  old_status?: string;
+  new_status?: string;
+  notes?: string;
+  created_at: string;
+  unit_code: string;
+  project_name?: string;
+};
+
 type DetailedActivity = {
-  followUps: any[];
-  reservations: any[];
-  sales: any[];
-  clientCreations: any[];
-  unitUpdates: any[];
+  followUps: FollowUp[];
+  reservations: Reservation[];
+  sales: Sale[];
+  clientCreations: ClientCreation[];
+  unitUpdates: UnitUpdate[];
 };
 
 /* =====================
@@ -136,39 +197,17 @@ export default function EmployeeActivityReportPage() {
   }
 
   /* =====================
-     جلب جميع الموظفين - الإصلاح هنا
+     جلب جميع الموظفين
   ===================== */
   async function fetchAllEmployees() {
     try {
       setDebugInfo(prev => prev + '\n🔄 جلب قائمة الموظفين...');
       
-      // أولاً: فحص هيكل جدول employees
-      const { data: tableInfo, error: infoError } = await supabase
-        .from('employees')
-        .select('*')
-        .limit(1);
-
-      if (infoError) {
-        setDebugInfo(prev => prev + `\n❌ خطأ في الوصول لجدول employees: ${infoError.message}`);
-        setAllEmployees([]);
-        return;
-      }
-
-      // بناء الاستعلام ديناميكياً بناءً على الأعمدة الموجودة
-      let selectColumns = 'id, name, email, role';
-      
-      // التحقق من وجود الأعمدة الاختيارية
-      if (tableInfo && tableInfo.length > 0) {
-        const sampleRow = tableInfo[0];
-        if ('phone' in sampleRow) selectColumns += ', phone';
-        if ('department' in sampleRow) selectColumns += ', department';
-      }
-
-      // جلب الموظفين - استخدام let بدلاً من const
+      // جلب الموظفين
       let fetchedData: any[] = [];
       const { data, error } = await supabase
         .from('employees')
-        .select(selectColumns)
+        .select('id, name, email, role, phone, department')
         .order('name');
 
       if (error) {
@@ -292,7 +331,7 @@ export default function EmployeeActivityReportPage() {
       const allActivities: EmployeeActivity[] = [];
       
       // المتابعات
-      followUps.forEach(f => {
+      followUps.forEach((f: FollowUp) => {
         allActivities.push({
           id: f.id,
           type: 'client_followup',
@@ -308,7 +347,7 @@ export default function EmployeeActivityReportPage() {
       });
 
       // الحجوزات
-      reservations.forEach(r => {
+      reservations.forEach((r: Reservation) => {
         allActivities.push({
           id: r.id,
           type: 'reservation',
@@ -327,7 +366,7 @@ export default function EmployeeActivityReportPage() {
       });
 
       // المبيعات
-      sales.forEach(s => {
+      sales.forEach((s: Sale) => {
         allActivities.push({
           id: s.id,
           type: 'sale',
@@ -346,7 +385,7 @@ export default function EmployeeActivityReportPage() {
       });
 
       // إضافة العملاء الجدد
-      clientCreations.forEach(c => {
+      clientCreations.forEach((c: ClientCreation) => {
         allActivities.push({
           id: c.id,
           type: 'client_creation',
@@ -362,12 +401,12 @@ export default function EmployeeActivityReportPage() {
       });
 
       // تحديثات الوحدات
-      unitUpdates.forEach(u => {
+      unitUpdates.forEach((u: UnitUpdate) => {
         allActivities.push({
           id: u.id,
           type: 'unit_update',
           action: 'تحديث حالة وحدة',
-          details: `تحديث حالة الوحدة ${u.unit_code} من ${u.old_status} إلى ${u.new_status}`,
+          details: `تحديث حالة الوحدة ${u.unit_code} من ${u.old_status || 'غير معروف'} إلى ${u.new_status || 'غير معروف'}`,
           unit_code: u.unit_code,
           project_name: u.project_name,
           timestamp: u.created_at,
@@ -401,7 +440,7 @@ export default function EmployeeActivityReportPage() {
   /* =====================
      Fetch Functions - مع معالجة أفضل للأخطاء
   ===================== */
-  async function fetchFollowUps(employeeId: string, startDate: string, endDate: string) {
+  async function fetchFollowUps(employeeId: string, startDate: string, endDate: string): Promise<FollowUp[]> {
     try {
       // محاولة الاستعلام الأساسي
       const { data, error } = await supabase
@@ -441,7 +480,7 @@ export default function EmployeeActivityReportPage() {
     }
   }
 
-  async function fetchReservations(employeeId: string, startDate: string, endDate: string) {
+  async function fetchReservations(employeeId: string, startDate: string, endDate: string): Promise<Reservation[]> {
     try {
       const { data, error } = await supabase
         .from('reservations')
@@ -485,7 +524,7 @@ export default function EmployeeActivityReportPage() {
     }
   }
 
-  async function fetchSales(employeeId: string, startDate: string, endDate: string) {
+  async function fetchSales(employeeId: string, startDate: string, endDate: string): Promise<Sale[]> {
     try {
       const { data, error } = await supabase
         .from('sales')
@@ -531,7 +570,7 @@ export default function EmployeeActivityReportPage() {
     }
   }
 
-  async function fetchClientCreations(employeeId: string, startDate: string, endDate: string) {
+  async function fetchClientCreations(employeeId: string, startDate: string, endDate: string): Promise<ClientCreation[]> {
     try {
       // محاولة جلب العملاء مع created_by
       const { data, error } = await supabase
@@ -558,10 +597,10 @@ export default function EmployeeActivityReportPage() {
     }
   }
 
-  async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string) {
+  async function fetchUnitUpdates(employeeId: string, startDate: string, endDate: string): Promise<UnitUpdate[]> {
     try {
       // محاولة جلب من جدول audit_logs أو logs
-      let queryResult;
+      let queryResult: any[] = [];
       const { data, error } = await supabase
         .from('audit_logs')
         .select('*')
@@ -582,12 +621,12 @@ export default function EmployeeActivityReportPage() {
           return [];
         }
 
-        queryResult = logsData;
+        queryResult = logsData || [];
       } else {
-        queryResult = data;
+        queryResult = data || [];
       }
 
-      return (queryResult || []).filter((log: any) => 
+      return queryResult.filter((log: any) => 
         log.action?.includes('unit') || 
         log.entity_type === 'unit' ||
         log.description?.includes('وحدة') ||
@@ -1182,9 +1221,176 @@ export default function EmployeeActivityReportPage() {
               />
             </div>
 
-            {/* باقي الكود (Activities Table, Detailed View, Performance Insights) */}
-            {/* ... إبقاء نفس الكود من النسخة السابقة ... */}
-            
+            {/* Activities Table */}
+            <Card title="تفاصيل الأنشطة" style={{ marginBottom: '20px' }}>
+              {filteredActivities.length > 0 ? (
+                <Table
+                  columns={[
+                    { key: 'action', header: 'النشاط', width: '150px' },
+                    { key: 'details', header: 'التفاصيل', width: '300px' },
+                    { key: 'client_name', header: 'العميل', width: '150px' },
+                    { key: 'timestamp', header: 'الوقت', width: '150px' },
+                    { key: 'duration', header: 'المدة (دقيقة)', width: '120px' },
+                    { key: 'status', header: 'الحالة', width: '120px' }
+                  ]}
+                  data={filteredActivities.map(a => ({
+                    ...a,
+                    timestamp: new Date(a.timestamp).toLocaleString('ar-SA', {
+                      dateStyle: 'short',
+                      timeStyle: 'short'
+                    }),
+                    duration: `${a.duration || 0}`
+                  }))}
+                  onRowClick={(row) => {
+                    // يمكن إضافة تفاصيل إضافية هنا
+                    alert(`تفاصيل النشاط:\n${row.details}\n\nملاحظات: ${row.notes || 'لا توجد'}`);
+                  }}
+                />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                  لا توجد أنشطة تطابق معايير البحث
+                </div>
+              )}
+            </Card>
+
+            {/* Detailed View */}
+            {showDetails && detailedData && (
+              <Card title="التفاصيل الكاملة" style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {detailedData.followUps.length > 0 && (
+                    <div>
+                      <h3 style={{ marginBottom: '10px', color: '#fbbc04' }}>المتابعات ({detailedData.followUps.length})</h3>
+                      <Table
+                        columns={[
+                          { key: 'client_name', header: 'العميل', width: '150px' },
+                          { key: 'type', header: 'النوع', width: '100px' },
+                          { key: 'notes', header: 'ملاحظات', width: '200px' },
+                          { key: 'created_at', header: 'الوقت', width: '150px' },
+                          { key: 'duration', header: 'المدة', width: '80px' }
+                        ]}
+                        data={detailedData.followUps.map(f => ({
+                          ...f,
+                          created_at: new Date(f.created_at).toLocaleString('ar-SA'),
+                          duration: `${f.duration || 0} دقيقة`
+                        }))}
+                      />
+                    </div>
+                  )}
+
+                  {detailedData.reservations.length > 0 && (
+                    <div>
+                      <h3 style={{ marginBottom: '10px', color: '#34a853' }}>الحجوزات ({detailedData.reservations.length})</h3>
+                      <Table
+                        columns={[
+                          { key: 'client_name', header: 'العميل', width: '150px' },
+                          { key: 'unit_code', header: 'كود الوحدة', width: '120px' },
+                          { key: 'project_name', header: 'المشروع', width: '150px' },
+                          { key: 'status', header: 'الحالة', width: '100px' },
+                          { key: 'reservation_date', header: 'تاريخ الحجز', width: '120px' }
+                        ]}
+                        data={detailedData.reservations.map(r => ({
+                          ...r,
+                          reservation_date: new Date(r.reservation_date).toLocaleDateString('ar-SA')
+                        }))}
+                      />
+                    </div>
+                  )}
+
+                  {detailedData.sales.length > 0 && (
+                    <div>
+                      <h3 style={{ marginBottom: '10px', color: '#0d8a3e' }}>المبيعات ({detailedData.sales.length})</h3>
+                      <Table
+                        columns={[
+                          { key: 'client_name', header: 'العميل', width: '150px' },
+                          { key: 'unit_code', header: 'كود الوحدة', width: '120px' },
+                          { key: 'price_before_tax', header: 'القيمة', width: '120px' },
+                          { key: 'contract_type', header: 'نوع العقد', width: '120px' },
+                          { key: 'sale_date', header: 'تاريخ البيع', width: '120px' }
+                        ]}
+                        data={detailedData.sales.map(s => ({
+                          ...s,
+                          price_before_tax: s.price_before_tax ? `${s.price_before_tax.toLocaleString()} د.ك` : '-',
+                          sale_date: new Date(s.sale_date).toLocaleDateString('ar-SA')
+                        }))}
+                      />
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Performance Insights */}
+            <Card title="تحليل الأداء">
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                gap: '20px',
+                padding: '15px'
+              }}>
+                <div>
+                  <h4 style={{ marginBottom: '10px', color: '#1a73e8' }}>توزيع الأنشطة على مدار اليوم</h4>
+                  {timeSlots.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {timeSlots.map(slot => (
+                        <div key={slot.hour} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ width: '120px', fontSize: '13px' }}>{slot.hour}</div>
+                          <div style={{ flex: 1, height: '20px', backgroundColor: '#e9ecef', borderRadius: '4px', overflow: 'hidden' }}>
+                            <div 
+                              style={{ 
+                                height: '100%', 
+                                backgroundColor: '#1a73e8',
+                                width: `${Math.min((slot.count / Math.max(...timeSlots.map(s => s.count))) * 100, 100)}%`,
+                                borderRadius: '4px'
+                              }}
+                            />
+                          </div>
+                          <div style={{ width: '30px', textAlign: 'right', fontSize: '13px', fontWeight: 'bold' }}>
+                            {slot.count}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#666', textAlign: 'center', padding: '20px' }}>
+                      لا توجد بيانات كافية للتحليل
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 style={{ marginBottom: '10px', color: '#8e44ad' }}>ملاحظات التحليل</h4>
+                  <div style={{ 
+                    backgroundColor: '#f8f9fa', 
+                    padding: '15px', 
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}>
+                    {summary.efficiencyScore >= 80 ? (
+                      <div>
+                        <div style={{ color: '#0d8a3e', marginBottom: '5px', fontWeight: 'bold' }}>🔥 أداء ممتاز!</div>
+                        <div>الموظف يحقق نتائج متميزة مع معدل تحويل عالي وكفاءة جيدة في إدارة الوقت.</div>
+                      </div>
+                    ) : summary.efficiencyScore >= 60 ? (
+                      <div>
+                        <div style={{ color: '#fbbc04', marginBottom: '5px', fontWeight: 'bold' }}>👍 أداء جيد</div>
+                        <div>الأداء مقبول، يمكن تحسين معدل التحويل من خلال التركيز على متابعة العملاء المؤهلين.</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ color: '#ea4335', marginBottom: '5px', fontWeight: 'bold' }}>⚠️ يحتاج تحسين</div>
+                        <div>عدد الأنشطة منخفض أو معدل التحويل يحتاج تحسين. يوصى بتدريب إضافي.</div>
+                      </div>
+                    )}
+                    
+                    <div style={{ marginTop: '15px', borderTop: '1px solid #eee', paddingTop: '10px' }}>
+                      <div><strong>ساعة الذروة:</strong> {summary.peakHour}</div>
+                      <div><strong>أكثر الأنشطة تكراراً:</strong> {summary.busiestActivity}</div>
+                      <div><strong>متوسط وقت النشاط:</strong> {summary.avgActivityDuration} دقيقة</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
           </>
         )}
 

@@ -30,8 +30,10 @@ type Reservation = {
   units: {
     unit_code: string;
     unit_type: string | null;
-    projects: {
+    project_id: string;
+    projects?: {
       name: string;
+      id?: string;
     } | null;
   } | null;
   employees: {
@@ -172,22 +174,41 @@ export default function ReservationsPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // أولاً: جلب الحجوزات مع البيانات الأساسية
+      const { data: reservationsData, error: reservationsError } = await supabase
         .from('reservations')
         .select(`
           *,
           clients (name, mobile, status),
-          units (unit_code, unit_type, projects (name)),
+          units (unit_code, unit_type, project_id),
           employees (name, role)
         `)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (reservationsError) throw reservationsError;
 
-      setReservations(data || []);
+      // ثانياً: جلب معلومات المشاريع لكل وحدة
+      const reservationsWithProjects = await Promise.all(
+        (reservationsData || []).map(async (reservation) => {
+          if (reservation.units?.project_id) {
+            const { data: projectData } = await supabase
+              .from('projects')
+              .select('name')
+              .eq('id', reservation.units.project_id)
+              .single();
+
+            if (projectData) {
+              reservation.units.projects = projectData;
+            }
+          }
+          return reservation;
+        })
+      );
+
+      setReservations(reservationsWithProjects);
 
       // حساب الإحصائيات
-      calculateStats(data || []);
+      calculateStats(reservationsWithProjects);
     } catch (error) {
       console.error('Error fetching reservations:', error);
     } finally {
@@ -219,10 +240,10 @@ export default function ReservationsPage() {
       filtered = filtered.filter(r => r.employee_id === filters.employee);
     }
 
-    // فلترة بالمشروع
+    // فلترة بالمشروع - تصحيح هنا
     if (filters.project !== 'all') {
       filtered = filtered.filter(r => 
-        r.units?.projects?.id === filters.project
+        r.units?.project_id === filters.project
       );
     }
 
@@ -330,6 +351,11 @@ export default function ReservationsPage() {
       month: 'short',
       day: 'numeric'
     });
+  }
+
+  function getProjectName(projectId: string) {
+    const project = projects.find(p => p.id === projectId);
+    return project ? project.name : 'غير محدد';
   }
 
   if (loading) {
@@ -900,7 +926,9 @@ export default function ReservationsPage() {
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>
-                        {reservation.units?.projects?.name || 'غير محدد'}
+                        {reservation.units?.project_id ? 
+                          getProjectName(reservation.units.project_id) : 
+                          'غير محدد'}
                       </div>
                     </td>
                     
@@ -961,6 +989,7 @@ export default function ReservationsPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              // هنا يمكنك إضافة وظيفة التعديل
                               router.push(`/dashboard/reservations/edit/${reservation.id}`);
                             }}
                             style={{

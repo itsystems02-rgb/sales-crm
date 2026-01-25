@@ -8,10 +8,11 @@ const LINKS = [
  { href: '/dashboard/projects', label: 'المشاريع', icon: '🏗️' },
   { href: '/dashboard/units', label: 'الوحدات', icon: '🏠' },
   { href: '/dashboard/clients', label: 'العملاء', icon: '👥' },
-   { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
+  { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
+   { href: '/dashboard/reservation', label: 'الحجوزات', icon: '' },
   { href: '/api/employees', label: 'الموظفين', icon: '🧑‍💼' },
 { href: '/dashboard/Report', label: 'التقارير', icon: '📌' },
-{ href: '/dashboard/ReportEmployees', label: 'التقارير', icon: '📌' },
+{ href: '/dashboard/ReportEmployees', label: ' تقارير الموظفين', icon: '' },
 ];
 
 export default function Sidebar() {

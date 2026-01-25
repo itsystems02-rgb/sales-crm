@@ -1,3 +1,4 @@
+// app/dashboard/reservation/page.tsx
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -7,7 +8,6 @@ import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import StatusBadge from '@/components/ui/StatusBadge';
 
 /* =====================
    Types
@@ -52,16 +52,45 @@ type FilterState = {
   sortOrder: 'asc' | 'desc';
 };
 
-type EmployeeOption = {
-  id: string;
-  name: string;
-  role: string;
-};
+/* =====================
+   Custom StatusBadge Component (Temporary)
+===================== */
 
-type ProjectOption = {
-  id: string;
-  name: string;
-};
+function StatusBadge({ 
+  children, 
+  status = 'default' 
+}: { 
+  children: React.ReactNode;
+  status?: 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'default';
+}) {
+  const colors = {
+    success: { bg: '#d4edda', color: '#155724', border: '#c3e6cb' },
+    warning: { bg: '#fff3cd', color: '#856404', border: '#ffeaa7' },
+    danger: { bg: '#f8d7da', color: '#721c24', border: '#f5c6cb' },
+    info: { bg: '#d1ecf1', color: '#0c5460', border: '#bee5eb' },
+    primary: { bg: '#cce5ff', color: '#004085', border: '#b8daff' },
+    default: { bg: '#e2e3e5', color: '#383d41', border: '#d6d8db' }
+  };
+
+  const color = colors[status];
+
+  return (
+    <span
+      style={{
+        backgroundColor: color.bg,
+        color: color.color,
+        border: `1px solid ${color.border}`,
+        padding: '4px 10px',
+        borderRadius: '20px',
+        fontSize: '12px',
+        fontWeight: '600',
+        display: 'inline-block'
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 /* =====================
    Page
@@ -75,8 +104,8 @@ export default function ReservationsPage() {
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
-  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [employees, setEmployees] = useState<{id: string, name: string, role: string}[]>([]);
+  const [projects, setProjects] = useState<{id: string, name: string}[]>([]);
   
   const [filters, setFilters] = useState<FilterState>({
     status: 'all',
@@ -932,7 +961,6 @@ export default function ReservationsPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // هنا يمكنك إضافة وظيفة التعديل
                               router.push(`/dashboard/reservations/edit/${reservation.id}`);
                             }}
                             style={{

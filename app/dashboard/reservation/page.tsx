@@ -31,10 +31,7 @@ type Reservation = {
     unit_code: string;
     unit_type: string | null;
     project_id: string;
-    projects?: {
-      name: string;
-      id?: string;
-    } | null;
+    project_name?: string;
   } | null;
   employees: {
     name: string;
@@ -130,6 +127,8 @@ export default function ReservationsPage() {
     completed: 0
   });
 
+  const [debugInfo, setDebugInfo] = useState<string>('');
+
   useEffect(() => {
     fetchCurrentUser();
     fetchData();
@@ -173,44 +172,98 @@ export default function ReservationsPage() {
 
   async function fetchData() {
     setLoading(true);
+    setDebugInfo('جاري تحميل البيانات...');
+    
     try {
-      // أولاً: جلب الحجوزات مع البيانات الأساسية
+      // 1. جلب الحجوزات الأساسية
       const { data: reservationsData, error: reservationsError } = await supabase
         .from('reservations')
-        .select(`
-          *,
-          clients (name, mobile, status),
-          units (unit_code, unit_type, project_id),
-          employees (name, role)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (reservationsError) throw reservationsError;
+      if (reservationsError) {
+        console.error('Error fetching reservations:', reservationsError);
+        setDebugInfo(`خطأ في جلب الحجوزات: ${reservationsError.message}`);
+        throw reservationsError;
+      }
 
-      // ثانياً: جلب معلومات المشاريع لكل وحدة
-      const reservationsWithProjects = await Promise.all(
-        (reservationsData || []).map(async (reservation) => {
-          if (reservation.units?.project_id) {
-            const { data: projectData } = await supabase
-              .from('projects')
-              .select('name')
-              .eq('id', reservation.units.project_id)
+      console.log('Reservations fetched:', reservationsData?.length || 0, 'records');
+      setDebugInfo(`تم جلب ${reservationsData?.length || 0} حجز`);
+
+      if (!reservationsData || reservationsData.length === 0) {
+        setReservations([]);
+        calculateStats([]);
+        setLoading(false);
+        return;
+      }
+
+      // 2. جلب التفاصيل لكل حجز
+      const reservationsWithDetails = await Promise.all(
+        reservationsData.map(async (reservation) => {
+          const reservationWithDetails: any = { ...reservation };
+          
+          // جلب بيانات العميل
+          if (reservation.client_id) {
+            const { data: clientData } = await supabase
+              .from('clients')
+              .select('name, mobile, status')
+              .eq('id', reservation.client_id)
               .single();
-
-            if (projectData) {
-              reservation.units.projects = projectData;
+            
+            reservationWithDetails.clients = clientData || null;
+          }
+          
+          // جلب بيانات الوحدة
+          if (reservation.unit_id) {
+            const { data: unitData } = await supabase
+              .from('units')
+              .select('unit_code, unit_type, project_id')
+              .eq('id', reservation.unit_id)
+              .single();
+            
+            if (unitData) {
+              reservationWithDetails.units = {
+                unit_code: unitData.unit_code,
+                unit_type: unitData.unit_type,
+                project_id: unitData.project_id
+              };
+              
+              // جلب اسم المشروع
+              if (unitData.project_id) {
+                const { data: projectData } = await supabase
+                  .from('projects')
+                  .select('name')
+                  .eq('id', unitData.project_id)
+                  .single();
+                
+                if (projectData) {
+                  reservationWithDetails.units.project_name = projectData.name;
+                }
+              }
             }
           }
-          return reservation;
+          
+          // جلب بيانات الموظف
+          if (reservation.employee_id) {
+            const { data: employeeData } = await supabase
+              .from('employees')
+              .select('name, role')
+              .eq('id', reservation.employee_id)
+              .single();
+            
+            reservationWithDetails.employees = employeeData || null;
+          }
+          
+          return reservationWithDetails;
         })
       );
 
-      setReservations(reservationsWithProjects as Reservation[]);
-
-      // حساب الإحصائيات
-      calculateStats(reservationsWithProjects as Reservation[]);
+      setReservations(reservationsWithDetails as Reservation[]);
+      calculateStats(reservationsWithDetails as Reservation[]);
+      
     } catch (error) {
-      console.error('Error fetching reservations:', error);
+      console.error('Error in fetchData:', error);
+      setDebugInfo(`خطأ: ${error instanceof Error ? error.message : 'حدث خطأ غير معروف'}`);
     } finally {
       setLoading(false);
     }
@@ -219,10 +272,10 @@ export default function ReservationsPage() {
   function calculateStats(data: Reservation[]) {
     const stats = {
       total: data.length,
-      active: data.filter(r => r.status === 'active').length,
-      pending: data.filter(r => r.status === 'pending').length,
-      cancelled: data.filter(r => r.status === 'cancelled').length,
-      completed: data.filter(r => r.status === 'completed').length
+      active: data.filter(r => r.status === 'active' || r.status === 'Active').length,
+      pending: data.filter(r => r.status === 'pending' || r.status === 'Pending').length,
+      cancelled: data.filter(r => r.status === 'cancelled' || r.status === 'Cancelled').length,
+      completed: data.filter(r => r.status === 'completed' || r.status === 'Completed').length
     };
     setStats(stats);
   }
@@ -232,7 +285,9 @@ export default function ReservationsPage() {
 
     // فلترة بالحالة
     if (filters.status !== 'all') {
-      filtered = filtered.filter(r => r.status === filters.status);
+      filtered = filtered.filter(r => 
+        r.status?.toLowerCase() === filters.status.toLowerCase()
+      );
     }
 
     // فلترة بالموظف
@@ -240,7 +295,7 @@ export default function ReservationsPage() {
       filtered = filtered.filter(r => r.employee_id === filters.employee);
     }
 
-    // فلترة بالمشروع - تصحيح هنا
+    // فلترة بالمشروع
     if (filters.project !== 'all') {
       filtered = filtered.filter(r => 
         r.units?.project_id === filters.project
@@ -337,6 +392,7 @@ export default function ReservationsPage() {
       case 'pending':
         return 'warning';
       case 'cancelled':
+      case 'cancelled':
         return 'danger';
       case 'completed':
         return 'primary';
@@ -346,16 +402,24 @@ export default function ReservationsPage() {
   }
 
   function formatDate(dateString: string) {
-    return new Date(dateString).toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('ar-SA', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return 'تاريخ غير صالح';
+    }
   }
 
-  function getProjectName(projectId: string) {
-    const project = projects.find(p => p.id === projectId);
-    return project ? project.name : 'غير محدد';
+  function getProjectName(unit: any) {
+    if (unit?.project_name) return unit.project_name;
+    if (unit?.project_id) {
+      const project = projects.find(p => p.id === unit.project_id);
+      return project ? project.name : 'غير محدد';
+    }
+    return 'غير محدد';
   }
 
   if (loading) {
@@ -364,7 +428,9 @@ export default function ReservationsPage() {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: '60vh'
+        minHeight: '60vh',
+        flexDirection: 'column',
+        gap: '20px'
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ 
@@ -376,7 +442,8 @@ export default function ReservationsPage() {
             animation: 'spin 1s linear infinite',
             margin: '0 auto 20px'
           }}></div>
-          <div style={{ color: '#666' }}>جاري تحميل الحجوزات...</div>
+          <div style={{ color: '#666', marginBottom: '10px' }}>جاري تحميل الحجوزات...</div>
+          <div style={{ fontSize: '12px', color: '#999' }}>{debugInfo}</div>
         </div>
         <style jsx>{`
           @keyframes spin {
@@ -411,6 +478,19 @@ export default function ReservationsPage() {
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي الحجوزات: <strong>{reservations.length}</strong> حجز
           </p>
+          {debugInfo && (
+            <div style={{ 
+              marginTop: '5px', 
+              fontSize: '12px', 
+              color: '#666',
+              backgroundColor: '#f8f9fa',
+              padding: '5px 10px',
+              borderRadius: '4px',
+              display: 'inline-block'
+            }}>
+              {debugInfo}
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -432,6 +512,13 @@ export default function ReservationsPage() {
             onClick={() => window.print()}
           >
             🖨️ طباعة التقرير
+          </Button>
+
+          <Button 
+            variant="secondary"
+            onClick={fetchData}
+          >
+            🔄 تحديث البيانات
           </Button>
         </div>
       </div>
@@ -795,21 +882,47 @@ export default function ReservationsPage() {
           }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>📭</div>
             <h3 style={{ marginBottom: '10px', color: '#495057' }}>
-              لا توجد حجوزات
+              {reservations.length === 0 ? 'لا توجد حجوزات' : 'لا توجد حجوزات تطابق معايير البحث'}
             </h3>
             <p style={{ marginBottom: '20px' }}>
-              {filters.status !== 'all' || filters.search 
-                ? 'لم يتم العثور على حجوزات تطابق معايير البحث' 
-                : 'لم يتم إضافة أي حجوزات بعد'}
+              {reservations.length === 0 
+                ? 'لم يتم إضافة أي حجوزات بعد. يمكنك إضافة حجوزات جديدة من الزر أعلاه.' 
+                : 'لم يتم العثور على حجوزات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
-            {(filters.status !== 'all' || filters.search) && (
+            {reservations.length === 0 ? (
+              <Button 
+                onClick={() => router.push('/dashboard/reservations/new')}
+              >
+                ➕ إضافة حجز جديد
+              </Button>
+            ) : (
               <Button 
                 variant="secondary"
                 onClick={resetFilters}
               >
-                عرض جميع الحجوزات
+                🔄 عرض جميع الحجوزات
               </Button>
             )}
+            
+            {/* زر لفحص البيانات */}
+            <div style={{ marginTop: '20px', fontSize: '12px', color: '#999' }}>
+              <button
+                onClick={() => {
+                  console.log('Reservations data:', reservations);
+                  alert(`تم فحص البيانات:\nعدد الحجوزات: ${reservations.length}\nافتح وحدة تحكم المطورين (F12) لعرض التفاصيل.`);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  color: '#495057'
+                }}
+              >
+                🔍 فحص بيانات الحجوزات
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -927,9 +1040,7 @@ export default function ReservationsPage() {
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>
-                        {reservation.units?.project_id ? 
-                          getProjectName(reservation.units.project_id) : 
-                          'غير محدد'}
+                        {getProjectName(reservation.units)}
                       </div>
                     </td>
                     

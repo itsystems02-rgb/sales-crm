@@ -1,33 +1,13 @@
+// app/dashboard/sales/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-
 /* =====================
    Types
 ===================== */
-
-type ClientRef = { 
-  name: string;
-  mobile: string;
-  status: string;
-};
-
-type UnitRef = { 
-  unit_code: string;
-  unit_type: string | null;
-  project_id: string;
-  project_name?: string;
-};
-
-type EmployeeRef = { 
-  name: string;
-  role: string;
-};
 
 type Sale = {
   id: string;
@@ -39,26 +19,9 @@ type Sale = {
   status: string;
   notes: string | null;
   created_at: string;
-  
   client_id: string;
   unit_id: string;
   sales_employee_id: string | null;
-  
-  client: ClientRef | null;
-  unit: UnitRef | null;
-  employee: EmployeeRef | null;
-};
-
-type FilterState = {
-  status: string;
-  employee: string;
-  financeType: string;
-  paymentMethod: string;
-  dateFrom: string;
-  dateTo: string;
-  search: string;
-  sortBy: 'created_at' | 'sale_date' | 'client_name' | 'price';
-  sortOrder: 'asc' | 'desc';
 };
 
 /* =====================
@@ -111,20 +74,17 @@ export default function SalesPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [filteredSales, setFilteredSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  const [employees, setEmployees] = useState<{id: string, name: string, role: string}[]>([]);
-  const [projects, setProjects] = useState<{id: string, name: string}[]>([]);
+  const [clients, setClients] = useState<Record<string, {name: string, mobile: string}>>({});
+  const [units, setUnits] = useState<Record<string, {unit_code: string, unit_type: string | null}>>({});
+  const [employees, setEmployees] = useState<Record<string, {name: string, role: string}>>({});
   
-  const [filters, setFilters] = useState<FilterState>({
+  const [filters, setFilters] = useState({
     status: 'all',
-    employee: 'all',
-    financeType: 'all',
-    paymentMethod: 'all',
-    dateFrom: '',
-    dateTo: '',
     search: '',
     sortBy: 'created_at',
-    sortOrder: 'desc'
+    sortOrder: 'desc' as 'asc' | 'desc'
   });
 
   const [showFilters, setShowFilters] = useState(false);
@@ -138,39 +98,19 @@ export default function SalesPage() {
 
   useEffect(() => {
     fetchData();
-    fetchFilterOptions();
   }, []);
 
   useEffect(() => {
     applyFilters();
   }, [sales, filters]);
 
-  async function fetchFilterOptions() {
-    try {
-      // جلب الموظفين
-      const { data: employeesData } = await supabase
-        .from('employees')
-        .select('id, name, role')
-        .order('name');
-      
-      setEmployees(employeesData || []);
-
-      // جلب المشاريع
-      const { data: projectsData } = await supabase
-        .from('projects')
-        .select('id, name')
-        .order('name');
-      
-      setProjects(projectsData || []);
-    } catch (error) {
-      console.error('Error fetching filter options:', error);
-    }
-  }
-
   async function fetchData() {
     setLoading(true);
+    setError(null);
     
     try {
+      console.log('🔍 جلب بيانات التنفيذات...');
+      
       // 1. جلب المبيعات الأساسية
       const { data: salesData, error: salesError } = await supabase
         .from('sales')
@@ -178,11 +118,12 @@ export default function SalesPage() {
         .order('created_at', { ascending: false });
 
       if (salesError) {
-        console.error('Error fetching sales:', salesError);
-        throw salesError;
+        console.error('❌ خطأ في جلب المبيعات:', salesError);
+        setError(`خطأ في قاعدة البيانات: ${salesError.message}`);
+        return;
       }
 
-      console.log('Sales fetched:', salesData?.length || 0, 'records');
+      console.log(`✅ تم جلب ${salesData?.length || 0} عملية بيع`);
 
       if (!salesData || salesData.length === 0) {
         setSales([]);
@@ -191,74 +132,77 @@ export default function SalesPage() {
         return;
       }
 
-      // 2. جلب التفاصيل لكل عملية بيع
-      const salesWithDetails = await Promise.all(
-        salesData.map(async (sale) => {
-          const saleWithDetails: any = { ...sale };
-          
-          // جلب بيانات العميل
-          if (sale.client_id) {
-            const { data: clientData } = await supabase
-              .from('clients')
-              .select('name, mobile, status')
-              .eq('id', sale.client_id)
-              .single();
-            
-            saleWithDetails.client = clientData || null;
-          }
-          
-          // جلب بيانات الوحدة
-          if (sale.unit_id) {
-            const { data: unitData } = await supabase
-              .from('units')
-              .select('unit_code, unit_type, project_id')
-              .eq('id', sale.unit_id)
-              .single();
-            
-            if (unitData) {
-              saleWithDetails.unit = {
-                unit_code: unitData.unit_code,
-                unit_type: unitData.unit_type,
-                project_id: unitData.project_id
-              };
-              
-              // جلب اسم المشروع
-              if (unitData.project_id) {
-                const { data: projectData } = await supabase
-                  .from('projects')
-                  .select('name')
-                  .eq('id', unitData.project_id)
-                  .single();
-                
-                if (projectData) {
-                  saleWithDetails.unit.project_name = projectData.name;
-                }
-              }
-            }
-          }
-          
-          // جلب بيانات الموظف
-          if (sale.sales_employee_id) {
-            const { data: employeeData } = await supabase
-              .from('employees')
-              .select('name, role')
-              .eq('id', sale.sales_employee_id)
-              .single();
-            
-            saleWithDetails.employee = employeeData || null;
-          }
-          
-          return saleWithDetails;
-        })
-      );
+      setSales(salesData);
 
-      setSales(salesWithDetails as Sale[]);
-      calculateStats(salesWithDetails as Sale[]);
+      // 2. جلب البيانات المرتبطة
+      await fetchRelatedData(salesData);
       
-    } catch (error) {
-      console.error('Error in fetchData:', error);
+      // 3. حساب الإحصائيات
+      calculateStats(salesData);
+      
+    } catch (err) {
+      console.error('❌ حدث خطأ غير متوقع:', err);
+      setError(`حدث خطأ: ${err instanceof Error ? err.message : 'غير معروف'}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchRelatedData(salesData: Sale[]) {
+    try {
+      // جلب جميع العملاء
+      const clientIds = [...new Set(salesData.map(s => s.client_id).filter(Boolean))];
+      if (clientIds.length > 0) {
+        const { data: clientsData } = await supabase
+          .from('clients')
+          .select('id, name, mobile')
+          .in('id', clientIds);
+        
+        if (clientsData) {
+          const clientsMap: Record<string, {name: string, mobile: string}> = {};
+          clientsData.forEach(client => {
+            clientsMap[client.id] = { name: client.name, mobile: client.mobile };
+          });
+          setClients(clientsMap);
+        }
+      }
+
+      // جلب جميع الوحدات
+      const unitIds = [...new Set(salesData.map(s => s.unit_id).filter(Boolean))];
+      if (unitIds.length > 0) {
+        const { data: unitsData } = await supabase
+          .from('units')
+          .select('id, unit_code, unit_type')
+          .in('id', unitIds);
+        
+        if (unitsData) {
+          const unitsMap: Record<string, {unit_code: string, unit_type: string | null}> = {};
+          unitsData.forEach(unit => {
+            unitsMap[unit.id] = { unit_code: unit.unit_code, unit_type: unit.unit_type };
+          });
+          setUnits(unitsMap);
+        }
+      }
+
+      // جلب جميع الموظفين
+      const employeeIds = [...new Set(salesData.map(s => s.sales_employee_id).filter(Boolean))];
+      if (employeeIds.length > 0) {
+        const { data: employeesData } = await supabase
+          .from('employees')
+          .select('id, name, role')
+          .in('id', employeeIds);
+        
+        if (employeesData) {
+          const employeesMap: Record<string, {name: string, role: string}> = {};
+          employeesData.forEach(emp => {
+            employeesMap[emp.id] = { name: emp.name, role: emp.role };
+          });
+          setEmployees(employeesMap);
+        }
+      }
+
+    } catch (err) {
+      console.error('❌ خطأ في جلب البيانات المرتبطة:', err);
     }
   }
 
@@ -287,50 +231,20 @@ export default function SalesPage() {
       );
     }
 
-    // فلترة بالموظف
-    if (filters.employee !== 'all') {
-      filtered = filtered.filter(s => s.sales_employee_id === filters.employee);
-    }
-
-    // فلترة بنوع التمويل
-    if (filters.financeType !== 'all') {
-      filtered = filtered.filter(s => 
-        s.finance_type?.toLowerCase() === filters.financeType.toLowerCase()
-      );
-    }
-
-    // فلترة بطريقة الدفع
-    if (filters.paymentMethod !== 'all') {
-      filtered = filtered.filter(s => 
-        s.payment_method?.toLowerCase() === filters.paymentMethod.toLowerCase()
-      );
-    }
-
-    // فلترة بتاريخ
-    if (filters.dateFrom) {
-      const fromDate = new Date(filters.dateFrom);
-      filtered = filtered.filter(s => 
-        s.sale_date && new Date(s.sale_date) >= fromDate
-      );
-    }
-
-    if (filters.dateTo) {
-      const toDate = new Date(filters.dateTo);
-      toDate.setHours(23, 59, 59, 999);
-      filtered = filtered.filter(s => 
-        s.sale_date && new Date(s.sale_date) <= toDate
-      );
-    }
-
     // فلترة بالبحث
     if (filters.search) {
       const searchTerm = filters.search.toLowerCase();
-      filtered = filtered.filter(s => 
-        s.client?.name?.toLowerCase().includes(searchTerm) ||
-        s.client?.mobile?.includes(searchTerm) ||
-        s.unit?.unit_code?.toLowerCase().includes(searchTerm) ||
-        s.id.toLowerCase().includes(searchTerm)
-      );
+      filtered = filtered.filter(s => {
+        const client = clients[s.client_id];
+        const unit = units[s.unit_id];
+        
+        return (
+          (client?.name?.toLowerCase().includes(searchTerm)) ||
+          (client?.mobile?.includes(searchTerm)) ||
+          (unit?.unit_code?.toLowerCase().includes(searchTerm)) ||
+          s.id.toLowerCase().includes(searchTerm)
+        );
+      });
     }
 
     // الترتيب
@@ -338,10 +252,6 @@ export default function SalesPage() {
       let aValue: any, bValue: any;
       
       switch (filters.sortBy) {
-        case 'client_name':
-          aValue = a.client?.name || '';
-          bValue = b.client?.name || '';
-          break;
         case 'sale_date':
           aValue = a.sale_date ? new Date(a.sale_date) : new Date(0);
           bValue = b.sale_date ? new Date(b.sale_date) : new Date(0);
@@ -365,7 +275,7 @@ export default function SalesPage() {
     setFilteredSales(filtered);
   }
 
-  function handleFilterChange(key: keyof FilterState, value: string) {
+  function handleFilterChange(key: string, value: string) {
     setFilters(prev => ({
       ...prev,
       [key]: value
@@ -375,11 +285,6 @@ export default function SalesPage() {
   function resetFilters() {
     setFilters({
       status: 'all',
-      employee: 'all',
-      financeType: 'all',
-      paymentMethod: 'all',
-      dateFrom: '',
-      dateTo: '',
       search: '',
       sortBy: 'created_at',
       sortOrder: 'desc'
@@ -415,40 +320,58 @@ export default function SalesPage() {
   }
 
   function formatCurrency(amount: number | null) {
-    if (amount === null) return '-';
+    if (amount === null || amount === 0) return '-';
     return amount.toLocaleString('ar-SA') + ' ريال';
   }
 
-  function getProjectName(unit: UnitRef | null) {
-    if (!unit) return 'غير محدد';
-    if (unit.project_name) return unit.project_name;
-    if (unit.project_id) {
-      const project = projects.find(p => p.id === unit.project_id);
-      return project ? project.name : 'غير محدد';
-    }
-    return 'غير محدد';
+  function getClientName(clientId: string) {
+    return clients[clientId]?.name || 'غير محدد';
+  }
+
+  function getClientMobile(clientId: string) {
+    return clients[clientId]?.mobile || 'غير متوفر';
+  }
+
+  function getUnitCode(unitId: string) {
+    return units[unitId]?.unit_code || 'غير محدد';
+  }
+
+  function getUnitType(unitId: string) {
+    return units[unitId]?.unit_type || 'غير محدد';
+  }
+
+  function getEmployeeName(employeeId: string | null) {
+    if (!employeeId) return 'غير محدد';
+    return employees[employeeId]?.name || 'غير محدد';
+  }
+
+  function getEmployeeRole(employeeId: string | null) {
+    if (!employeeId) return '';
+    return employees[employeeId]?.role === 'admin' ? 'مدير' : 'مندوب مبيعات';
   }
 
   if (loading) {
     return (
-      <div className="page" style={{
+      <div style={{
+        padding: '40px',
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: '60vh'
+        minHeight: '60vh',
+        flexDirection: 'column',
+        textAlign: 'center'
       }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ 
-            width: '50px', 
-            height: '50px', 
-            border: '4px solid #f3f3f3',
-            borderTop: '4px solid #3498db',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite',
-            margin: '0 auto 20px'
-          }}></div>
-          <div style={{ color: '#666' }}>جاري تحميل التنفيذات...</div>
-        </div>
+        <div style={{ 
+          width: '50px', 
+          height: '50px', 
+          border: '4px solid #f3f3f3',
+          borderTop: '4px solid #3498db',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          marginBottom: '20px'
+        }}></div>
+        <h2 style={{ color: '#2c3e50', marginBottom: '10px' }}>جاري تحميل التنفيذات...</h2>
+        <p style={{ color: '#666' }}>يرجى الانتظار أثناء جلب البيانات</p>
         <style jsx>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -459,8 +382,47 @@ export default function SalesPage() {
     );
   }
 
+  if (error) {
+    return (
+      <div style={{ 
+        padding: '40px',
+        maxWidth: '600px',
+        margin: '0 auto'
+      }}>
+        <div style={{ 
+          backgroundColor: '#f8d7da',
+          color: '#721c24',
+          padding: '20px',
+          borderRadius: '8px',
+          marginBottom: '20px'
+        }}>
+          <h2 style={{ marginTop: 0 }}>⚠️ حدث خطأ</h2>
+          <p>{error}</p>
+          <p style={{ fontSize: '14px', marginTop: '10px' }}>
+            تحقق من اتصال قاعدة البيانات وتأكد من صحة الإعدادات.
+          </p>
+        </div>
+        
+        <button
+          onClick={fetchData}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: '#dc3545',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '16px'
+          }}
+        >
+          🔄 حاول مرة أخرى
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="page">
+    <div style={{ padding: '20px' }}>
       
       {/* ===== HEADER ===== */}
       <div style={{ 
@@ -485,32 +447,56 @@ export default function SalesPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <Button 
-            variant="secondary"
+          <button
             onClick={() => setShowFilters(!showFilters)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#6c757d',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
           >
             {showFilters ? '✖ إخفاء الفلاتر' : '🔍 عرض الفلاتر'}
-          </Button>
+          </button>
           
-          <Button 
+          <button
             onClick={() => router.push('/dashboard/sales/new')}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
           >
             ➕ تنفيذ جديد
-          </Button>
+          </button>
 
-          <Button 
-            variant="secondary"
-            onClick={() => window.print()}
-          >
-            🖨️ طباعة التقرير
-          </Button>
-
-          <Button 
-            variant="secondary"
+          <button
             onClick={fetchData}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#28a745',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
           >
             🔄 تحديث البيانات
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -556,277 +542,158 @@ export default function SalesPage() {
 
       {/* ===== FILTERS PANEL ===== */}
       {showFilters && (
-        <div style={{ marginBottom: '30px' }}>
-          <Card 
-            title="🔍 فلاتر البحث"
-          >
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '20px',
-              padding: '20px'
-            }}>
-              {/* حقل البحث */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  بحث سريع
-                </label>
-                <input
-                  type="text"
-                  value={filters.search}
-                  onChange={(e) => handleFilterChange('search', e.target.value)}
-                  placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    transition: 'all 0.3s ease'
-                  }}
-                />
-              </div>
-
-              {/* فلترة بالحالة */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  حالة التنفيذ
-                </label>
-                <select
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="all">جميع الحالات</option>
-                  <option value="completed">مكتملة</option>
-                  <option value="pending">قيد الانتظار</option>
-                  <option value="cancelled">ملغاة</option>
-                  <option value="active">نشطة</option>
-                </select>
-              </div>
-
-              {/* فلترة بالموظف */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  الموظف
-                </label>
-                <select
-                  value={filters.employee}
-                  onChange={(e) => handleFilterChange('employee', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="all">جميع الموظفين</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.role === 'admin' ? 'مدير' : 'مندوب'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* فلترة بنوع التمويل */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  نوع التمويل
-                </label>
-                <select
-                  value={filters.financeType}
-                  onChange={(e) => handleFilterChange('financeType', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="all">جميع الأنواع</option>
-                  <option value="cash">كاش</option>
-                  <option value="installment">تقسيط</option>
-                  <option value="mortgage">رهن عقاري</option>
-                </select>
-              </div>
-
-              {/* فلترة بطريقة الدفع */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  طريقة الدفع
-                </label>
-                <select
-                  value={filters.paymentMethod}
-                  onChange={(e) => handleFilterChange('paymentMethod', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="all">جميع الطرق</option>
-                  <option value="cash">نقدي</option>
-                  <option value="bank_transfer">تحويل بنكي</option>
-                  <option value="check">شيك</option>
-                  <option value="card">بطاقة ائتمان</option>
-                </select>
-              </div>
-
-              {/* فلترة بتاريخ */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  من تاريخ
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateFrom}
-                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  إلى تاريخ
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateTo}
-                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px'
-                  }}
-                />
-              </div>
-
-              {/* الترتيب */}
-              <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '8px',
-                  fontWeight: '500',
-                  color: '#2c3e50'
-                }}>
-                  ترتيب حسب
-                </label>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <select
-                    value={filters.sortBy}
-                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '10px 15px',
-                      borderRadius: '8px',
-                      border: '1px solid #ddd',
-                      fontSize: '14px',
-                      backgroundColor: 'white'
-                    }}
-                  >
-                    <option value="created_at">تاريخ الإنشاء</option>
-                    <option value="sale_date">تاريخ البيع</option>
-                    <option value="client_name">اسم العميل</option>
-                    <option value="price">السعر</option>
-                  </select>
-                  
-                  <select
-                    value={filters.sortOrder}
-                    onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-                    style={{
-                      padding: '10px 15px',
-                      borderRadius: '8px',
-                      border: '1px solid #ddd',
-                      fontSize: '14px',
-                      backgroundColor: 'white'
-                    }}
-                  >
-                    <option value="desc">تنازلي</option>
-                    <option value="asc">تصاعدي</option>
-                  </select>
-                </div>
-              </div>
+        <div style={{ 
+          backgroundColor: 'white',
+          borderRadius: '8px',
+          padding: '20px',
+          marginBottom: '30px',
+          border: '1px solid #dee2e6',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}>
+          <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#2c3e50' }}>🔍 فلاتر البحث</h3>
+          
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '20px',
+            marginBottom: '20px'
+          }}>
+            {/* حقل البحث */}
+            <div>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#2c3e50'
+              }}>
+                بحث سريع
+              </label>
+              <input
+                type="text"
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
+                style={{
+                  width: '100%',
+                  padding: '10px 15px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px'
+                }}
+              />
             </div>
 
-            {/* أزرار الفلاتر */}
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'flex-end',
-              gap: '10px',
-              padding: '20px',
-              borderTop: '1px solid #eee'
-            }}>
-              <Button 
-                variant="secondary"
-                onClick={resetFilters}
+            {/* فلترة بالحالة */}
+            <div>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#2c3e50'
+              }}>
+                حالة التنفيذ
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) => handleFilterChange('status', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 15px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: 'white'
+                }}
               >
-                🔄 إعادة الضبط
-              </Button>
-              <Button 
-                onClick={() => setShowFilters(false)}
-              >
-                تطبيق الفلاتر
-              </Button>
+                <option value="all">جميع الحالات</option>
+                <option value="completed">مكتملة</option>
+                <option value="pending">قيد الانتظار</option>
+                <option value="cancelled">ملغاة</option>
+                <option value="active">نشطة</option>
+              </select>
             </div>
-          </Card>
+
+            {/* الترتيب */}
+            <div>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#2c3e50'
+              }}>
+                ترتيب حسب
+              </label>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <select
+                  value={filters.sortBy}
+                  onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="created_at">تاريخ الإنشاء</option>
+                  <option value="sale_date">تاريخ البيع</option>
+                  <option value="price">السعر</option>
+                </select>
+                
+                <select
+                  value={filters.sortOrder}
+                  onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
+                  style={{
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="desc">تنازلي</option>
+                  <option value="asc">تصاعدي</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* أزرار الفلاتر */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'flex-end',
+            gap: '10px',
+            paddingTop: '20px',
+            borderTop: '1px solid #eee'
+          }}>
+            <button
+              onClick={resetFilters}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 إعادة الضبط
+            </button>
+            <button
+              onClick={() => setShowFilters(false)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              تطبيق الفلاتر
+            </button>
+          </div>
         </div>
       )}
 
@@ -864,35 +731,57 @@ export default function SalesPage() {
       </div>
 
       {/* ===== SALES TABLE ===== */}
-      <Card>
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        border: '1px solid #dee2e6',
+        overflow: 'hidden'
+      }}>
         {filteredSales.length === 0 ? (
           <div style={{
             textAlign: 'center',
-            padding: '40px 20px',
+            padding: '60px 20px',
             color: '#666'
           }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>📭</div>
             <h3 style={{ marginBottom: '10px', color: '#495057' }}>
               {sales.length === 0 ? 'لا توجد تنفيذات' : 'لا توجد تنفيذات تطابق معايير البحث'}
             </h3>
-            <p style={{ marginBottom: '20px' }}>
+            <p style={{ marginBottom: '30px', maxWidth: '500px', margin: '0 auto' }}>
               {sales.length === 0 
                 ? 'لم يتم إضافة أي تنفيذات بعد. يمكنك إضافة تنفيذات جديدة من الزر أعلاه.' 
                 : 'لم يتم العثور على تنفيذات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
             {sales.length === 0 ? (
-              <Button 
+              <button
                 onClick={() => router.push('/dashboard/sales/new')}
+                style={{
+                  padding: '10px 30px',
+                  backgroundColor: '#007bff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
               >
                 ➕ إضافة تنفيذ جديد
-              </Button>
+              </button>
             ) : (
-              <Button 
-                variant="secondary"
+              <button
                 onClick={resetFilters}
+                style={{
+                  padding: '10px 30px',
+                  backgroundColor: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '16px'
+                }}
               >
                 🔄 عرض جميع التنفيذات
-              </Button>
+              </button>
             )}
           </div>
         ) : (
@@ -900,7 +789,7 @@ export default function SalesPage() {
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
-              minWidth: '1200px'
+              minWidth: '1000px'
             }}>
               <thead>
                 <tr style={{
@@ -941,14 +830,7 @@ export default function SalesPage() {
                     fontWeight: '600',
                     color: '#495057',
                     fontSize: '14px'
-                  }}>السعر قبل الضريبة</th>
-                  <th style={{ 
-                    padding: '15px', 
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#495057',
-                    fontSize: '14px'
-                  }}>السعر بعد الضريبة</th>
+                  }}>السعر</th>
                   <th style={{ 
                     padding: '15px', 
                     textAlign: 'right',
@@ -1010,29 +892,19 @@ export default function SalesPage() {
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ fontWeight: '600', color: '#2c3e50' }}>
-                        {sale.client?.name || 'غير محدد'}
+                        {getClientName(sale.client_id)}
                       </div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        📱 {sale.client?.mobile || 'غير متوفر'}
+                        📱 {getClientMobile(sale.client_id)}
                       </div>
-                      {sale.client?.status && (
-                        <div style={{ fontSize: '11px', marginTop: '5px' }}>
-                          <StatusBadge status={getStatusColor(sale.client.status)}>
-                            {sale.client.status}
-                          </StatusBadge>
-                        </div>
-                      )}
                     </td>
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ fontWeight: '600', color: '#2c3e50' }}>
-                        {sale.unit?.unit_code || 'غير محدد'}
+                        {getUnitCode(sale.unit_id)}
                       </div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {sale.unit?.unit_type || 'غير محدد'}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#999', marginTop: '5px' }}>
-                        {getProjectName(sale.unit)}
+                        {getUnitType(sale.unit_id)}
                       </div>
                     </td>
                     
@@ -1044,13 +916,7 @@ export default function SalesPage() {
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057', fontWeight: '600' }}>
-                        {formatCurrency(sale.price_before_tax)}
-                      </div>
-                    </td>
-                    
-                    <td style={{ padding: '15px' }}>
-                      <div style={{ color: '#495057', fontWeight: '600' }}>
-                        {formatCurrency(sale.price_after_tax)}
+                        {formatCurrency(sale.price_after_tax || sale.price_before_tax)}
                       </div>
                     </td>
                     
@@ -1073,39 +939,37 @@ export default function SalesPage() {
                     
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>
-                        {sale.employee?.name || 'غير محدد'}
+                        {getEmployeeName(sale.sales_employee_id)}
                       </div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {sale.employee?.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
+                        {getEmployeeRole(sale.sales_employee_id)}
                       </div>
                     </td>
                     
                     <td style={{ padding: '15px' }}>
-                      <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', gap: '8px' }}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             router.push(`/dashboard/sales/${sale.id}`);
                           }}
                           style={{
-                            padding: '8px 12px',
+                            padding: '6px 12px',
                             backgroundColor: '#e3f2fd',
                             border: 'none',
-                            borderRadius: '6px',
+                            borderRadius: '4px',
                             color: '#1565c0',
                             cursor: 'pointer',
                             fontSize: '13px',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
                             gap: '5px',
-                            transition: 'all 0.2s ease',
-                            width: '100%'
+                            transition: 'all 0.2s ease'
                           }}
                           onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
                           onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
                         >
-                          👁️ عرض التفاصيل
+                          👁️ عرض
                         </button>
                         
                         <button
@@ -1114,19 +978,17 @@ export default function SalesPage() {
                             router.push(`/dashboard/sales/edit/${sale.id}`);
                           }}
                           style={{
-                            padding: '8px 12px',
+                            padding: '6px 12px',
                             backgroundColor: '#fff3e0',
                             border: 'none',
-                            borderRadius: '6px',
+                            borderRadius: '4px',
                             color: '#f57c00',
                             cursor: 'pointer',
                             fontSize: '13px',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
                             gap: '5px',
-                            transition: 'all 0.2s ease',
-                            width: '100%'
+                            transition: 'all 0.2s ease'
                           }}
                           onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#ffe0b2'}
                           onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fff3e0'}
@@ -1141,7 +1003,7 @@ export default function SalesPage() {
             </table>
           </div>
         )}
-      </Card>
+      </div>
 
       {/* ===== PAGINATION ===== */}
       {filteredSales.length > 0 && (
@@ -1149,8 +1011,8 @@ export default function SalesPage() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginTop: '30px',
-          padding: '20px',
+          marginTop: '20px',
+          padding: '15px',
           backgroundColor: '#f8f9fa',
           borderRadius: '8px',
           border: '1px solid #e9ecef'
@@ -1160,34 +1022,46 @@ export default function SalesPage() {
           </div>
           
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button 
-              variant="secondary"
+            <button
               disabled={true}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#e9ecef',
+                color: '#6c757d',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px',
+                cursor: 'not-allowed'
+              }}
             >
               السابق
-            </Button>
+            </button>
             
-            {/* استخدام زر مخصص بدلاً من Button للمركز الحالي */}
             <div
               style={{
                 padding: '8px 16px',
-                backgroundColor: '#3498db',
+                backgroundColor: '#007bff',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: 'default',
                 fontWeight: '500'
               }}
             >
               1
             </div>
             
-            <Button 
-              variant="secondary"
+            <button
               disabled={true}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#e9ecef',
+                color: '#6c757d',
+                border: '1px solid #dee2e6',
+                borderRadius: '4px',
+                cursor: 'not-allowed'
+              }}
             >
               التالي
-            </Button>
+            </button>
           </div>
         </div>
       )}
@@ -1234,26 +1108,26 @@ function StatCard({
     <div style={{
       backgroundColor: 'white',
       borderRadius: '12px',
-      padding: '25px',
+      padding: '20px',
       border: `1px solid ${color}20`,
-      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
-      transition: 'transform 0.3s ease',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+      transition: 'transform 0.2s ease',
       display: 'flex',
       alignItems: 'center',
-      gap: '20px'
+      gap: '15px'
     }}
-    onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+    onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
     onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
     >
       <div style={{
-        width: '60px',
-        height: '60px',
-        borderRadius: '12px',
+        width: '50px',
+        height: '50px',
+        borderRadius: '10px',
         backgroundColor: `${color}20`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: '28px',
+        fontSize: '24px',
         color: color
       }}>
         {icon}
@@ -1261,13 +1135,12 @@ function StatCard({
       
       <div style={{ flex: 1 }}>
         <div style={{
-          fontSize: isCurrency ? '18px' : '32px',
+          fontSize: isCurrency ? '16px' : '24px',
           fontWeight: '700',
           color: color,
-          lineHeight: 1,
-          wordBreak: 'break-word'
+          lineHeight: 1.2
         }}>
-          {isCurrency ? value : value.toLocaleString('ar-SA')}
+          {isCurrency ? value : typeof value === 'number' ? value.toLocaleString('ar-SA') : value}
         </div>
         <div style={{
           fontSize: '14px',

@@ -477,227 +477,57 @@ export default function ReservationsPage() {
 
       {/* ===== FILTERS PANEL ===== */}
       {showFilters && (
-        <Card 
-          title="🔍 فلاتر البحث"
-          style={{ marginBottom: '30px' }}
-        >
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '20px',
-            padding: '20px'
-          }}>
-            {/* حقل البحث */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                بحث سريع
-              </label>
-              <input
-                type="text"
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  transition: 'all 0.3s ease'
-                }}
-              />
-            </div>
-
-            {/* فلترة بالحالة */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                حالة الحجز
-              </label>
-              <select
-                value={filters.status}
-                onChange={(e) => handleFilterChange('status', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
-              >
-                <option value="all">جميع الحالات</option>
-                <option value="active">نشطة</option>
-                <option value="pending">قيد الانتظار</option>
-                <option value="cancelled">ملغاة</option>
-                <option value="completed">مكتملة</option>
-              </select>
-            </div>
-
-            {/* فلترة بالموظف */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                الموظف
-              </label>
-              <select
-                value={filters.employee}
-                onChange={(e) => handleFilterChange('employee', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
-              >
-                <option value="all">جميع الموظفين</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.role === 'admin' ? 'مدير' : 'مندوب'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* فلترة بالمشروع */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                المشروع
-              </label>
-              <select
-                value={filters.project}
-                onChange={(e) => handleFilterChange('project', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
-              >
-                <option value="all">جميع المشاريع</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* فلترة بتاريخ */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                من تاريخ
-              </label>
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                إلى تاريخ
-              </label>
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            {/* فلترة بنوع الوحدة */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                نوع الوحدة
-              </label>
-              <select
-                value={filters.unitType}
-                onChange={(e) => handleFilterChange('unitType', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
-              >
-                <option value="all">جميع الأنواع</option>
-                <option value="شقة">شقة</option>
-                <option value="فيلا">فيلا</option>
-                <option value="متجر">متجر</option>
-                <option value="أرض">أرض</option>
-              </select>
-            </div>
-
-            {/* الترتيب */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
-                ترتيب حسب
-              </label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <select
-                  value={filters.sortBy}
-                  onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+        <div style={{ marginBottom: '30px' }}>
+          <Card 
+            title="🔍 فلاتر البحث"
+          >
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '20px',
+              padding: '20px'
+            }}>
+              {/* حقل البحث */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  بحث سريع
+                </label>
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
+                  placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
                   style={{
-                    flex: 1,
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    transition: 'all 0.3s ease'
+                  }}
+                />
+              </div>
+
+              {/* فلترة بالحالة */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  حالة الحجز
+                </label>
+                <select
+                  value={filters.status}
+                  onChange={(e) => handleFilterChange('status', e.target.value)}
+                  style={{
+                    width: '100%',
                     padding: '10px 15px',
                     borderRadius: '8px',
                     border: '1px solid #ddd',
@@ -705,50 +535,221 @@ export default function ReservationsPage() {
                     backgroundColor: 'white'
                   }}
                 >
-                  <option value="created_at">تاريخ الإنشاء</option>
-                  <option value="reservation_date">تاريخ الحجز</option>
-                  <option value="client_name">اسم العميل</option>
-                </select>
-                
-                <select
-                  value={filters.sortOrder}
-                  onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-                  style={{
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
-                >
-                  <option value="desc">تنازلي</option>
-                  <option value="asc">تصاعدي</option>
+                  <option value="all">جميع الحالات</option>
+                  <option value="active">نشطة</option>
+                  <option value="pending">قيد الانتظار</option>
+                  <option value="cancelled">ملغاة</option>
+                  <option value="completed">مكتملة</option>
                 </select>
               </div>
-            </div>
-          </div>
 
-          {/* أزرار الفلاتر */}
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'flex-end',
-            gap: '10px',
-            padding: '20px',
-            borderTop: '1px solid #eee'
-          }}>
-            <Button 
-              variant="secondary"
-              onClick={resetFilters}
-            >
-              🔄 إعادة الضبط
-            </Button>
-            <Button 
-              onClick={() => setShowFilters(false)}
-            >
-              تطبيق الفلاتر
-            </Button>
-          </div>
-        </Card>
+              {/* فلترة بالموظف */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  الموظف
+                </label>
+                <select
+                  value={filters.employee}
+                  onChange={(e) => handleFilterChange('employee', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="all">جميع الموظفين</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.role === 'admin' ? 'مدير' : 'مندوب'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* فلترة بالمشروع */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  المشروع
+                </label>
+                <select
+                  value={filters.project}
+                  onChange={(e) => handleFilterChange('project', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="all">جميع المشاريع</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* فلترة بتاريخ */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  من تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  إلى تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              {/* فلترة بنوع الوحدة */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  نوع الوحدة
+                </label>
+                <select
+                  value={filters.unitType}
+                  onChange={(e) => handleFilterChange('unitType', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="all">جميع الأنواع</option>
+                  <option value="شقة">شقة</option>
+                  <option value="فيلا">فيلا</option>
+                  <option value="متجر">متجر</option>
+                  <option value="أرض">أرض</option>
+                </select>
+              </div>
+
+              {/* الترتيب */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '8px',
+                  fontWeight: '500',
+                  color: '#2c3e50'
+                }}>
+                  ترتيب حسب
+                </label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <select
+                    value={filters.sortBy}
+                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '10px 15px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      backgroundColor: 'white'
+                    }}
+                  >
+                    <option value="created_at">تاريخ الإنشاء</option>
+                    <option value="reservation_date">تاريخ الحجز</option>
+                    <option value="client_name">اسم العميل</option>
+                  </select>
+                  
+                  <select
+                    value={filters.sortOrder}
+                    onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
+                    style={{
+                      padding: '10px 15px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      backgroundColor: 'white'
+                    }}
+                  >
+                    <option value="desc">تنازلي</option>
+                    <option value="asc">تصاعدي</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* أزرار الفلاتر */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'flex-end',
+              gap: '10px',
+              padding: '20px',
+              borderTop: '1px solid #eee'
+            }}>
+              <Button 
+                variant="secondary"
+                onClick={resetFilters}
+              >
+                🔄 إعادة الضبط
+              </Button>
+              <Button 
+                onClick={() => setShowFilters(false)}
+              >
+                تطبيق الفلاتر
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* ===== RESULTS SUMMARY ===== */}

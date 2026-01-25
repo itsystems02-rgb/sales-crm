@@ -1044,16 +1044,22 @@ export default function ReservationsPage() {
             >
               السابق
             </Button>
-            <Button 
+            
+            {/* استخدام زر مخصص بدلاً من Button للمركز الحالي */}
+            <div
               style={{
+                padding: '8px 16px',
                 backgroundColor: '#3498db',
                 color: 'white',
                 border: 'none',
-                padding: '8px 16px'
+                borderRadius: '4px',
+                cursor: 'default',
+                fontWeight: '500'
               }}
             >
               1
-            </Button>
+            </div>
+            
             <Button 
               variant="secondary"
               disabled={true}

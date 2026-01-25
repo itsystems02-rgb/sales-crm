@@ -4,15 +4,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const LINKS = [
-{ href: '/dashboard', label: 'الصفحه الرئسية', icon: ' ' }, 
- { href: '/dashboard/projects', label: 'المشاريع', icon: '🏗️' },
-  { href: '/dashboard/units', label: 'الوحدات', icon: '🏠' },
+  { href: '/dashboard', label: 'الرئيسية', icon: '🏠' }, 
+  { href: '/dashboard/projects', label: 'المشاريع', icon: '🏗️' },
+  { href: '/dashboard/units', label: 'الوحدات', icon: '🏡' },
   { href: '/dashboard/clients', label: 'العملاء', icon: '👥' },
+  { href: '/dashboard/reservation', label: 'الحجوزات', icon: '📅' },
   { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
-   { href: '/dashboard/reservation', label: 'الحجوزات', icon: '' },
-  { href: '/api/employees', label: 'الموظفين', icon: '🧑‍💼' },
-{ href: '/dashboard/Report', label: 'التقارير', icon: '📌' },
-{ href: '/dashboard/ReportEmployees', label: ' تقارير الموظفين', icon: '' },
+  { href: '/dashboard/employees', label: 'الموظفين', icon: '👨‍💼' },
+  { href: '/dashboard/reports', label: 'التقارير', icon: '📊' },
+  { href: '/dashboard/employee-reports', label: 'تقارير الموظفين', icon: '📈' },
 ];
 
 export default function Sidebar() {
@@ -22,8 +22,8 @@ export default function Sidebar() {
     <aside className="sidebar pro-sidebar">
       {/* ===== Brand ===== */}
       <div className="sidebar-brand">
-        <div className="logo">CRM</div>
-        <div className="sub">Management System</div>
+        <div className="logo">🏢 نظام المبيعات</div>
+        <div className="sub">Sales Management System</div>
       </div>
 
       {/* ===== Nav ===== */}
@@ -38,6 +38,7 @@ export default function Sidebar() {
             >
               <span className="icon">{link.icon}</span>
               <span className="text">{link.label}</span>
+              {active && <span className="active-indicator"></span>}
             </Link>
           );
         })}
@@ -45,7 +46,14 @@ export default function Sidebar() {
 
       {/* ===== Footer ===== */}
       <div className="sidebar-footer">
-        <small>© 2026 CRM</small>
+        <div className="user-info">
+          <div className="avatar">👨‍💼</div>
+          <div className="user-details">
+            <div className="user-name">نظام الإدارة</div>
+            <div className="user-role">لوحة التحكم</div>
+          </div>
+        </div>
+        <small>© 2026 نظام CRM</small>
       </div>
     </aside>
   );

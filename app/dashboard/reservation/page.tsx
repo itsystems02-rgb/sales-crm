@@ -1,7 +1,7 @@
 // app/dashboard/reservation/page.tsx
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -205,10 +205,10 @@ export default function ReservationsPage() {
         })
       );
 
-      setReservations(reservationsWithProjects);
+      setReservations(reservationsWithProjects as Reservation[]);
 
       // حساب الإحصائيات
-      calculateStats(reservationsWithProjects);
+      calculateStats(reservationsWithProjects as Reservation[]);
     } catch (error) {
       console.error('Error fetching reservations:', error);
     } finally {
@@ -428,7 +428,7 @@ export default function ReservationsPage() {
           </Button>
 
           <Button 
-            variant="outline"
+            variant="secondary"
             onClick={() => window.print()}
           >
             🖨️ طباعة التقرير
@@ -737,7 +737,7 @@ export default function ReservationsPage() {
             borderTop: '1px solid #eee'
           }}>
             <Button 
-              variant="outline"
+              variant="secondary"
               onClick={resetFilters}
             >
               🔄 إعادة الضبط
@@ -803,7 +803,7 @@ export default function ReservationsPage() {
             </p>
             {(filters.status !== 'all' || filters.search) && (
               <Button 
-                variant="outline"
+                variant="secondary"
                 onClick={resetFilters}
               >
                 عرض جميع الحجوزات
@@ -989,7 +989,6 @@ export default function ReservationsPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // هنا يمكنك إضافة وظيفة التعديل
                               router.push(`/dashboard/reservations/edit/${reservation.id}`);
                             }}
                             style={{
@@ -1039,7 +1038,7 @@ export default function ReservationsPage() {
           
           <div style={{ display: 'flex', gap: '10px' }}>
             <Button 
-              variant="outline"
+              variant="secondary"
               disabled={true}
             >
               السابق
@@ -1055,7 +1054,7 @@ export default function ReservationsPage() {
               1
             </Button>
             <Button 
-              variant="outline"
+              variant="secondary"
               disabled={true}
             >
               التالي

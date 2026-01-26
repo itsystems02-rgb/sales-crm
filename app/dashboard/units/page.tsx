@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import * as XLSX from 'xlsx';
@@ -14,7 +14,7 @@ type ModelRef = { name: string };
 
 type Employee = {
   id: string;
-  role: 'admin' | 'sales';
+  role: 'admin' | 'sales' | 'sales_manager'; // ← تحديث هنا
 };
 
 type Unit = {
@@ -256,11 +256,29 @@ export default function UnitsPage() {
     init();
   }, []);
 
+  // تصحيح: تحديث النماذج عند تغيير المشروع في الفورم
+  useEffect(() => {
+    if (projectId) {
+      loadModels(projectId);
+    } else {
+      setModels([]);
+    }
+  }, [projectId]);
+
+  // تصحيح: تحديث النماذج عند تغيير فلتر المشروع
+  useEffect(() => {
+    if (filters.project && filters.project !== 'all') {
+      loadModelsForFilter(filters.project);
+    } else {
+      setModels([]);
+    }
+  }, [filters.project]);
+
   async function init() {
     try {
       const emp = await getCurrentEmployee();
       setEmployee(emp);
-      await loadProjects();
+      await loadProjects(emp); // ← تمرير employee كمعامل
       await loadData();
     } catch (err) {
       console.error('Error in init():', err);
@@ -268,14 +286,32 @@ export default function UnitsPage() {
     }
   }
 
-  // Load Projects
-  async function loadProjects() {
+  // Load Projects based on employee role
+  async function loadProjects(emp: Employee | null) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('projects')
         .select('id,name,code')
         .order('name');
 
+      // تطبيق الفلترة حسب الدور
+      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        if (allowedProjectIds.length > 0) {
+          query = query.in('id', allowedProjectIds);
+        } else {
+          setProjects([]);
+          return; // إذا لم يكن هناك مشاريع، لا نحتاج لتحميل شيء
+        }
+      }
+
+      const { data, error } = await query;
+      
       if (error) throw error;
       setProjects(data || []);
     } catch (err) {
@@ -283,8 +319,8 @@ export default function UnitsPage() {
     }
   }
 
-  // Load Models for selected project
-  async function loadModels(projectId: string) {
+  // Load Models for selected project (for form)
+  const loadModels = useCallback(async (projectId: string) => {
     if (!projectId) {
       setModels([]);
       return;
@@ -302,7 +338,28 @@ export default function UnitsPage() {
     } catch (err) {
       console.error('Error loading models:', err);
     }
-  }
+  }, []);
+
+  // Load Models for filter dropdown
+  const loadModelsForFilter = useCallback(async (projectId: string) => {
+    if (!projectId || projectId === 'all') {
+      setModels([]);
+      return;
+    }
+    
+    try {
+      const { data, error } = await supabase
+        .from('project_models')
+        .select('id,name')
+        .eq('project_id', projectId)
+        .order('name');
+
+      if (error) throw error;
+      setModels(data || []);
+    } catch (err) {
+      console.error('Error loading models for filter:', err);
+    }
+  }, []);
 
   // Main data loading function
   async function loadData() {
@@ -319,7 +376,7 @@ export default function UnitsPage() {
         `);
 
       // Apply role-based filtering
-      if (employee?.role === 'sales') {
+      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
         const { data: employeeProjects } = await supabase
           .from('employee_projects')
           .select('project_id')
@@ -328,6 +385,19 @@ export default function UnitsPage() {
         const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
         if (allowedProjectIds.length > 0) {
           query = query.in('project_id', allowedProjectIds);
+        } else {
+          // إذا لم يكن هناك مشاريع، لا تظهر أي وحدات
+          setUnits([]);
+          setFilteredUnits([]);
+          setStats({
+            available: 0,
+            reserved: 0,
+            sold: 0,
+            total: 0,
+            totalPrice: 0
+          });
+          setLoading(false);
+          return;
         }
       }
 
@@ -461,6 +531,7 @@ export default function UnitsPage() {
     });
 
     setFilteredUnits(filtered);
+    setCurrentPage(1); // Reset to first page when filters change
   }
 
   // Handle filter changes
@@ -544,6 +615,7 @@ export default function UnitsPage() {
     setBuildArea('');
     setProjectId('');
     setModelId('');
+    setModels([]);
   }
 
   // Start editing a unit
@@ -629,6 +701,16 @@ export default function UnitsPage() {
   // Format area
   function formatArea(area: number | null) {
     return area ? `${area.toLocaleString('ar-SA')} م²` : '-';
+  }
+
+  // دالة لتحويل role code إلى نص عربي
+  function getRoleLabel(role: string): string {
+    switch (role) {
+      case 'admin': return 'مدير نظام';
+      case 'sales_manager': return 'مدير مبيعات';
+      case 'sales': return 'مندوب مبيعات';
+      default: return role;
+    }
   }
 
   // Pagination calculations
@@ -723,6 +805,11 @@ export default function UnitsPage() {
           </h1>
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي الوحدات: <strong>{units.length}</strong> وحدة
+            {employee && (
+              <span style={{ marginRight: '15px', color: '#0d8a3e' }}>
+                • {getRoleLabel(employee.role)}
+              </span>
+            )}
           </p>
         </div>
 
@@ -871,7 +958,13 @@ export default function UnitsPage() {
               </label>
               <select
                 value={filters.project}
-                onChange={(e) => setFilters(prev => ({ ...prev, project: e.target.value }))}
+                onChange={(e) => {
+                  setFilters(prev => ({ 
+                    ...prev, 
+                    project: e.target.value,
+                    model: 'all' // إعادة ضبط النموذج عند تغيير المشروع
+                  }));
+                }}
                 style={{
                   width: '100%',
                   padding: '10px 15px',
@@ -903,16 +996,20 @@ export default function UnitsPage() {
               <select
                 value={filters.model}
                 onChange={(e) => setFilters(prev => ({ ...prev, model: e.target.value }))}
+                disabled={!filters.project || filters.project === 'all'}
                 style={{
                   width: '100%',
                   padding: '10px 15px',
                   borderRadius: '8px',
                   border: '1px solid #ddd',
                   fontSize: '14px',
-                  backgroundColor: 'white'
+                  backgroundColor: 'white',
+                  opacity: (!filters.project || filters.project === 'all') ? 0.6 : 1
                 }}
               >
-                <option value="all">جميع النماذج</option>
+                <option value="all">
+                  {!filters.project || filters.project === 'all' ? 'اختر المشروع أولاً' : 'جميع النماذج'}
+                </option>
                 {models.map(model => (
                   <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
@@ -1207,7 +1304,7 @@ export default function UnitsPage() {
       </div>
 
       {/* ===== ADD/EDIT FORM (Admin Only) ===== */}
-      {employee?.role === 'admin' && (
+      {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
         <div style={{ 
           backgroundColor: 'white',
           borderRadius: '8px',
@@ -1391,8 +1488,6 @@ export default function UnitsPage() {
                 value={projectId}
                 onChange={(e) => {
                   setProjectId(e.target.value);
-                  loadModels(e.target.value);
-                  setModelId('');
                 }}
                 style={{
                   width: '100%',
@@ -1495,7 +1590,7 @@ export default function UnitsPage() {
                 ? 'لم يتم إضافة أي وحدات بعد.' 
                 : 'لم يتم العثور على وحدات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
-            {units.length === 0 && employee?.role === 'admin' && (
+            {units.length === 0 && (employee?.role === 'admin' || employee?.role === 'sales_manager') && (
               <button
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 style={{
@@ -1581,7 +1676,7 @@ export default function UnitsPage() {
                       color: '#495057',
                       fontSize: '14px'
                     }}>النموذج</th>
-                    {employee?.role === 'admin' && (
+                    {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
                       <th style={{ 
                         padding: '15px', 
                         textAlign: 'right',
@@ -1668,7 +1763,7 @@ export default function UnitsPage() {
                         </div>
                       </td>
                       
-                      {employee?.role === 'admin' && (
+                      {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
                         <td style={{ padding: '15px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <button

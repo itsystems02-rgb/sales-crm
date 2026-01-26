@@ -1308,11 +1308,11 @@ export default function DashboardPage() {
                 <div style={{ fontSize: '11px', color: '#666' }}>من المتابعات تتحول لحجوزات</div>
               </div>
               
-              <div style={{ 
-                backgroundColor: '#f8f9fa', 
-                padding: '15px', 
-                borderRadius: '8px',
-                borderLeft: '4px solid '#fbbc04'
+            <div style={{ 
+               backgroundColor: '#f8f9fa', 
+               padding: '15px', 
+               borderRadius: '8px',
+               borderLeft: '4px solid #fbbc04' // ← تصحيح هنا
               }}>
                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>معدل الإنجاز</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>

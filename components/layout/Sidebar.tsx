@@ -10,7 +10,7 @@ const LINKS = [
   { href: '/dashboard/clients', label: 'العملاء', icon: '👥' },
   { href: '/dashboard/reservation', label: 'الحجوزات', icon: '📅' },
   { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
-  { href: '/dashboard/employees', label: 'الموظفين', icon: '👨‍💼' },
+  { href: '/api/employees', label: 'الموظفين', icon: '👨‍💼' },
   { href: '/dashboard/reports', label: 'التقارير', icon: '📊' },
   { href: '/dashboard/employee-reports', label: 'تقارير الموظفين', icon: '📈' },
 ];

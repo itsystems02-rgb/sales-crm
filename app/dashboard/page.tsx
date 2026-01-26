@@ -15,8 +15,9 @@ import Card from '@/components/ui/Card';
 type Employee = {
   id: string;
   name: string;
-  role: 'admin' | 'sales';
+  role: 'admin' | 'sales' | 'sales_manager';
   email: string;
+  projects?: string[];
 };
 
 type DashboardStats = {
@@ -29,7 +30,7 @@ type DashboardStats = {
   myReservations: number;
   mySales: number;
   
-  // إحصائيات الموظفين الآخرين (للأدمن فقط)
+  // إحصائيات الموظفين الآخرين
   otherEmployeesStats: Array<{
     id: string;
     name: string;
@@ -37,6 +38,18 @@ type DashboardStats = {
     reservations: number;
     sales: number;
     totalActivity: number;
+    projects: string[];
+  }>;
+  
+  // إحصائيات الفريق (لـ sales_manager فقط)
+  myTeamStats?: Array<{
+    id: string;
+    name: string;
+    followUps: number;
+    reservations: number;
+    sales: number;
+    totalActivity: number;
+    projects: string[];
   }>;
   
   // إحصائيات إضافية
@@ -59,7 +72,7 @@ type DashboardStats = {
   avgSalesPerEmployee: number;
   
   // معدل التحويل
-  conversionRate: number; // من عميل إلى بيع
+  conversionRate: number;
   reservationToSaleRate: number;
   
   // إحصائيات إضافية
@@ -68,6 +81,9 @@ type DashboardStats = {
     reserved: number;
     sold: number;
   };
+  
+  // المشاريع الخاصة بالـ sales_manager
+  managerProjects?: string[];
 };
 
 /* =====================
@@ -98,7 +114,7 @@ export default function DashboardPage() {
         now.setMonth(now.getMonth() - 1);
         break;
       case 'all':
-        return '1970-01-01'; // بداية الوقت
+        return '1970-01-01';
     }
     
     return now.toISOString();
@@ -112,7 +128,6 @@ export default function DashboardPage() {
     return { label: 'لا يوجد نشاط', color: '#666', bgColor: '#f5f5f5' };
   }
 
-  // دالة جديدة لحساب النسب المئوية للرسوم البيانية
   function calculatePercentage(value: number, total: number): number {
     if (total === 0) return 0;
     return Math.min((value / total) * 100, 100);
@@ -146,7 +161,6 @@ export default function DashboardPage() {
         allUnits = [...allUnits, ...data];
         page++;
         
-        // إذا كانت البيانات أقل من pageSize، فهذا يعني وصلنا للنهاية
         if (data.length < pageSize) {
           hasMore = false;
         }
@@ -158,6 +172,61 @@ export default function DashboardPage() {
     return allUnits;
   }
 
+  // دالة جديدة: جلب المشاريع المرتبطة بالموظف
+  async function getEmployeeProjects(employeeId: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('employee_projects')
+      .select('project_id')
+      .eq('employee_id', employeeId);
+    
+    if (error) {
+      console.error('Error fetching employee projects:', error);
+      return [];
+    }
+    
+    return data?.map(p => p.project_id) || [];
+  }
+
+  // دالة جديدة: جلب موظفي الفريق لـ sales_manager
+  async function getTeamEmployees(managerId: string): Promise<Employee[]> {
+    // جلب المشاريع الخاصة بالـ manager
+    const managerProjects = await getEmployeeProjects(managerId);
+    
+    if (managerProjects.length === 0) return [];
+    
+    // جلب جميع الموظفين المرتبطين بنفس المشاريع
+    const { data: employeeProjects, error } = await supabase
+      .from('employee_projects')
+      .select('employee_id')
+      .in('project_id', managerProjects);
+    
+    if (error) {
+      console.error('Error fetching team employees:', error);
+      return [];
+    }
+    
+    const employeeIds = [...new Set(employeeProjects?.map(ep => ep.employee_id) || [])];
+    
+    // إزالة المدير نفسه من القائمة
+    const filteredIds = employeeIds.filter(id => id !== managerId);
+    
+    if (filteredIds.length === 0) return [];
+    
+    // جلب بيانات الموظفين
+    const { data: employees, error: empError } = await supabase
+      .from('employees')
+      .select('id, name, email, role')
+      .in('id', filteredIds)
+      .in('role', ['sales', 'sales_manager']);
+    
+    if (empError) {
+      console.error('Error fetching employees data:', empError);
+      return [];
+    }
+    
+    return employees as Employee[];
+  }
+
   /* =====================
      INIT
   ===================== */
@@ -167,6 +236,8 @@ export default function DashboardPage() {
 
   async function init() {
     try {
+      setLoading(true);
+      
       // 1. الحصول على بيانات الموظف الحالي
       const emp = await getCurrentEmployee();
       if (!emp) {
@@ -174,21 +245,27 @@ export default function DashboardPage() {
         return;
       }
       
-      // 2. الحصول على اسم الموظف
-      const { data: empData } = await supabase
-        .from('employees')
-        .select('name, email')
-        .eq('id', emp.id)
-        .single();
+      // 2. الحصول على اسم الموظف والمشاريع المرتبطة
+      const [empData, empProjects] = await Promise.all([
+        supabase
+          .from('employees')
+          .select('name, email')
+          .eq('id', emp.id)
+          .single(),
+        getEmployeeProjects(emp.id)
+      ]);
       
-      setEmployee({
+      const employeeData: Employee = {
         ...emp,
-        name: empData?.name || 'موظف',
-        email: empData?.email || ''
-      });
+        name: empData?.data?.name || 'موظف',
+        email: empData?.data?.email || '',
+        projects: empProjects
+      };
+      
+      setEmployee(employeeData);
 
       // 3. تحميل الإحصائيات
-      await loadDashboardStats(emp);
+      await loadDashboardStats(employeeData);
       
       setLoading(false);
     } catch (err) {
@@ -206,53 +283,43 @@ export default function DashboardPage() {
     try {
       const startDate = getStartDate(timeRange);
       
-      // ===== 1. الحصول على المشاريع المسموحة (للمبيعات) =====
+      // ===== تحديد المشاريع المسموحة حسب الدور =====
       let allowedProjectIds: string[] = [];
+      let managerProjects: string[] = [];
+      let teamEmployees: Employee[] = [];
       
-      if (emp.role === 'sales') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
-
-        allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
+        allowedProjectIds = emp.projects || [];
+      }
+      
+      if (emp.role === 'sales_manager') {
+        managerProjects = emp.projects || [];
+        // جلب فريق المبيعات المرتبط بنفس المشاريع
+        teamEmployees = await getTeamEmployees(emp.id);
       }
 
-      // ===== 2. عدد العملاء (عام) =====
-      const { count: totalClients } = await supabase
-        .from('clients')
-        .select('*', { count: 'exact', head: true });
-
-      // التحقق من حالة موظف المبيعات بدون مشاريع
-      if (emp.role === 'sales' && allowedProjectIds.length === 0) {
-        // إذا كان موظف مبيعات بدون مشاريع، إرجاع إحصائيات صفرية
+      // ===== حالة الموظفين بدون مشاريع =====
+      if ((emp.role === 'sales' || emp.role === 'sales_manager') && allowedProjectIds.length === 0) {
         const unitsByStatus = {
           available: 0,
           reserved: 0,
           sold: 0
         };
 
-        // تجميع الإحصائيات الأساسية
         const dashboardStats: DashboardStats = {
-          totalClients: totalClients || 0,
+          totalClients: 0,
           totalAvailableUnits: 0,
-          
           myFollowUps: 0,
           myReservations: 0,
           mySales: 0,
-          
           otherEmployeesStats: [],
-          
           clientsByStatus: { lead: 0, reserved: 0, converted: 0, visited: 0 },
           unitsByStatus,
-          
           avgFollowUpsPerEmployee: 0,
           avgReservationsPerEmployee: 0,
           avgSalesPerEmployee: 0,
-          
           conversionRate: 0,
           reservationToSaleRate: 0,
-          
           myProjectsUnits: unitsByStatus
         };
 
@@ -260,14 +327,12 @@ export default function DashboardPage() {
         return;
       }
 
-      // ===== 3. جلب كل الوحدات حسب الصلاحيات =====
+      // ===== جلب الوحدات حسب الصلاحيات =====
       let filteredUnits: any[] = [];
       
       if (emp.role === 'admin') {
-        // الأدمن يرى كل الوحدات
         filteredUnits = await getAllUnits();
       } else {
-        // موظف المبيعات يرى فقط وحدات المشاريع المسموحة
         filteredUnits = await getAllUnits(allowedProjectIds);
       }
 
@@ -277,8 +342,7 @@ export default function DashboardPage() {
         sold: filteredUnits.filter(u => u.status === 'sold').length
       };
 
-      // ===== 4. عدد الوحدات المتاحة حسب الصلاحيات =====
-      // دالة مساعدة لجلب عدد الوحدات المتاحة باستخدام Pagination
+      // ===== عدد الوحدات المتاحة =====
       const getAvailableUnitsCount = async (projectIds?: string[]) => {
         let count = 0;
         let page = 0;
@@ -296,18 +360,12 @@ export default function DashboardPage() {
             query = query.in('project_id', projectIds);
           }
           
-          const { data, error, count: pageCount } = await query;
-          
-          if (error) {
-            console.error('Error counting available units:', error);
-            break;
-          }
+          const { data } = await query;
           
           if (data) {
             count += data.length;
             page++;
             
-            // إذا كانت البيانات أقل من pageSize، فهذا يعني وصلنا للنهاية
             if (data.length < pageSize) {
               hasMore = false;
             }
@@ -323,44 +381,47 @@ export default function DashboardPage() {
       let totalAvailableUnitsForAdmin = 0;
 
       if (emp.role === 'admin') {
-        // الأدمن: جلب كل الوحدات المتاحة
         totalAvailableUnitsForAdmin = await getAvailableUnitsCount();
       } else {
-        // موظف المبيعات: جلب الوحدات المتاحة في المشاريع المسموحة
         myAvailableUnits = await getAvailableUnitsCount(allowedProjectIds);
       }
 
-      // ===== 5. المتابعات الخاصة بالموظف الحالي =====
+      // ===== المتابعات الخاصة بالموظف الحالي =====
       const { count: myFollowUps } = await supabase
         .from('client_followups')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 6. الحجوزات الخاصة بالموظف الحالي =====
+      // ===== الحجوزات الخاصة بالموظف الحالي =====
       const { count: myReservations } = await supabase
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 7. التنفيذات الخاصة بالموظف الحالي =====
+      // ===== التنفيذات الخاصة بالموظف الحالي =====
       const { count: mySales } = await supabase
         .from('sales')
         .select('*', { count: 'exact', head: true })
         .eq('sales_employee_id', emp.id)
         .gte('created_at', startDate);
 
-      // ===== 8. إحصائيات الموظفين الآخرين (للأدمن فقط) =====
+      // ===== إحصائيات الموظفين الآخرين =====
       let otherEmployeesStats = [];
+      let myTeamStats = [];
+      
       if (emp.role === 'admin') {
+        // الأدمن يرى كل الموظفين
         const { data: allEmployees } = await supabase
           .from('employees')
           .select('id, name, role')
           .neq('id', emp.id)
-          .eq('role', 'sales');
+          .in('role', ['sales', 'sales_manager']);
 
         for (const otherEmp of (allEmployees || [])) {
+          const otherEmpProjects = await getEmployeeProjects(otherEmp.id);
+          
           const [
             { count: followUps },
             { count: reservations },
@@ -391,15 +452,68 @@ export default function DashboardPage() {
             followUps: followUps || 0,
             reservations: reservations || 0,
             sales: sales || 0,
-            totalActivity: (followUps || 0) + (reservations || 0) + (sales || 0)
+            totalActivity: (followUps || 0) + (reservations || 0) + (sales || 0),
+            projects: otherEmpProjects
+          });
+        }
+      } else if (emp.role === 'sales_manager') {
+        // sales_manager يرى فريق المبيعات الخاص به
+        for (const teamMember of teamEmployees) {
+          const teamMemberProjects = await getEmployeeProjects(teamMember.id);
+          
+          // فلترة فقط المشاريع المشتركة مع المدير
+          const sharedProjects = teamMemberProjects.filter(projectId => 
+            managerProjects.includes(projectId)
+          );
+          
+          if (sharedProjects.length === 0) continue;
+          
+          const [
+            { count: followUps },
+            { count: reservations },
+            { count: sales }
+          ] = await Promise.all([
+            supabase
+              .from('client_followups')
+              .select('*', { count: 'exact', head: true })
+              .eq('employee_id', teamMember.id)
+              .gte('created_at', startDate),
+            
+            supabase
+              .from('reservations')
+              .select('*', { count: 'exact', head: true })
+              .eq('employee_id', teamMember.id)
+              .gte('created_at', startDate),
+            
+            supabase
+              .from('sales')
+              .select('*', { count: 'exact', head: true })
+              .eq('sales_employee_id', teamMember.id)
+              .gte('created_at', startDate)
+          ]);
+
+          myTeamStats.push({
+            id: teamMember.id,
+            name: teamMember.name || 'موظف',
+            followUps: followUps || 0,
+            reservations: reservations || 0,
+            sales: sales || 0,
+            totalActivity: (followUps || 0) + (reservations || 0) + (sales || 0),
+            projects: sharedProjects
           });
         }
       }
 
-      // ===== 9. توزيع العملاء حسب الحالة =====
-      const { data: clientsByStatusData } = await supabase
+      // ===== توزيع العملاء حسب الحالة =====
+      let clientsQuery = supabase
         .from('clients')
         .select('status');
+      
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
+        clientsQuery = clientsQuery.in('project_id', allowedProjectIds);
+      }
+      
+      const { data: clientsByStatusData } = await clientsQuery;
 
       const clientsByStatus = {
         lead: clientsByStatusData?.filter(c => c.status === 'lead').length || 0,
@@ -408,19 +522,38 @@ export default function DashboardPage() {
         visited: clientsByStatusData?.filter(c => c.status === 'visited').length || 0
       };
 
-      // ===== 10. حساب المتوسطات =====
-      const { data: allSalesEmployees } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('role', 'sales');
-
-      const employeeCount = allSalesEmployees?.length || 1;
+      // ===== حساب المتوسطات =====
+      let employeeCount = 1;
+      let totalFollowUps = myFollowUps || 0;
+      let totalReservations = myReservations || 0;
+      let totalSales = mySales || 0;
       
-      const totalFollowUps = otherEmployeesStats.reduce((sum, emp) => sum + emp.followUps, myFollowUps || 0);
-      const totalReservations = otherEmployeesStats.reduce((sum, emp) => sum + emp.reservations, myReservations || 0);
-      const totalSales = otherEmployeesStats.reduce((sum, emp) => sum + emp.sales, mySales || 0);
+      if (emp.role === 'admin') {
+        const { data: allSalesEmployees } = await supabase
+          .from('employees')
+          .select('id')
+          .in('role', ['sales', 'sales_manager']);
+        
+        employeeCount = allSalesEmployees?.length || 1;
+        
+        totalFollowUps = otherEmployeesStats.reduce((sum, emp) => sum + emp.followUps, myFollowUps || 0);
+        totalReservations = otherEmployeesStats.reduce((sum, emp) => sum + emp.reservations, myReservations || 0);
+        totalSales = otherEmployeesStats.reduce((sum, emp) => sum + emp.sales, mySales || 0);
+      } else if (emp.role === 'sales_manager') {
+        employeeCount = myTeamStats.length + 1; // +1 للمدير نفسه
+        
+        const teamFollowUps = myTeamStats.reduce((sum, emp) => sum + emp.followUps, 0);
+        const teamReservations = myTeamStats.reduce((sum, emp) => sum + emp.reservations, 0);
+        const teamSales = myTeamStats.reduce((sum, emp) => sum + emp.sales, 0);
+        
+        totalFollowUps = (myFollowUps || 0) + teamFollowUps;
+        totalReservations = (myReservations || 0) + teamReservations;
+        totalSales = (mySales || 0) + teamSales;
+      }
 
-      // ===== 11. حساب معدلات التحويل =====
+      // ===== حساب معدلات التحويل =====
+      const totalClients = Object.values(clientsByStatus).reduce((a, b) => a + b, 0);
+      
       const conversionRate = totalClients && totalSales 
         ? Math.round((totalSales / totalClients) * 100) 
         : 0;
@@ -429,9 +562,9 @@ export default function DashboardPage() {
         ? Math.round((totalSales / totalReservations) * 100)
         : 0;
 
-      // ===== 12. تجميع كل الإحصائيات =====
+      // ===== تجميع كل الإحصائيات =====
       const dashboardStats: DashboardStats = {
-        totalClients: totalClients || 0,
+        totalClients,
         totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : myAvailableUnits,
         
         myFollowUps: myFollowUps || 0,
@@ -439,6 +572,7 @@ export default function DashboardPage() {
         mySales: mySales || 0,
         
         otherEmployeesStats,
+        myTeamStats: myTeamStats.length > 0 ? myTeamStats : undefined,
         
         clientsByStatus,
         unitsByStatus,
@@ -450,8 +584,8 @@ export default function DashboardPage() {
         conversionRate,
         reservationToSaleRate,
         
-        // إحصائيات الوحدات حسب المشاريع المسموحة
-        myProjectsUnits: unitsByStatus
+        myProjectsUnits: unitsByStatus,
+        managerProjects: emp.role === 'sales_manager' ? managerProjects : undefined
       };
 
       setStats(dashboardStats);
@@ -459,6 +593,18 @@ export default function DashboardPage() {
       console.error('Error loading dashboard stats:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  /* =====================
+     Helper: Get Role Label
+  ===================== */
+  function getRoleLabel(role: string): string {
+    switch (role) {
+      case 'admin': return 'مدير نظام';
+      case 'sales_manager': return 'مدير مبيعات';
+      case 'sales': return 'مندوب مبيعات';
+      default: return role;
     }
   }
 
@@ -494,7 +640,12 @@ export default function DashboardPage() {
           <div>
             <h1 style={{ margin: 0 }}>لوحة التحكم</h1>
             <p style={{ color: '#666', marginTop: '5px' }}>
-              مرحباً {employee?.name} ({employee?.role === 'admin' ? 'مدير' : 'مندوب مبيعات'})
+              مرحباً {employee?.name} ({getRoleLabel(employee?.role || '')})
+              {employee?.projects && employee.projects.length > 0 && (
+                <span style={{ fontSize: '12px', color: '#0d8a3e', marginRight: '10px' }}>
+                  • {employee.projects.length} مشروع
+                </span>
+              )}
             </p>
           </div>
           
@@ -534,6 +685,11 @@ export default function DashboardPage() {
                 <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1a73e8' }}>
                   {stats?.totalClients.toLocaleString()}
                 </div>
+                {employee?.role === 'sales_manager' && (
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                    في مشاريعك ({stats?.managerProjects?.length || 0})
+                  </div>
+                )}
               </div>
               <div style={{ 
                 width: '50px', 
@@ -565,7 +721,9 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>
-                  الوحدات المتاحة {employee?.role === 'sales' && '(مشاريعك)'}
+                  الوحدات المتاحة 
+                  {employee?.role === 'sales' && '(مشاريعك)'}
+                  {employee?.role === 'sales_manager' && '(فريقك)'}
                 </div>
                 <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0d8a3e' }}>
                   {stats?.totalAvailableUnits.toLocaleString()}
@@ -584,7 +742,9 @@ export default function DashboardPage() {
               </div>
             </div>
             <div style={{ marginTop: '15px', fontSize: '12px', color: '#666' }}>
-              {employee?.role === 'admin' ? 'كل المشاريع' : 'المشاريع المرتبطة بك فقط'}
+              {employee?.role === 'admin' ? 'كل المشاريع' : 
+               employee?.role === 'sales_manager' ? 'المشاريع الخاصة بفريقك' : 
+               'المشاريع المرتبطة بك فقط'}
             </div>
           </div>
 
@@ -680,7 +840,7 @@ export default function DashboardPage() {
           marginBottom: '30px'
         }}>
           {/* إحصائيات الوحدات */}
-          <Card title={`توزيع الوحدات ${employee?.role === 'sales' ? '(مشاريعك)' : ''}`}>
+          <Card title={`توزيع الوحدات ${employee?.role === 'sales' ? '(مشاريعك)' : employee?.role === 'sales_manager' ? '(فريقك)' : ''}`}>
             <div style={{ padding: '15px' }}>
               {(() => {
                 const total = (stats?.unitsByStatus.available || 0) + 
@@ -755,65 +915,76 @@ export default function DashboardPage() {
             </div>
           </Card>
 
-          {/* أداء الموظفين الآخرين (للأدمن فقط) */}
-          {employee?.role === 'admin' && stats?.otherEmployeesStats && stats.otherEmployeesStats.length > 0 && (
-            <Card title="أداء فريق المبيعات">
+          {/* أداء الفريق (لـ sales_manager) أو أداء الموظفين (لـ admin) */}
+          {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
+            <Card title={employee?.role === 'admin' ? "أداء فريق المبيعات" : "أداء فريقك"}>
               <div style={{ padding: '15px' }}>
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                  gap: '10px',
-                  marginBottom: '10px',
-                  paddingBottom: '10px',
-                  borderBottom: '1px solid #eee',
-                  fontWeight: 'bold',
-                  fontSize: '12px',
-                  color: '#666'
-                }}>
-                  <div>الاسم</div>
-                  <div style={{ textAlign: 'center' }}>متابعات</div>
-                  <div style={{ textAlign: 'center' }}>حجوزات</div>
-                  <div style={{ textAlign: 'center' }}>تنفيذات</div>
-                  <div style={{ textAlign: 'center' }}>النشاط</div>
-                </div>
-                
-                {stats.otherEmployeesStats.map(empStat => {
-                  const activityLevel = getActivityLevel(empStat.totalActivity);
-                  return (
-                    <div 
-                      key={empStat.id}
-                      style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                        gap: '10px',
-                        padding: '8px 0',
-                        borderBottom: '1px solid #f5f5f5',
-                        fontSize: '14px',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <div>{empStat.name}</div>
-                      <div style={{ textAlign: 'center', color: '#1a73e8' }}>{empStat.followUps}</div>
-                      <div style={{ textAlign: 'center', color: '#fbbc04' }}>{empStat.reservations}</div>
-                      <div style={{ textAlign: 'center', color: '#34a853' }}>{empStat.sales}</div>
-                      <div style={{ textAlign: 'center' }}>
-                        <span style={{ 
-                          padding: '3px 8px', 
-                          borderRadius: '12px', 
-                          fontSize: '11px',
-                          backgroundColor: activityLevel.bgColor,
-                          color: activityLevel.color
-                        }}>
-                          {activityLevel.label}
-                        </span>
-                      </div>
+                {employee?.role === 'sales_manager' && (!stats?.myTeamStats || stats.myTeamStats.length === 0) ? (
+                  <div style={{ textAlign: 'center', color: '#666', padding: '20px' }}>
+                    لا يوجد موظفين في فريقك حالياً
+                    <div style={{ marginTop: '10px', fontSize: '12px' }}>
+                      قم بإضافة موظفين إلى المشاريع الخاصة بك
                     </div>
-                  );
-                })}
-                
-                <div style={{ marginTop: '15px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
-                  المتوسط: {stats.avgFollowUpsPerEmployee} متابعة | {stats.avgReservationsPerEmployee} حجز | {stats.avgSalesPerEmployee} تنفيذ
-                </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
+                      gap: '10px',
+                      marginBottom: '10px',
+                      paddingBottom: '10px',
+                      borderBottom: '1px solid #eee',
+                      fontWeight: 'bold',
+                      fontSize: '12px',
+                      color: '#666'
+                    }}>
+                      <div>الاسم</div>
+                      <div style={{ textAlign: 'center' }}>متابعات</div>
+                      <div style={{ textAlign: 'center' }}>حجوزات</div>
+                      <div style={{ textAlign: 'center' }}>تنفيذات</div>
+                      <div style={{ textAlign: 'center' }}>النشاط</div>
+                    </div>
+                    
+                    {(employee?.role === 'admin' ? stats?.otherEmployeesStats : stats?.myTeamStats)?.map(empStat => {
+                      const activityLevel = getActivityLevel(empStat.totalActivity);
+                      return (
+                        <div 
+                          key={empStat.id}
+                          style={{ 
+                            display: 'grid', 
+                            gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
+                            gap: '10px',
+                            padding: '8px 0',
+                            borderBottom: '1px solid #f5f5f5',
+                            fontSize: '14px',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <div>{empStat.name}</div>
+                          <div style={{ textAlign: 'center', color: '#1a73e8' }}>{empStat.followUps}</div>
+                          <div style={{ textAlign: 'center', color: '#fbbc04' }}>{empStat.reservations}</div>
+                          <div style={{ textAlign: 'center', color: '#34a853' }}>{empStat.sales}</div>
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{ 
+                              padding: '3px 8px', 
+                              borderRadius: '12px', 
+                              fontSize: '11px',
+                              backgroundColor: activityLevel.bgColor,
+                              color: activityLevel.color
+                            }}>
+                              {activityLevel.label}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    <div style={{ marginTop: '15px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
+                      المتوسط: {stats?.avgFollowUpsPerEmployee} متابعة | {stats?.avgReservationsPerEmployee} حجز | {stats?.avgSalesPerEmployee} تنفيذ
+                    </div>
+                  </>
+                )}
               </div>
             </Card>
           )}
@@ -825,7 +996,7 @@ export default function DashboardPage() {
           gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
           gap: '20px' 
         }}>
-          {/* رسوم بيانية بسيطة - مصححة */}
+          {/* مقارنة الأداء */}
           <Card title="مقارنة الأداء">
             <div style={{ padding: '15px' }}>
               <div style={{ marginBottom: '15px' }}>
@@ -928,7 +1099,7 @@ export default function DashboardPage() {
               </div>
               
               <div style={{ marginTop: '15px', fontSize: '12px', color: '#666' }}>
-                <div>🔵 أنت | ⚪ المتوسط بين المندوبين</div>
+                <div>🔵 أنت | ⚪ المتوسط {employee?.role === 'sales_manager' ? 'فريقك' : 'بين المندوبين'}</div>
               </div>
             </div>
           </Card>
@@ -996,6 +1167,50 @@ export default function DashboardPage() {
                 <span style={{ marginRight: '10px', fontSize: '18px' }}>📋</span> إدارة المشاريع
               </button>
               
+              {employee?.role === 'admin' && (
+                <button 
+                  onClick={() => router.push('/dashboard/employees')}
+                  style={{ 
+                    padding: '12px', 
+                    backgroundColor: '#2563eb',
+                    border: '1px solid #ddd',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'all 0.2s',
+                    textAlign: 'right',
+                    color: 'white'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                >
+                  <span style={{ marginRight: '10px', fontSize: '18px' }}>👨‍💼</span> إدارة الموظفين
+                </button>
+              )}
+              
+              {employee?.role === 'sales_manager' && (
+                <button 
+                  onClick={() => router.push('/dashboard/team')}
+                  style={{ 
+                    padding: '12px', 
+                    backgroundColor: '#2563eb',
+                    border: '1px solid #ddd',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'all 0.2s',
+                    textAlign: 'right',
+                    color: 'white'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                >
+                  <span style={{ marginRight: '10px', fontSize: '18px' }}>👥</span> إدارة الفريق
+                </button>
+              )}
+              
               <button 
                 onClick={() => router.push('/dashboard/reservations')}
                 style={{ 
@@ -1047,18 +1262,27 @@ export default function DashboardPage() {
                 width: '40px', 
                 height: '40px', 
                 borderRadius: '50%', 
-                backgroundColor: employee?.role === 'admin' ? '#e6f4ea' : '#e8f0fe',
+                backgroundColor: employee?.role === 'admin' ? '#e6f4ea' : 
+                                 employee?.role === 'sales_manager' ? '#e0e7ff' : '#e8f0fe',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginRight: '15px'
               }}>
-                <span style={{ fontSize: '20px' }}>{employee?.role === 'admin' ? '👨‍💼' : '👤'}</span>
+                <span style={{ fontSize: '20px' }}>
+                  {employee?.role === 'admin' ? '👨‍💼' : 
+                   employee?.role === 'sales_manager' ? '👔' : '👤'}
+                </span>
               </div>
               <div>
                 <div style={{ fontWeight: 'bold' }}>{employee?.name}</div>
                 <div style={{ fontSize: '12px', color: '#666' }}>
-                  {employee?.role === 'admin' ? 'مدير النظام' : 'مندوب مبيعات'} | {employee?.email}
+                  {getRoleLabel(employee?.role || '')} | {employee?.email}
+                  {employee?.projects && employee.projects.length > 0 && (
+                    <span style={{ marginRight: '10px', color: '#0d8a3e' }}>
+                      • {employee.projects.length} مشروع
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1088,7 +1312,7 @@ export default function DashboardPage() {
                 backgroundColor: '#f8f9fa', 
                 padding: '15px', 
                 borderRadius: '8px',
-                borderLeft: '4px solid #fbbc04'
+                borderLeft: '4px solid '#fbbc04'
               }}>
                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>معدل الإنجاز</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
@@ -1103,7 +1327,7 @@ export default function DashboardPage() {
                 backgroundColor: '#f8f9fa', 
                 padding: '15px', 
                 borderRadius: '8px',
-                borderLeft: '4px solid #34a853'
+                borderLeft: '4px solid '#34a853'
               }}>
                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>قيمة التنفيذات</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
@@ -1112,6 +1336,19 @@ export default function DashboardPage() {
                 <div style={{ fontSize: '11px', color: '#666' }}>وحدات تم بيعها</div>
               </div>
             </div>
+            
+            {employee?.role === 'sales_manager' && stats?.myTeamStats && stats.myTeamStats.length > 0 && (
+              <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px', color: '#0c4a6e' }}>
+                  أداء فريقك ({stats.myTeamStats.length} عضو)
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                  <div>إجمالي المتابعات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.followUps, 0)}</div>
+                  <div>إجمالي الحجوزات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.reservations, 0)}</div>
+                  <div>إجمالي التنفيذات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.sales, 0)}</div>
+                </div>
+              </div>
+            )}
             
             <div style={{ marginTop: '20px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
               آخر تحديث: {new Date().toLocaleString('ar-SA')} | الفترة: {timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'آخر أسبوع' : timeRange === 'month' ? 'آخر شهر' : 'الكل'}

@@ -14,7 +14,7 @@ type ModelRef = { name: string };
 
 type Employee = {
   id: string;
-  role: 'admin' | 'sales' | 'sales_manager'; // ← تحديث هنا
+  role: 'admin' | 'sales' | 'sales_manager';
 };
 
 type Unit = {
@@ -209,6 +209,7 @@ export default function UnitsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
   
   // Form States
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -278,8 +279,9 @@ export default function UnitsPage() {
     try {
       const emp = await getCurrentEmployee();
       setEmployee(emp);
-      await loadProjects(emp); // ← تمرير employee كمعامل
+      await loadProjects(emp);
       await loadData();
+      await loadStatsOnly(emp); // تحميل الإحصائيات بشكل منفصل
     } catch (err) {
       console.error('Error in init():', err);
       setError('حدث خطأ في تحميل البيانات');
@@ -361,6 +363,155 @@ export default function UnitsPage() {
     }
   }, []);
 
+  // ### دالة جديدة: جلب الإحصائيات فقط بدون Pagination محدود ###
+  async function loadStatsOnly(emp: Employee | null) {
+    if (!emp) return;
+    
+    setStatsLoading(true);
+    try {
+      let available = 0;
+      let reserved = 0;
+      let sold = 0;
+      let total = 0;
+      let totalPrice = 0;
+      
+      // الحصول على المشاريع المسموحة للموظف
+      let allowedProjectIds: string[] = [];
+      
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        if (allowedProjectIds.length === 0) {
+          // إذا لم يكن هناك مشاريع، الإحصائيات = 0
+          setStats({
+            available: 0,
+            reserved: 0,
+            sold: 0,
+            total: 0,
+            totalPrice: 0
+          });
+          return;
+        }
+      }
+
+      // حساب عدد الوحدات المتاحة
+      let availableQuery = supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'available');
+      
+      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
+        availableQuery = availableQuery.in('project_id', allowedProjectIds);
+      }
+      
+      const { count: availableCount, error: availableError } = await availableQuery;
+      if (availableError) throw availableError;
+      available = availableCount || 0;
+
+      // حساب عدد الوحدات المحجوزة
+      let reservedQuery = supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'reserved');
+      
+      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
+        reservedQuery = reservedQuery.in('project_id', allowedProjectIds);
+      }
+      
+      const { count: reservedCount, error: reservedError } = await reservedQuery;
+      if (reservedError) throw reservedError;
+      reserved = reservedCount || 0;
+
+      // حساب عدد الوحدات المباعة
+      let soldQuery = supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'sold');
+      
+      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
+        soldQuery = soldQuery.in('project_id', allowedProjectIds);
+      }
+      
+      const { count: soldCount, error: soldError } = await soldQuery;
+      if (soldError) throw soldError;
+      sold = soldCount || 0;
+
+      // حساب الإجمالي
+      total = available + reserved + sold;
+
+      // حساب مجموع الأسعار
+      let priceQuery = supabase
+        .from('units')
+        .select('supported_price');
+      
+      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
+        priceQuery = priceQuery.in('project_id', allowedProjectIds);
+      }
+      
+      const { data: priceData, error: priceError } = await priceQuery;
+      if (priceError) throw priceError;
+      
+      if (priceData) {
+        totalPrice = priceData.reduce((sum, unit) => 
+          sum + Number(unit.supported_price || 0), 0
+        );
+      }
+
+      setStats({
+        available,
+        reserved,
+        sold,
+        total,
+        totalPrice
+      });
+      
+    } catch (err) {
+      console.error('Error loading stats:', err);
+      // في حالة الخطأ، نحسب من البيانات الموجودة
+      calculateStatsFromLoadedData();
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
+  // دالة احتياطية: حساب الإحصائيات من البيانات المحملة
+  function calculateStatsFromLoadedData() {
+    if (units.length === 0) return;
+    
+    let available = 0;
+    let reserved = 0;
+    let sold = 0;
+    let totalPrice = 0;
+    
+    for (const unit of units) {
+      switch (unit.status) {
+        case 'available':
+          available++;
+          break;
+        case 'reserved':
+          reserved++;
+          break;
+        case 'sold':
+          sold++;
+          break;
+      }
+      totalPrice += unit.supported_price;
+    }
+    
+    setStats({
+      available,
+      reserved,
+      sold,
+      total: units.length,
+      totalPrice
+    });
+  }
+
   // Main data loading function
   async function loadData() {
     setLoading(true);
@@ -389,13 +540,6 @@ export default function UnitsPage() {
           // إذا لم يكن هناك مشاريع، لا تظهر أي وحدات
           setUnits([]);
           setFilteredUnits([]);
-          setStats({
-            available: 0,
-            reserved: 0,
-            sold: 0,
-            total: 0,
-            totalPrice: 0
-          });
           setLoading(false);
           return;
         }
@@ -416,7 +560,6 @@ export default function UnitsPage() {
       }));
       
       setUnits(normalized);
-      calculateStats(normalized);
       applyFiltersToData(normalized);
       
     } catch (err) {
@@ -425,24 +568,6 @@ export default function UnitsPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  // Calculate statistics
-  function calculateStats(data: Unit[]) {
-    const stats: UnitStats = {
-      available: 0,
-      reserved: 0,
-      sold: 0,
-      total: data.length,
-      totalPrice: 0
-    };
-
-    data.forEach(unit => {
-      stats[unit.status] += 1;
-      stats.totalPrice += unit.supported_price;
-    });
-
-    setStats(stats);
   }
 
   // Apply filters to data
@@ -596,6 +721,7 @@ export default function UnitsPage() {
 
       resetForm();
       await loadData();
+      if (employee) await loadStatsOnly(employee); // تحديث الإحصائيات
     } catch (err) {
       console.error('Error saving unit:', err);
       alert('حدث خطأ في حفظ البيانات');
@@ -654,6 +780,7 @@ export default function UnitsPage() {
       
       alert('تم حذف الوحدة بنجاح');
       await loadData();
+      if (employee) await loadStatsOnly(employee); // تحديث الإحصائيات
     } catch (err) {
       console.error('Error deleting unit:', err);
       alert('حدث خطأ في حذف الوحدة');
@@ -719,6 +846,7 @@ export default function UnitsPage() {
   const endIndex = Math.min(startIndex + itemsPerPage, filteredUnits.length);
   const currentUnits = filteredUnits.slice(startIndex, endIndex);
 
+  // Component for loading state
   if (loading) {
     return (
       <div style={{
@@ -767,7 +895,7 @@ export default function UnitsPage() {
           <p>{error}</p>
         </div>
         <button
-          onClick={loadData}
+          onClick={init}
           style={{
             padding: '10px 20px',
             backgroundColor: '#dc3545',
@@ -804,7 +932,7 @@ export default function UnitsPage() {
             🏠 إدارة الوحدات
           </h1>
           <p style={{ color: '#666', margin: 0 }}>
-            إجمالي الوحدات: <strong>{units.length}</strong> وحدة
+            إجمالي الوحدات: <strong>{stats.total}</strong> وحدة
             {employee && (
               <span style={{ marginRight: '15px', color: '#0d8a3e' }}>
                 • {getRoleLabel(employee.role)}
@@ -851,7 +979,12 @@ export default function UnitsPage() {
           </button>
           
           <button
-            onClick={loadData}
+            onClick={async () => {
+              setLoading(true);
+              await loadData();
+              if (employee) await loadStatsOnly(employee);
+              setLoading(false);
+            }}
             style={{
               padding: '10px 20px',
               backgroundColor: '#17a2b8',
@@ -876,31 +1009,115 @@ export default function UnitsPage() {
         gap: '20px',
         marginBottom: '30px'
       }}>
-        <StatCard 
-          title="المتاحة"
-          value={stats.available}
-          color="#10b981"
-          icon="✅"
-        />
-        <StatCard 
-          title="المحجوزة"
-          value={stats.reserved}
-          color="#f59e0b"
-          icon="⏳"
-        />
-        <StatCard 
-          title="المباعة"
-          value={stats.sold}
-          color="#ef4444"
-          icon="💰"
-        />
-        <StatCard 
-          title="القيمة الإجمالية"
-          value={formatCurrency(stats.totalPrice)}
-          color="#8b5cf6"
-          icon="💎"
-          isCurrency={true}
-        />
+        {statsLoading ? (
+          // حالة التحميل للإحصائيات
+          <>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              padding: '20px',
+              border: '1px solid #e0e0e0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '15px'
+            }}>
+              <div style={{
+                width: '50px',
+                height: '50px',
+                borderRadius: '10px',
+                backgroundColor: '#f3f3f3',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <div style={{
+                  width: '20px',
+                  height: '20px',
+                  border: '2px solid #ddd',
+                  borderTopColor: '#3498db',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite'
+                }}></div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  height: '24px',
+                  backgroundColor: '#f3f3f3',
+                  borderRadius: '4px',
+                  marginBottom: '8px'
+                }}></div>
+                <div style={{
+                  height: '14px',
+                  backgroundColor: '#f3f3f3',
+                  borderRadius: '4px',
+                  width: '60%'
+                }}></div>
+              </div>
+            </div>
+            {/* تكرار نفس البطاقة 3 مرات */}
+            {[1, 2, 3].map(i => (
+              <div key={i} style={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                padding: '20px',
+                border: '1px solid #e0e0e0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '15px'
+              }}>
+                <div style={{
+                  width: '50px',
+                  height: '50px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f3f3f3'
+                }}></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    height: '24px',
+                    backgroundColor: '#f3f3f3',
+                    borderRadius: '4px',
+                    marginBottom: '8px'
+                  }}></div>
+                  <div style={{
+                    height: '14px',
+                    backgroundColor: '#f3f3f3',
+                    borderRadius: '4px',
+                    width: '60%'
+                  }}></div>
+                </div>
+              </div>
+            ))}
+          </>
+        ) : (
+          // الإحصائيات الفعلية
+          <>
+            <StatCard 
+              title="المتاحة"
+              value={stats.available}
+              color="#10b981"
+              icon="✅"
+            />
+            <StatCard 
+              title="المحجوزة"
+              value={stats.reserved}
+              color="#f59e0b"
+              icon="⏳"
+            />
+            <StatCard 
+              title="المباعة"
+              value={stats.sold}
+              color="#ef4444"
+              icon="💰"
+            />
+            <StatCard 
+              title="القيمة الإجمالية"
+              value={formatCurrency(stats.totalPrice)}
+              color="#8b5cf6"
+              icon="💎"
+              isCurrency={true}
+            />
+          </>
+        )}
       </div>
 
       {/* ===== FILTERS PANEL ===== */}
@@ -1303,7 +1520,7 @@ export default function UnitsPage() {
         </div>
       </div>
 
-      {/* ===== ADD/EDIT FORM (Admin Only) ===== */}
+      {/* ===== ADD/EDIT FORM (Admin و Sales Manager فقط) ===== */}
       {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
         <div style={{ 
           backgroundColor: 'white',
@@ -1982,10 +2199,18 @@ export default function UnitsPage() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للوحدات: {new Date().toLocaleString('ar-SA')}</span>
-          <span>نتائج البحث: {filteredUnits.length} من {units.length}</span>
+          <span>نتائج البحث: {filteredUnits.length} من {stats.total} وحدة</span>
           <span>القيمة الإجمالية: {formatCurrency(stats.totalPrice)}</span>
         </div>
       </div>
+
+      {/* CSS للـ loading spinner */}
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

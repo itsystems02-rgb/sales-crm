@@ -39,7 +39,7 @@ type Option = {
 
 type Employee = {
   id: string;
-  role: 'admin' | 'sales';
+  role: 'admin' | 'sales' | 'sales_manager';
 };
 
 type ClientStats = {
@@ -52,7 +52,6 @@ type ClientStats = {
   total: number;
 };
 
-// نوع جديد لفلتر العملاء
 type ClientFilters = {
   search: string;
   status: string[];
@@ -126,10 +125,8 @@ function translateEligible(eligible: boolean) {
    Excel Import/Export Functions
 ===================== */
 
-// تصدير البيانات إلى Excel
 function exportToExcel(clients: ClientListItem[], fileName: string = 'العملاء.xlsx') {
   try {
-    // تحويل البيانات إلى تنسيق مناسب لـ Excel
     const excelData = clients.map(client => ({
       'اسم العميل': client.name,
       'رقم الجوال': client.mobile || '-',
@@ -143,14 +140,9 @@ function exportToExcel(clients: ClientListItem[], fileName: string = 'العمل
       'تاريخ الإنشاء': new Date(client.created_at).toLocaleDateString('ar-SA'),
     }));
 
-    // إنشاء ورقة عمل
     const ws = XLSX.utils.json_to_sheet(excelData);
-    
-    // إنشاء مصنف
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'العملاء');
-    
-    // تنزيل الملف
     XLSX.writeFile(wb, fileName);
     
     return true;
@@ -161,7 +153,6 @@ function exportToExcel(clients: ClientListItem[], fileName: string = 'العمل
   }
 }
 
-// استيراد البيانات من Excel
 async function importFromExcel(file: File, onSuccess?: (data: any[]) => void, onError?: (error: string) => void) {
   try {
     const reader = new FileReader();
@@ -170,12 +161,8 @@ async function importFromExcel(file: File, onSuccess?: (data: any[]) => void, on
       try {
         const data = e.target?.result;
         const workbook = XLSX.read(data, { type: 'binary' });
-        
-        // الحصول على أول ورقة
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        
-        // تحويل الورقة إلى JSON
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
         
         console.log('Imported data:', jsonData);
@@ -212,20 +199,17 @@ async function importFromExcel(file: File, onSuccess?: (data: any[]) => void, on
 export default function ClientsPage() {
   const router = useRouter();
   const [employee, setEmployee] = useState<Employee | null>(null);
-
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [banks, setBanks] = useState<Option[]>([]);
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   
-  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [totalClients, setTotalClients] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   
-  // Statistics states
   const [clientStats, setClientStats] = useState<ClientStats>({
     leads: 0,
     reserved: 0,
@@ -236,13 +220,11 @@ export default function ClientsPage() {
     total: 0
   });
   
-  // Excel import states
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [showImportErrors, setShowImportErrors] = useState(false);
 
-  // Filter states
   const [filters, setFilters] = useState<ClientFilters>({
     search: '',
     status: [],
@@ -258,7 +240,6 @@ export default function ClientsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [isFiltered, setIsFiltered] = useState(false);
 
-  // form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
@@ -278,7 +259,6 @@ export default function ClientsPage() {
      LOAD DATA FUNCTIONS
   ===================== */
   
-  // جلب البنوك
   const fetchBanks = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('banks').select('id,name').order('name');
@@ -292,7 +272,6 @@ export default function ClientsPage() {
     }
   }, []);
 
-  // جلب القطاعات الوظيفية
   const fetchJobSectors = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('job_sectors').select('id,name').order('name');
@@ -306,10 +285,8 @@ export default function ClientsPage() {
     }
   }, []);
 
-  // دالة جديدة لجلب إحصائيات العملاء
   const fetchClientStats = useCallback(async (emp: Employee | null = null) => {
     try {
-      // دالة مساعدة للحصول على العدد
       const getCount = async (field: string, value?: any) => {
         let query = supabase
           .from('clients')
@@ -321,14 +298,11 @@ export default function ClientsPage() {
           query = query.eq('eligible', value);
         }
 
-        // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
-
         const { count, error } = await query;
         if (error) throw error;
         return count || 0;
       };
 
-      // جلب جميع الإحصائيات بالتوازي
       const [leads, reserved, visited, converted, eligible, nonEligible, total] = await Promise.all([
         getCount('status', 'lead'),
         getCount('status', 'reserved'),
@@ -336,7 +310,7 @@ export default function ClientsPage() {
         getCount('status', 'converted'),
         getCount('eligible', true),
         getCount('eligible', false),
-        getCount('') // بدون filter للحصول على الإجمالي
+        getCount('')
       ]);
 
       const stats: ClientStats = {
@@ -348,18 +322,6 @@ export default function ClientsPage() {
         nonEligible,
         total
       };
-
-      console.log('Client Statistics:', {
-        leads,
-        reserved,
-        visited,
-        converted,
-        eligible,
-        nonEligible,
-        total,
-        sum: leads + reserved + visited + converted,
-        isValid: (leads + reserved + visited + converted) === total
-      });
 
       setClientStats(stats);
       setTotalClients(total);
@@ -380,9 +342,6 @@ export default function ClientsPage() {
     }
   }, [itemsPerPage]);
 
-  /* =====================
-     INIT
-  ===================== */
   useEffect(() => {
     async function init() {
       setLoading(true);
@@ -413,7 +372,6 @@ export default function ClientsPage() {
      FILTER FUNCTIONS
   ===================== */
   
-  // تحديث الفلاتر
   const updateFilter = (key: keyof ClientFilters, value: any) => {
     setFilters(prev => ({
       ...prev,
@@ -421,7 +379,6 @@ export default function ClientsPage() {
     }));
   };
 
-  // تحديث فلاتر الحالة
   const handleStatusFilter = (status: string, checked: boolean) => {
     const newStatus = checked 
       ? [...filters.status, status]
@@ -430,14 +387,12 @@ export default function ClientsPage() {
     updateFilter('status', newStatus);
   };
 
-  // تطبيق الفلاتر
   const applyFilters = () => {
-    setCurrentPage(1); // العودة للصفحة الأولى عند التصفية
+    setCurrentPage(1);
     loadClients(employee, 1);
     setIsFiltered(true);
   };
 
-  // إعادة تعيين الفلاتر
   const resetFilters = () => {
     setFilters({
       search: '',
@@ -455,7 +410,6 @@ export default function ClientsPage() {
     setIsFiltered(false);
   };
 
-  // التحقق إذا كانت هناك فلاتر نشطة
   const hasActiveFilters = () => {
     return filters.search || 
            filters.status.length > 0 || 
@@ -468,7 +422,6 @@ export default function ClientsPage() {
            filters.to_date;
   };
 
-  // دالة للتعامل مع ضغط المفاتيح
   const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       applyFilters();
@@ -489,54 +442,43 @@ export default function ClientsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      // تطبيق فلاتر البحث
       if (filters.search) {
         query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
       }
 
-      // تطبيق فلاتر الحالة
       if (filters.status.length > 0) {
         query = query.in('status', filters.status);
       }
 
-      // تطبيق فلتر الأهلية
       if (filters.eligible !== null) {
         query = query.eq('eligible', filters.eligible === 'true');
       }
 
-      // تطبيق فلتر الجنسية
       if (filters.nationality !== null) {
         query = query.eq('nationality', filters.nationality);
       }
 
-      // تطبيق فلتر بنك الراتب
       if (filters.salary_bank_id !== null) {
         query = query.eq('salary_bank_id', filters.salary_bank_id);
       }
 
-      // تطبيق فلتر بنك التمويل
       if (filters.finance_bank_id !== null) {
         query = query.eq('finance_bank_id', filters.finance_bank_id);
       }
 
-      // تطبيق فلتر القطاع الوظيفي
       if (filters.job_sector_id !== null) {
         query = query.eq('job_sector_id', filters.job_sector_id);
       }
 
-      // تطبيق فلاتر التاريخ
       if (filters.from_date) {
         query = query.gte('created_at', filters.from_date);
       }
 
       if (filters.to_date) {
-        // إضافة يوم كامل للنهاية
         const nextDay = new Date(filters.to_date);
         nextDay.setDate(nextDay.getDate() + 1);
         query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
       }
-
-      // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
 
       const { data, error, count } = await query;
       
@@ -557,9 +499,6 @@ export default function ClientsPage() {
     }
   }, [currentPage, itemsPerPage, filters, employee]);
 
-  /* =====================
-     Pagination Handlers
-  ===================== */
   useEffect(() => {
     if (employee) {
       loadClients(employee, currentPage);
@@ -575,7 +514,7 @@ export default function ClientsPage() {
   const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = parseInt(e.target.value);
     setItemsPerPage(value);
-    setCurrentPage(1); // العودة إلى الصفحة الأولى عند تغيير عدد العناصر
+    setCurrentPage(1);
   };
 
   /* =====================
@@ -639,8 +578,8 @@ export default function ClientsPage() {
   }
 
   async function handleDeleteClient(clientId: string) {
-    // التحقق من الصلاحية
-    if (employee?.role !== 'admin') {
+    // التحقق من الصلاحية - للمدير والمشرف فقط
+    if (employee?.role !== 'admin' && employee?.role !== 'sales_manager') {
       alert('لا تملك صلاحية حذف العملاء');
       return;
     }
@@ -649,7 +588,6 @@ export default function ClientsPage() {
     if (!confirmDelete) return;
 
     try {
-      // التحقق إذا كان العميل مرتبط بحجوزات
       const { count: reservationsCount } = await supabase
         .from('reservations')
         .select('id', { count: 'exact', head: true })
@@ -680,14 +618,13 @@ export default function ClientsPage() {
   }
 
   async function handleEditClient(clientId: string) {
-    // التحقق من الصلاحية
-    if (employee?.role !== 'admin') {
+    // التحقق من الصلاحية - للمدير والمشرف فقط
+    if (employee?.role !== 'admin' && employee?.role !== 'sales_manager') {
       alert('لا تملك صلاحية تعديل العملاء');
       return;
     }
 
     try {
-      // جلب بيانات العميل
       const { data: client, error } = await supabase
         .from('clients')
         .select('*')
@@ -704,7 +641,6 @@ export default function ClientsPage() {
         return;
       }
 
-      // تعبئة النموذج للتحرير
       setEditingId(client.id);
       setName(client.name);
       setMobile(client.mobile);
@@ -718,7 +654,6 @@ export default function ClientsPage() {
       setFinanceBankId(client.finance_bank_id || '');
       setJobSectorId(client.job_sector_id || '');
       
-      // نقل التركيز للنموذج
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       console.error('Error editing client:', error);
@@ -777,22 +712,19 @@ export default function ClientsPage() {
      Excel Import/Export Handlers
   ===================== */
 
-  // معالجة البيانات المستوردة
   const processImportedClients = useCallback(async (data: any[]) => {
     const processedClients = [];
     const errors = [];
     
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      const rowNumber = i + 2; // +2 لأن الصف الأول هو العناوين
+      const rowNumber = i + 2;
       
       try {
-        // جمع البيانات الأساسية
         const name = row['اسم العميل'] || row['name'] || row['Name'];
         const mobile = row['رقم الجوال'] || row['mobile'] || row['Mobile'];
         const email = row['البريد الإلكتروني'] || row['email'] || row['Email'];
         
-        // التحقق من البيانات المطلوبة
         if (!name) {
           errors.push(`الصف ${rowNumber}: اسم العميل مطلوب`);
           continue;
@@ -803,7 +735,6 @@ export default function ClientsPage() {
           continue;
         }
         
-        // تحويل نوع الهوية
         const identityTypeMap: Record<string, string> = {
           'الهوية': 'national_id',
           'جواز سفر': 'passport',
@@ -818,7 +749,6 @@ export default function ClientsPage() {
         
         const identityNo = row['رقم الهوية'] || row['identity_no'] || row['Identity No'] || null;
         
-        // تحويل الجنسية
         const nationalityMap: Record<string, 'saudi' | 'non_saudi'> = {
           'سعودي': 'saudi',
           'غير سعودي': 'non_saudi',
@@ -829,11 +759,9 @@ export default function ClientsPage() {
         const nationalityText = row['الجنسية'] || row['nationality'] || row['Nationality'] || 'saudi';
         const nationality = nationalityMap[nationalityText] || 'saudi';
         
-        // تحويل نوع الإقامة
         const residencyTypeText = row['نوع الإقامة'] || row['residency_type'] || row['Residency Type'] || '';
         const residencyType = nationality === 'non_saudi' ? (residencyTypeText || null) : null;
         
-        // تحويل الحالة
         const statusMap: Record<string, string> = {
           'متابعة': 'lead',
           'محجوز': 'reserved',
@@ -848,7 +776,6 @@ export default function ClientsPage() {
         const statusText = row['الحالة'] || row['status'] || row['Status'] || 'lead';
         const status = statusMap[statusText] || 'lead';
         
-        // تحويل الأهلية
         const eligibleMap: Record<string, boolean> = {
           'مستحق': true,
           'غير مستحق': false,
@@ -863,7 +790,6 @@ export default function ClientsPage() {
         const eligibleText = row['الأهلية'] || row['eligible'] || row['Eligible'] || 'مستحق';
         const eligible = eligibleMap[eligibleText] !== undefined ? eligibleMap[eligibleText] : true;
         
-        // البحث عن البنوك
         const salaryBankName = row['بنك الراتب'] || row['salary_bank'] || row['Salary Bank'];
         const financeBankName = row['بنك التمويل'] || row['finance_bank'] || row['Finance Bank'];
         
@@ -888,7 +814,6 @@ export default function ClientsPage() {
           if (bank) financeBankId = bank.id;
         }
         
-        // البحث عن القطاع الوظيفي
         const jobSectorName = row['القطاع الوظيفي'] || row['job_sector'] || row['Job Sector'];
         let jobSectorId = null;
         
@@ -901,7 +826,6 @@ export default function ClientsPage() {
           if (jobSector) jobSectorId = jobSector.id;
         }
         
-        // إنشاء كائن العميل
         const client = {
           name,
           mobile,
@@ -943,7 +867,6 @@ export default function ClientsPage() {
 
     setLoading(true);
     
-    // جلب العملاء حسب الفلاتر
     const fetchFilteredClients = async () => {
       try {
         let query = supabase
@@ -951,7 +874,6 @@ export default function ClientsPage() {
           .select('*')
           .order('created_at', { ascending: false });
 
-        // تطبيق نفس الفلاتر
         if (filters.search) {
           query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
         }
@@ -990,8 +912,6 @@ export default function ClientsPage() {
           query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
         }
 
-        // ملاحظة: إذا كان هناك تصفية للمبيعات بناءً على المشاريع، أضفها هنا
-
         const { data, error } = await query;
         if (error) throw error;
 
@@ -1022,7 +942,6 @@ export default function ClientsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // التحقق من نوع الملف
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
       alert('الرجاء اختيار ملف Excel بصيغة .xlsx أو .xls أو .csv');
       return;
@@ -1034,11 +953,9 @@ export default function ClientsPage() {
     setShowImportErrors(false);
 
     try {
-      // تحميل الملف ومعالجته
       await importFromExcel(
         file,
         async (data) => {
-          // معالجة البيانات المستوردة
           const { processedClients, errors } = await processImportedClients(data);
           
           if (errors.length > 0) {
@@ -1054,7 +971,6 @@ export default function ClientsPage() {
 
           setImportProgress(30);
 
-          // إضافة العملاء إلى قاعدة البيانات
           let successCount = 0;
           let errorCount = 0;
           
@@ -1071,7 +987,6 @@ export default function ClientsPage() {
                 successCount = successCount + 1;
               }
               
-              // تحديث التقدم
               const progress = 30 + Math.floor((i + 1) / processedClients.length * 70);
               setImportProgress(progress);
               
@@ -1083,7 +998,6 @@ export default function ClientsPage() {
           
           setImportProgress(100);
           
-          // عرض النتائج
           let message = `تم استيراد ${successCount} عميل بنجاح.`;
           if (errorCount > 0) {
             message += ` فشل استيراد ${errorCount} عميل.`;
@@ -1094,11 +1008,9 @@ export default function ClientsPage() {
           
           alert(message);
           
-          // إعادة تحميل البيانات والإحصائيات
           await loadClients(employee, currentPage);
           await fetchClientStats(employee);
           
-          // إعادة تعيين حقل الملف
           if (fileInputRef.current) {
             fileInputRef.current.value = '';
           }
@@ -1116,7 +1028,6 @@ export default function ClientsPage() {
   }
 
   function downloadTemplate() {
-    // إنشاء قالب Excel
     const templateData = [
       {
         'اسم العميل': 'محمد أحمد',
@@ -1146,8 +1057,8 @@ export default function ClientsPage() {
   return (
     <RequireAuth>
       <div className="page">
-        {/* Excel Import/Export Section - للادمن فقط */}
-        {employee?.role === 'admin' && (
+        {/* Excel Import/Export Section - للادمن ومدير المبيعات فقط */}
+        {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
           <Card title="استيراد وتصدير البيانات">
             <div className="form-row" style={{ gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
               <Button onClick={handleExportExcel} disabled={totalClients === 0 || loading}>
@@ -1246,8 +1157,8 @@ export default function ClientsPage() {
           </Card>
         )}
 
-        {/* FORM */}
-        {(employee?.role === 'admin' || employee?.role === 'sales') && (
+        {/* FORM - لجميع الأدوار */}
+        {(employee?.role === 'admin' || employee?.role === 'sales' || employee?.role === 'sales_manager') && (
           <Card title={editingId ? 'تعديل عميل' : 'إضافة عميل'}>
             <div className="form-row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <Input 
@@ -1383,7 +1294,6 @@ export default function ClientsPage() {
               </div>
             </div>
             
-            {/* Search Bar */}
             <div style={{ marginBottom: '15px' }}>
               <div style={{ position: 'relative' }}>
                 <input
@@ -1421,7 +1331,6 @@ export default function ClientsPage() {
               </div>
             </div>
             
-            {/* Advanced Filters */}
             {showFilters && (
               <div style={{ 
                 backgroundColor: '#f8f9fa', 
@@ -1432,7 +1341,6 @@ export default function ClientsPage() {
               }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px' }}>
                   
-                  {/* Status Filters */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       الحالة:
@@ -1452,7 +1360,6 @@ export default function ClientsPage() {
                     </div>
                   </div>
                   
-                  {/* Eligibility Filter */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       الأهلية:
@@ -1476,7 +1383,6 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* Nationality Filter */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       الجنسية:
@@ -1500,7 +1406,6 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* Salary Bank Filter */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       بنك الراتب:
@@ -1525,7 +1430,6 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* Finance Bank Filter */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       بنك التمويل:
@@ -1550,7 +1454,6 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* Job Sector Filter */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       القطاع الوظيفي:
@@ -1575,7 +1478,6 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* Date Range Filters */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       تاريخ الإضافة:
@@ -1620,7 +1522,6 @@ export default function ClientsPage() {
                   
                 </div>
                 
-                {/* Active Filters Badges */}
                 {hasActiveFilters() && (
                   <div style={{ marginTop: '20px', paddingTop: '15px', borderTop: '1px solid #dee2e6' }}>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
@@ -1742,7 +1643,6 @@ export default function ClientsPage() {
                   </div>
                 )}
                 
-                {/* Apply Filters Button */}
                 <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
                   <Button 
                     onClick={applyFilters}
@@ -1758,8 +1658,8 @@ export default function ClientsPage() {
 
         {/* جدول العملاء */}
         <Card title={`قائمة العملاء (${totalClients.toLocaleString()})`}>
-          {/* Statistics Section */}
-          {(employee?.role === 'admin') && (
+          {/* Statistics Section - للادمن ومدير المبيعات */}
+          {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
             <div style={{ 
               display: 'flex', 
               justifyContent: 'space-between', 
@@ -1856,7 +1756,8 @@ export default function ClientsPage() {
                       >
                         فتح
                       </Button>
-                      {employee?.role === 'admin' && (
+                      {/* عرض أزرار التعديل والحذف للمدير والمشرف فقط */}
+                      {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
                         <>
                           <Button 
                             onClick={() => handleEditClient(c.id)}
@@ -1878,7 +1779,6 @@ export default function ClientsPage() {
             )}
           </Table>
 
-          {/* Pagination Footer */}
           {totalPages > 1 && (
             <div style={{ 
               display: 'flex', 

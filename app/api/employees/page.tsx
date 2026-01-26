@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -20,7 +20,7 @@ type Employee = {
   mobile: string | null;
   email: string;
   status: 'active' | 'inactive';
-  role: 'admin' | 'sales' | 'sales_manager'; // ← أضفنا sales_manager
+  role: 'admin' | 'sales' | 'sales_manager';
 };
 
 // وظيفة لتحويل role code إلى نص عربي
@@ -51,7 +51,7 @@ export default function EmployeesPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
-  const [role, setRole] = useState<'admin' | 'sales' | 'sales_manager'>('sales'); // ← تحديث القيمة الافتراضية
+  const [role, setRole] = useState<'admin' | 'sales' | 'sales_manager'>('sales');
 
   /* =========================
      ACCESS CONTROL
@@ -257,14 +257,13 @@ export default function EmployeesPage() {
 
             {/* ===== FORM ===== */}
             <Card title={editingId ? 'تعديل موظف' : 'إضافة موظف جديد'}>
-              <div className="form-grid">
+              <div className="form-col">
                 <div className="form-group">
                   <label className="form-label">اسم الموظف *</label>
                   <Input
                     placeholder="أدخل اسم الموظف"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
                   />
                 </div>
 
@@ -273,7 +272,7 @@ export default function EmployeesPage() {
                   <Input
                     placeholder="أدخل المسمى الوظيفي"
                     value={jobTitle}
-                    onChange={(e) => setJobTitle(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setJobTitle(e.target.value)}
                   />
                 </div>
 
@@ -282,7 +281,7 @@ export default function EmployeesPage() {
                   <Input
                     placeholder="أدخل رقم الجوال"
                     value={mobile}
-                    onChange={(e) => setMobile(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setMobile(e.target.value)}
                   />
                 </div>
 
@@ -292,8 +291,7 @@ export default function EmployeesPage() {
                     type="email"
                     placeholder="example@company.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                   />
                 </div>
 
@@ -304,8 +302,7 @@ export default function EmployeesPage() {
                       type="password"
                       placeholder="أدخل كلمة مرور قوية"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                     />
                   </div>
                 )}
@@ -335,8 +332,8 @@ export default function EmployeesPage() {
                   </select>
                 </div>
 
-                <div className="form-group col-span-2" style={{ gridColumn: 'span 2' }}>
-                  <div className="flex gap-3 mt-4">
+                <div className="form-actions">
+                  <div className="flex gap-3">
                     <Button 
                       onClick={handleSubmit} 
                       disabled={loading}
@@ -377,7 +374,7 @@ export default function EmployeesPage() {
                     </tr>
                   ) : (
                     employees.map((e) => (
-                      <tr key={e.id} className="hover:bg-gray-50">
+                      <tr key={e.id}>
                         <td className="font-medium">{e.name}</td>
                         <td>{e.job_title || '-'}</td>
                         <td dir="ltr">{e.mobile || '-'}</td>
@@ -413,7 +410,7 @@ export default function EmployeesPage() {
                             <button
                               className="btn-sm btn-danger"
                               onClick={() => deleteEmployee(e.id)}
-                              disabled={e.role === 'admin'} // منع حذف المديرين
+                              disabled={e.role === 'admin'}
                             >
                               حذف
                             </button>

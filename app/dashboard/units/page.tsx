@@ -72,6 +72,154 @@ const UNIT_STATUSES = [
   { value: 'sold', label: 'مباعة', color: '#ef4444' },
 ] as const;
 
+// ===================== دالة مساعدة لجلب جميع البيانات مع Pagination =====================
+async function fetchAllUnits(employee: Employee | null): Promise<Unit[]> {
+  const allUnits: any[] = [];
+  const pageSize = 1000;
+  let page = 0;
+  let hasMore = true;
+
+  try {
+    while (hasMore) {
+      let query = supabase
+        .from('units')
+        .select(`
+          *,
+          project:projects!units_project_id_fkey (name,code),
+          model:project_models!units_model_id_fkey (name)
+        `)
+        .order('created_at', { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      // Apply role-based filtering
+      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', employee.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        if (allowedProjectIds.length > 0) {
+          query = query.in('project_id', allowedProjectIds);
+        } else {
+          return []; // لا توجد مشاريع مسموحة
+        }
+      }
+
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching units page', page, ':', error);
+        break;
+      }
+
+      if (data && data.length > 0) {
+        // Normalize data
+        const normalized = data.map((item: any) => ({
+          ...item,
+          project: normalizeRel<ProjectRef>(item.project),
+          model: normalizeRel<ModelRef>(item.model),
+          supported_price: Number(item.supported_price || 0),
+          land_area: item.land_area ? Number(item.land_area) : null,
+          build_area: item.build_area ? Number(item.build_area) : null,
+        }));
+        
+        allUnits.push(...normalized);
+        page++;
+        
+        // إذا كان عدد النتائج أقل من pageSize، فهذا يعني وصلنا للنهاية
+        if (data.length < pageSize) {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    return allUnits;
+  } catch (err) {
+    console.error('Error in fetchAllUnits:', err);
+    return [];
+  }
+}
+
+// ===================== دالة مساعدة لجلب الإحصائيات فقط =====================
+async function fetchUnitStats(employee: Employee | null): Promise<UnitStats> {
+  const stats: UnitStats = {
+    available: 0,
+    reserved: 0,
+    sold: 0,
+    total: 0,
+    totalPrice: 0
+  };
+
+  try {
+    // استخدام COUNT لجميع الحالات في استعلام واحد
+    const statuses: Unit['status'][] = ['available', 'reserved', 'sold'];
+    
+    for (const status of statuses) {
+      let query = supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', status);
+      
+      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', employee.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        if (allowedProjectIds.length > 0) {
+          query = query.in('project_id', allowedProjectIds);
+        } else {
+          return stats; // لا توجد مشاريع مسموحة
+        }
+      }
+      
+      const { count, error } = await query;
+      if (error) throw error;
+      
+      stats[status] = count || 0;
+    }
+    
+    stats.total = stats.available + stats.reserved + stats.sold;
+    
+    // حساب مجموع الأسعار
+    let priceQuery = supabase
+      .from('units')
+      .select('supported_price');
+    
+    if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+      const { data: employeeProjects } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', employee.id);
+
+      const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+      if (allowedProjectIds.length > 0) {
+        priceQuery = priceQuery.in('project_id', allowedProjectIds);
+      } else {
+        return stats;
+      }
+    }
+    
+    const { data: priceData, error: priceError } = await priceQuery;
+    if (priceError) throw priceError;
+    
+    if (priceData) {
+      stats.totalPrice = priceData.reduce((sum, unit) => 
+        sum + Number(unit.supported_price || 0), 0
+      );
+    }
+    
+    return stats;
+  } catch (err) {
+    console.error('Error fetching unit stats:', err);
+    return stats;
+  }
+}
+
 /* =====================
    Helpers
 ===================== */
@@ -248,7 +396,7 @@ export default function UnitsPage() {
     sortOrder: 'desc'
   });
 
-  // Pagination
+  // Pagination للعرض فقط
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
 
@@ -280,8 +428,7 @@ export default function UnitsPage() {
       const emp = await getCurrentEmployee();
       setEmployee(emp);
       await loadProjects(emp);
-      await loadData();
-      await loadStatsOnly(emp); // تحميل الإحصائيات بشكل منفصل
+      await loadAllData(emp); // تحميل كل البيانات
     } catch (err) {
       console.error('Error in init():', err);
       setError('حدث خطأ في تحميل البيانات');
@@ -308,7 +455,7 @@ export default function UnitsPage() {
           query = query.in('id', allowedProjectIds);
         } else {
           setProjects([]);
-          return; // إذا لم يكن هناك مشاريع، لا نحتاج لتحميل شيء
+          return;
         }
       }
 
@@ -363,210 +510,31 @@ export default function UnitsPage() {
     }
   }, []);
 
-  // ### دالة جديدة: جلب الإحصائيات فقط بدون Pagination محدود ###
-  async function loadStatsOnly(emp: Employee | null) {
-    if (!emp) return;
-    
-    setStatsLoading(true);
-    try {
-      let available = 0;
-      let reserved = 0;
-      let sold = 0;
-      let total = 0;
-      let totalPrice = 0;
-      
-      // الحصول على المشاريع المسموحة للموظف
-      let allowedProjectIds: string[] = [];
-      
-      if (emp.role === 'sales' || emp.role === 'sales_manager') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
-
-        allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        
-        if (allowedProjectIds.length === 0) {
-          // إذا لم يكن هناك مشاريع، الإحصائيات = 0
-          setStats({
-            available: 0,
-            reserved: 0,
-            sold: 0,
-            total: 0,
-            totalPrice: 0
-          });
-          return;
-        }
-      }
-
-      // حساب عدد الوحدات المتاحة
-      let availableQuery = supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'available');
-      
-      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
-        availableQuery = availableQuery.in('project_id', allowedProjectIds);
-      }
-      
-      const { count: availableCount, error: availableError } = await availableQuery;
-      if (availableError) throw availableError;
-      available = availableCount || 0;
-
-      // حساب عدد الوحدات المحجوزة
-      let reservedQuery = supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'reserved');
-      
-      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
-        reservedQuery = reservedQuery.in('project_id', allowedProjectIds);
-      }
-      
-      const { count: reservedCount, error: reservedError } = await reservedQuery;
-      if (reservedError) throw reservedError;
-      reserved = reservedCount || 0;
-
-      // حساب عدد الوحدات المباعة
-      let soldQuery = supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'sold');
-      
-      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
-        soldQuery = soldQuery.in('project_id', allowedProjectIds);
-      }
-      
-      const { count: soldCount, error: soldError } = await soldQuery;
-      if (soldError) throw soldError;
-      sold = soldCount || 0;
-
-      // حساب الإجمالي
-      total = available + reserved + sold;
-
-      // حساب مجموع الأسعار
-      let priceQuery = supabase
-        .from('units')
-        .select('supported_price');
-      
-      if (emp.role !== 'admin' && allowedProjectIds.length > 0) {
-        priceQuery = priceQuery.in('project_id', allowedProjectIds);
-      }
-      
-      const { data: priceData, error: priceError } = await priceQuery;
-      if (priceError) throw priceError;
-      
-      if (priceData) {
-        totalPrice = priceData.reduce((sum, unit) => 
-          sum + Number(unit.supported_price || 0), 0
-        );
-      }
-
-      setStats({
-        available,
-        reserved,
-        sold,
-        total,
-        totalPrice
-      });
-      
-    } catch (err) {
-      console.error('Error loading stats:', err);
-      // في حالة الخطأ، نحسب من البيانات الموجودة
-      calculateStatsFromLoadedData();
-    } finally {
-      setStatsLoading(false);
-    }
-  }
-
-  // دالة احتياطية: حساب الإحصائيات من البيانات المحملة
-  function calculateStatsFromLoadedData() {
-    if (units.length === 0) return;
-    
-    let available = 0;
-    let reserved = 0;
-    let sold = 0;
-    let totalPrice = 0;
-    
-    for (const unit of units) {
-      switch (unit.status) {
-        case 'available':
-          available++;
-          break;
-        case 'reserved':
-          reserved++;
-          break;
-        case 'sold':
-          sold++;
-          break;
-      }
-      totalPrice += unit.supported_price;
-    }
-    
-    setStats({
-      available,
-      reserved,
-      sold,
-      total: units.length,
-      totalPrice
-    });
-  }
-
-  // Main data loading function
-  async function loadData() {
+  // ### دالة جديدة: تحميل كل البيانات والإحصائيات ###
+  async function loadAllData(emp: Employee | null) {
     setLoading(true);
+    setStatsLoading(true);
     setError(null);
     
     try {
-      let query = supabase
-        .from('units')
-        .select(`
-          *,
-          project:projects!units_project_id_fkey (name,code),
-          model:project_models!units_model_id_fkey (name)
-        `);
-
-      // Apply role-based filtering
-      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', employee.id);
-
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        if (allowedProjectIds.length > 0) {
-          query = query.in('project_id', allowedProjectIds);
-        } else {
-          // إذا لم يكن هناك مشاريع، لا تظهر أي وحدات
-          setUnits([]);
-          setFilteredUnits([]);
-          setLoading(false);
-          return;
-        }
-      }
-
-      const { data, error } = await query;
+      // تحميل الإحصائيات أولاً
+      const statsData = await fetchUnitStats(emp);
+      setStats(statsData);
+      setStatsLoading(false);
       
-      if (error) throw error;
+      // تحميل كل الوحدات
+      const allUnits = await fetchAllUnits(emp);
+      setUnits(allUnits);
       
-      // Normalize data
-      const normalized: Unit[] = (data || []).map((item: any) => ({
-        ...item,
-        project: normalizeRel<ProjectRef>(item.project),
-        model: normalizeRel<ModelRef>(item.model),
-        supported_price: Number(item.supported_price || 0),
-        land_area: item.land_area ? Number(item.land_area) : null,
-        build_area: item.build_area ? Number(item.build_area) : null,
-      }));
-      
-      setUnits(normalized);
-      applyFiltersToData(normalized);
+      // تطبيق الفلاتر على كل البيانات
+      applyFiltersToData(allUnits);
       
     } catch (err) {
-      console.error('Error loading units:', err);
+      console.error('Error loading all data:', err);
       setError('حدث خطأ في تحميل البيانات من قاعدة البيانات');
     } finally {
       setLoading(false);
+      setStatsLoading(false);
     }
   }
 
@@ -720,8 +688,7 @@ export default function UnitsPage() {
       }
 
       resetForm();
-      await loadData();
-      if (employee) await loadStatsOnly(employee); // تحديث الإحصائيات
+      if (employee) await loadAllData(employee);
     } catch (err) {
       console.error('Error saving unit:', err);
       alert('حدث خطأ في حفظ البيانات');
@@ -779,8 +746,7 @@ export default function UnitsPage() {
       if (error) throw error;
       
       alert('تم حذف الوحدة بنجاح');
-      await loadData();
-      if (employee) await loadStatsOnly(employee); // تحديث الإحصائيات
+      if (employee) await loadAllData(employee);
     } catch (err) {
       console.error('Error deleting unit:', err);
       alert('حدث خطأ في حذف الوحدة');
@@ -840,7 +806,7 @@ export default function UnitsPage() {
     }
   }
 
-  // Pagination calculations
+  // Pagination calculations للعرض فقط
   const totalPages = Math.ceil(filteredUnits.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, filteredUnits.length);
@@ -866,7 +832,10 @@ export default function UnitsPage() {
           animation: 'spin 1s linear infinite',
           marginBottom: '20px'
         }}></div>
-        <div style={{ color: '#666' }}>جاري تحميل الوحدات...</div>
+        <div style={{ color: '#666' }}>جاري تحميل جميع الوحدات...</div>
+        <div style={{ fontSize: '14px', color: '#999', marginTop: '10px' }}>
+          قد يستغرق بعض الوقت حسب عدد الوحدات
+        </div>
         <style jsx>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -932,13 +901,18 @@ export default function UnitsPage() {
             🏠 إدارة الوحدات
           </h1>
           <p style={{ color: '#666', margin: 0 }}>
-            إجمالي الوحدات: <strong>{stats.total}</strong> وحدة
+            إجمالي الوحدات: <strong>{stats.total.toLocaleString('ar-SA')}</strong> وحدة
             {employee && (
               <span style={{ marginRight: '15px', color: '#0d8a3e' }}>
                 • {getRoleLabel(employee.role)}
               </span>
             )}
           </p>
+          {stats.total > 1000 && (
+            <p style={{ color: '#0d8a3e', fontSize: '14px', marginTop: '5px' }}>
+              ⚡ تم تحميل جميع الوحدات ({stats.total.toLocaleString('ar-SA')}) بنجاح
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -979,12 +953,7 @@ export default function UnitsPage() {
           </button>
           
           <button
-            onClick={async () => {
-              setLoading(true);
-              await loadData();
-              if (employee) await loadStatsOnly(employee);
-              setLoading(false);
-            }}
+            onClick={() => employee && loadAllData(employee)}
             style={{
               padding: '10px 20px',
               backgroundColor: '#17a2b8',
@@ -1093,19 +1062,19 @@ export default function UnitsPage() {
           <>
             <StatCard 
               title="المتاحة"
-              value={stats.available}
+              value={stats.available.toLocaleString('ar-SA')}
               color="#10b981"
               icon="✅"
             />
             <StatCard 
               title="المحجوزة"
-              value={stats.reserved}
+              value={stats.reserved.toLocaleString('ar-SA')}
               color="#f59e0b"
               icon="⏳"
             />
             <StatCard 
               title="المباعة"
-              value={stats.sold}
+              value={stats.sold.toLocaleString('ar-SA')}
               color="#ef4444"
               icon="💰"
             />
@@ -1481,7 +1450,7 @@ export default function UnitsPage() {
             نتائج البحث:
           </span>
           <span style={{ color: '#2c3e50', fontWeight: '600' }}>
-            {filteredUnits.length} وحدة
+            {filteredUnits.length.toLocaleString('ar-SA')} وحدة
           </span>
           {filters.search && (
             <span style={{ 
@@ -1492,6 +1461,17 @@ export default function UnitsPage() {
               color: '#1565c0'
             }}>
               🔍 البحث: "{filters.search}"
+            </span>
+          )}
+          {filteredUnits.length > 0 && (
+            <span style={{ 
+              backgroundColor: '#e6f4ea',
+              padding: '5px 15px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              color: '#0d8a3e'
+            }}>
+              💾 تم تحميل {stats.total.toLocaleString('ar-SA')} وحدة
             </span>
           )}
         </div>
@@ -2056,7 +2036,7 @@ export default function UnitsPage() {
                 gap: '10px'
               }}>
                 <div style={{ fontSize: '14px', color: '#666' }}>
-                  عرض <strong>{startIndex + 1} - {endIndex}</strong> من <strong>{filteredUnits.length.toLocaleString()}</strong> وحدة
+                  عرض <strong>{(startIndex + 1).toLocaleString('ar-SA')} - {endIndex.toLocaleString('ar-SA')}</strong> من <strong>{filteredUnits.length.toLocaleString('ar-SA')}</strong> وحدة
                 </div>
                 
                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -2117,7 +2097,7 @@ export default function UnitsPage() {
                           fontWeight: currentPage === pageNum ? 'bold' : 'normal'
                         }}
                       >
-                        {pageNum}
+                        {pageNum.toLocaleString('ar-SA')}
                       </button>
                     );
                   })}
@@ -2179,7 +2159,7 @@ export default function UnitsPage() {
                       textAlign: 'center'
                     }}
                   />
-                  <span style={{ fontSize: '14px', color: '#666' }}>من {totalPages}</span>
+                  <span style={{ fontSize: '14px', color: '#666' }}>من {totalPages.toLocaleString('ar-SA')}</span>
                 </div>
               </div>
             )}
@@ -2199,7 +2179,7 @@ export default function UnitsPage() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للوحدات: {new Date().toLocaleString('ar-SA')}</span>
-          <span>نتائج البحث: {filteredUnits.length} من {stats.total} وحدة</span>
+          <span>نتائج البحث: {filteredUnits.length.toLocaleString('ar-SA')} من {stats.total.toLocaleString('ar-SA')}</span>
           <span>القيمة الإجمالية: {formatCurrency(stats.totalPrice)}</span>
         </div>
       </div>

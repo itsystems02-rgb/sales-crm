@@ -1,7 +1,6 @@
-// app/dashboard/reservation/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -92,6 +91,73 @@ function StatusBadge({
 }
 
 /* =====================
+   Helper Functions
+===================== */
+
+// جلب المشاريع المسموحة للموظف
+async function fetchAllowedProjects(employee: any) {
+  try {
+    // إذا كان ادمن، اجلب جميع المشاريع
+    if (employee?.role === 'admin') {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, code')
+        .order('name');
+      
+      if (error) throw error;
+      return data || [];
+    }
+    
+    // إذا كان sales أو sales_manager، اجلب المشاريع المخصصة له فقط
+    if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+      // جلب المشاريع المسموحة من جدول employee_projects
+      const { data: employeeProjects, error: empError } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', employee.id);
+
+      if (empError) throw empError;
+
+      const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+      
+      if (allowedProjectIds.length > 0) {
+        const { data: projectsData, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name, code')
+          .in('id', allowedProjectIds)
+          .order('name');
+        
+        if (projectsError) throw projectsError;
+        return projectsData || [];
+      } else {
+        return [];
+      }
+    }
+    
+    return [];
+  } catch (err) {
+    console.error('Error fetching allowed projects:', err);
+    return [];
+  }
+}
+
+// جلب جميع المشاريع (للادمن فقط)
+async function fetchAllProjects() {
+  try {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, name, code')
+      .order('name');
+    
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.error('Error fetching all projects:', err);
+    return [];
+  }
+}
+
+/* =====================
    Page
 ===================== */
 
@@ -105,6 +171,7 @@ export default function ReservationsPage() {
   
   const [employees, setEmployees] = useState<{id: string, name: string, role: string}[]>([]);
   const [projects, setProjects] = useState<{id: string, name: string}[]>([]);
+  const [allowedProjects, setAllowedProjects] = useState<{id: string, name: string}[]>([]);
   
   const [filters, setFilters] = useState<FilterState>({
     status: 'all',
@@ -130,56 +197,109 @@ export default function ReservationsPage() {
   const [debugInfo, setDebugInfo] = useState<string>('');
 
   useEffect(() => {
-    fetchCurrentUser();
-    fetchData();
-    fetchFilterOptions();
+    initPage();
   }, []);
 
   useEffect(() => {
     applyFilters();
   }, [reservations, filters]);
 
-  async function fetchCurrentUser() {
-    try {
-      const user = await getCurrentEmployee();
-      setCurrentUser(user);
-    } catch (error) {
-      console.error('Error fetching current user:', error);
-    }
-  }
-
-  async function fetchFilterOptions() {
-    try {
-      // جلب الموظفين
-      const { data: employeesData } = await supabase
-        .from('employees')
-        .select('id, name, role')
-        .order('name');
-      
-      setEmployees(employeesData || []);
-
-      // جلب المشاريع
-      const { data: projectsData } = await supabase
-        .from('projects')
-        .select('id, name')
-        .order('name');
-      
-      setProjects(projectsData || []);
-    } catch (error) {
-      console.error('Error fetching filter options:', error);
-    }
-  }
-
-  async function fetchData() {
+  async function initPage() {
     setLoading(true);
     setDebugInfo('جاري تحميل البيانات...');
     
     try {
-      // 1. جلب الحجوزات الأساسية
-      const { data: reservationsData, error: reservationsError } = await supabase
+      // جلب بيانات المستخدم الحالي
+      const user = await getCurrentEmployee();
+      setCurrentUser(user);
+      
+      // جلب المشاريع المسموحة للمستخدم
+      const userProjects = await fetchAllowedProjects(user);
+      setAllowedProjects(userProjects);
+      
+      // جلب جميع المشاريع (للادمن فقط) للعرض في الفلاتر
+      if (user?.role === 'admin') {
+        const allProjects = await fetchAllProjects();
+        setProjects(allProjects);
+      } else {
+        setProjects(userProjects);
+      }
+      
+      // جلب الحجوزات بناءً على صلاحية المستخدم
+      await fetchReservations(user);
+      
+      // جلب الموظفين (للادمن فقط)
+      await fetchEmployees(user);
+      
+    } catch (error) {
+      console.error('Error initializing page:', error);
+      setDebugInfo(`خطأ في تحميل الصفحة: ${error instanceof Error ? error.message : 'حدث خطأ غير معروف'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchEmployees(user: any) {
+    try {
+      // إذا كان ادمن، اجلب جميع الموظفين
+      if (user?.role === 'admin') {
+        const { data: employeesData } = await supabase
+          .from('employees')
+          .select('id, name, role')
+          .order('name');
+        
+        setEmployees(employeesData || []);
+      } else {
+        // للموظفين العاديين، يظهرون فقط أنفسهم في الفلاتر
+        setEmployees([{ id: user.id, name: user.name, role: user.role }]);
+      }
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    }
+  }
+
+  async function fetchReservations(user: any) {
+    try {
+      let query = supabase
         .from('reservations')
         .select('*')
         .order('created_at', { ascending: false });
+
+      // تطبيق الصلاحيات بناءً على دور المستخدم
+      if (user?.role === 'sales') {
+        // الموظف العادي: يشاهد حجوزاته فقط
+        query = query.eq('employee_id', user.id);
+      } else if (user?.role === 'sales_manager') {
+        // مدير المبيعات: يشاهد حجوزات المشاريع المسموحة له
+        const allowedProjectIds = allowedProjects.map(p => p.id);
+        
+        if (allowedProjectIds.length > 0) {
+          // الحصول على الوحدات في المشاريع المسموحة
+          const { data: unitsData } = await supabase
+            .from('units')
+            .select('id')
+            .in('project_id', allowedProjectIds);
+          
+          const unitIds = unitsData?.map(u => u.id) || [];
+          
+          if (unitIds.length > 0) {
+            query = query.in('unit_id', unitIds);
+          } else {
+            // لا توجد وحدات في المشاريع المسموحة
+            setReservations([]);
+            calculateStats([]);
+            return;
+          }
+        } else {
+          // لا توجد مشاريع مسموحة
+          setReservations([]);
+          calculateStats([]);
+          return;
+        }
+      }
+      // إذا كان admin: لا نضيف فلتر، يشاهد جميع الحجوزات
+
+      const { data: reservationsData, error: reservationsError } = await query;
 
       if (reservationsError) {
         console.error('Error fetching reservations:', reservationsError);
@@ -193,11 +313,10 @@ export default function ReservationsPage() {
       if (!reservationsData || reservationsData.length === 0) {
         setReservations([]);
         calculateStats([]);
-        setLoading(false);
         return;
       }
 
-      // 2. جلب التفاصيل لكل حجز
+      // جلب التفاصيل لكل حجز
       const reservationsWithDetails = await Promise.all(
         reservationsData.map(async (reservation) => {
           const reservationWithDetails: any = { ...reservation };
@@ -262,12 +381,31 @@ export default function ReservationsPage() {
       calculateStats(reservationsWithDetails as Reservation[]);
       
     } catch (error) {
-      console.error('Error in fetchData:', error);
+      console.error('Error in fetchReservations:', error);
       setDebugInfo(`خطأ: ${error instanceof Error ? error.message : 'حدث خطأ غير معروف'}`);
-    } finally {
-      setLoading(false);
+      setReservations([]);
     }
   }
+
+  // تحديد المشاريع المعروضة في الفلاتر بناءً على الدور
+  const getDisplayProjects = () => {
+    return currentUser?.role === 'admin' ? projects : allowedProjects;
+  };
+
+  // تحديد الموظفين المعروضين في الفلاتر بناءً على الدور
+  const getDisplayEmployees = () => {
+    if (currentUser?.role === 'admin') {
+      return employees;
+    } else if (currentUser?.role === 'sales_manager') {
+      // مدير المبيعات يرى الموظفين في المشاريع المسموحة له
+      return employees.filter(emp => 
+        emp.role === 'sales' || emp.id === currentUser.id
+      );
+    } else {
+      // الموظف العادي يرى نفسه فقط
+      return employees.filter(emp => emp.id === currentUser?.id);
+    }
+  };
 
   function calculateStats(data: Reservation[]) {
     const stats = {
@@ -422,6 +560,22 @@ export default function ReservationsPage() {
     return 'غير محدد';
   }
 
+  // عرض معلومات الصلاحية للمستخدم
+  function getUserPermissionInfo() {
+    if (!currentUser) return '';
+    
+    switch (currentUser.role) {
+      case 'admin':
+        return 'مدير النظام - مشاهدة جميع الحجوزات';
+      case 'sales_manager':
+        return `مدير مبيعات - مشاهدة حجوزات ${allowedProjects.length} مشروع`;
+      case 'sales':
+        return 'مندوب مبيعات - مشاهدة حجوزاتك فقط';
+      default:
+        return 'صلاحية غير معروفة';
+    }
+  }
+
   if (loading) {
     return (
       <div className="page" style={{
@@ -444,6 +598,18 @@ export default function ReservationsPage() {
           }}></div>
           <div style={{ color: '#666', marginBottom: '10px' }}>جاري تحميل الحجوزات...</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{debugInfo}</div>
+          {currentUser && (
+            <div style={{ 
+              marginTop: '10px',
+              padding: '8px 16px',
+              backgroundColor: '#e3f2fd',
+              borderRadius: '4px',
+              fontSize: '12px',
+              color: '#1565c0'
+            }}>
+              ⚙️ {getUserPermissionInfo()}
+            </div>
+          )}
         </div>
         <style jsx>{`
           @keyframes spin {
@@ -478,6 +644,19 @@ export default function ReservationsPage() {
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي الحجوزات: <strong>{reservations.length}</strong> حجز
           </p>
+          {currentUser && (
+            <div style={{ 
+              marginTop: '10px',
+              padding: '8px 16px',
+              backgroundColor: '#e3f2fd',
+              borderRadius: '4px',
+              fontSize: '13px',
+              color: '#1565c0',
+              display: 'inline-block'
+            }}>
+              ⚙️ {getUserPermissionInfo()}
+            </div>
+          )}
           {debugInfo && (
             <div style={{ 
               marginTop: '5px', 
@@ -516,7 +695,7 @@ export default function ReservationsPage() {
 
           <Button 
             variant="secondary"
-            onClick={fetchData}
+            onClick={initPage}
           >
             🔄 تحديث البيانات
           </Button>
@@ -653,9 +832,10 @@ export default function ReservationsPage() {
                   }}
                 >
                   <option value="all">جميع الموظفين</option>
-                  {employees.map(emp => (
+                  {getDisplayEmployees().map(emp => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.name} ({emp.role === 'admin' ? 'مدير' : 'مندوب'})
+                      {emp.name} ({emp.role === 'admin' ? 'مدير' : 
+                                 emp.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'})
                     </option>
                   ))}
                 </select>
@@ -684,7 +864,7 @@ export default function ReservationsPage() {
                   }}
                 >
                   <option value="all">جميع المشاريع</option>
-                  {projects.map(project => (
+                  {getDisplayProjects().map(project => (
                     <option key={project.id} value={project.id}>
                       {project.name}
                     </option>
@@ -909,7 +1089,9 @@ export default function ReservationsPage() {
               <button
                 onClick={() => {
                   console.log('Reservations data:', reservations);
-                  alert(`تم فحص البيانات:\nعدد الحجوزات: ${reservations.length}\nافتح وحدة تحكم المطورين (F12) لعرض التفاصيل.`);
+                  console.log('Current user:', currentUser);
+                  console.log('Allowed projects:', allowedProjects);
+                  alert(`تم فحص البيانات:\nعدد الحجوزات: ${reservations.length}\nصلاحية المستخدم: ${currentUser?.role}\nافتح وحدة تحكم المطورين (F12) لعرض التفاصيل.`);
                 }}
                 style={{
                   padding: '8px 16px',
@@ -1067,7 +1249,8 @@ export default function ReservationsPage() {
                         {reservation.employees?.name || 'غير محدد'}
                       </div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {reservation.employees?.role === 'admin' ? 'مدير' : 'مندوب'}
+                        {reservation.employees?.role === 'admin' ? 'مدير' : 
+                         reservation.employees?.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'}
                       </div>
                     </td>
                     
@@ -1195,7 +1378,8 @@ export default function ReservationsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للحجوزات: {new Date().toLocaleString('ar-SA')}</span>
           <span>إجمالي النتائج: {filteredReservations.length} من {reservations.length}</span>
-          <span>عدد الموظفين: {employees.length}</span>
+          <span>عدد الموظفين: {getDisplayEmployees().length}</span>
+          <span>عدد المشاريع: {getDisplayProjects().length}</span>
         </div>
       </div>
     </div>

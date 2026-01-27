@@ -11,7 +11,7 @@ const LINKS = [
   { href: '/dashboard/reservation', label: 'الحجوزات', icon: '📅' },
   { href: '/dashboard/sales', label: 'التنفيذات', icon: '💰' },
   { href: '/api/employees', label: 'الموظفين', icon: '👨‍💼' },
-  { href: '/dashboard/report', label: 'التقارير', icon: '📊' },
+  { href: '/dashboard/Report', label: 'التقارير', icon: '📊' },
   { href: '/dashboard/ReportEmployees', label: 'تقارير الموظفين', icon: '📈' },
 ];
 

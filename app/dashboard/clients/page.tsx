@@ -29,10 +29,16 @@ type ClientListItem = {
   salary_bank_id: string | null;
   finance_bank_id: string | null;
   job_sector_id: string | null;
+  interested_in_project_id: string | null;  // <-- جديد
   created_at: string;
 };
 
 type Option = {
+  id: string;
+  name: string;
+};
+
+type Project = {
   id: string;
   name: string;
 };
@@ -60,6 +66,7 @@ type ClientFilters = {
   salary_bank_id: string | null;
   finance_bank_id: string | null;
   job_sector_id: string | null;
+  interested_in_project_id: string | null;  // <-- جديد
   from_date: string;
   to_date: string;
 };
@@ -125,8 +132,15 @@ function translateEligible(eligible: boolean) {
    Excel Import/Export Functions
 ===================== */
 
-function exportToExcel(clients: ClientListItem[], fileName: string = 'العملاء.xlsx') {
+function exportToExcel(clients: ClientListItem[], projects: Project[], fileName: string = 'العملاء.xlsx') {
   try {
+    // دالة مساعدة للحصول على اسم المشروع
+    const getProjectName = (projectId: string | null) => {
+      if (!projectId) return '-';
+      const project = projects.find(p => p.id === projectId);
+      return project ? project.name : '-';
+    };
+
     const excelData = clients.map(client => ({
       'اسم العميل': client.name,
       'رقم الجوال': client.mobile || '-',
@@ -137,6 +151,7 @@ function exportToExcel(clients: ClientListItem[], fileName: string = 'العمل
       'نوع الإقامة': client.residency_type || '-',
       'الحالة': translateStatus(client.status),
       'الأهلية': translateEligible(client.eligible),
+      'مهتم بمشروع': getProjectName(client.interested_in_project_id),  // <-- جديد
       'تاريخ الإنشاء': new Date(client.created_at).toLocaleDateString('ar-SA'),
     }));
 
@@ -202,6 +217,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [banks, setBanks] = useState<Option[]>([]);
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);  // <-- جديد
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   
@@ -233,6 +249,7 @@ export default function ClientsPage() {
     salary_bank_id: null,
     finance_bank_id: null,
     job_sector_id: null,
+    interested_in_project_id: null,  // <-- جديد
     from_date: '',
     to_date: '',
   });
@@ -252,6 +269,7 @@ export default function ClientsPage() {
   const [salaryBankId, setSalaryBankId] = useState('');
   const [financeBankId, setFinanceBankId] = useState('');
   const [jobSectorId, setJobSectorId] = useState('');
+  const [interestedInProjectId, setInterestedInProjectId] = useState('');  // <-- جديد
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -282,6 +300,24 @@ export default function ClientsPage() {
       setJobSectors(data || []);
     } catch (error) {
       console.error('Error in fetchJobSectors:', error);
+    }
+  }, []);
+
+  // دالة جديدة لجلب المشاريع
+  const fetchProjects = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name')
+        .order('name');
+      
+      if (error) {
+        console.error('Error fetching projects:', error);
+        return;
+      }
+      setProjects(data || []);
+    } catch (error) {
+      console.error('Error in fetchProjects:', error);
     }
   }, []);
 
@@ -350,6 +386,7 @@ export default function ClientsPage() {
         setEmployee(emp);
         await fetchBanks();
         await fetchJobSectors();
+        await fetchProjects();  // <-- جديد
         await loadClients(emp);
         await fetchClientStats(emp);
       } catch (error) {
@@ -360,7 +397,7 @@ export default function ClientsPage() {
       }
     }
     init();
-  }, [fetchBanks, fetchJobSectors, fetchClientStats]);
+  }, [fetchBanks, fetchJobSectors, fetchProjects, fetchClientStats]);
 
   useEffect(() => {
     if (nationality !== 'non_saudi') {
@@ -402,6 +439,7 @@ export default function ClientsPage() {
       salary_bank_id: null,
       finance_bank_id: null,
       job_sector_id: null,
+      interested_in_project_id: null,  // <-- جديد
       from_date: '',
       to_date: '',
     });
@@ -418,6 +456,7 @@ export default function ClientsPage() {
            filters.salary_bank_id !== null ||
            filters.finance_bank_id !== null ||
            filters.job_sector_id !== null ||
+           filters.interested_in_project_id !== null ||  // <-- جديد
            filters.from_date ||
            filters.to_date;
   };
@@ -468,6 +507,11 @@ export default function ClientsPage() {
 
       if (filters.job_sector_id !== null) {
         query = query.eq('job_sector_id', filters.job_sector_id);
+      }
+
+      // فلتر المشروع المهتم به - جديد
+      if (filters.interested_in_project_id !== null) {
+        query = query.eq('interested_in_project_id', filters.interested_in_project_id);
       }
 
       if (filters.from_date) {
@@ -533,6 +577,7 @@ export default function ClientsPage() {
     setSalaryBankId('');
     setFinanceBankId('');
     setJobSectorId('');
+    setInterestedInProjectId('');  // <-- جديد
   }
 
   async function handleSubmit() {
@@ -556,6 +601,7 @@ export default function ClientsPage() {
         salary_bank_id: salaryBankId || null,
         finance_bank_id: financeBankId || null,
         job_sector_id: jobSectorId || null,
+        interested_in_project_id: interestedInProjectId || null,  // <-- جديد
         status: 'lead',
       };
 
@@ -653,6 +699,7 @@ export default function ClientsPage() {
       setSalaryBankId(client.salary_bank_id || '');
       setFinanceBankId(client.finance_bank_id || '');
       setJobSectorId(client.job_sector_id || '');
+      setInterestedInProjectId(client.interested_in_project_id || '');  // <-- جديد
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
@@ -684,6 +731,7 @@ export default function ClientsPage() {
         salary_bank_id: salaryBankId || null,
         finance_bank_id: financeBankId || null,
         job_sector_id: jobSectorId || null,
+        interested_in_project_id: interestedInProjectId || null,  // <-- جديد
       };
 
       const { error } = await supabase
@@ -826,6 +874,19 @@ export default function ClientsPage() {
           if (jobSector) jobSectorId = jobSector.id;
         }
         
+        // البحث عن المشروع المهتم به - جديد
+        const projectName = row['مهتم بمشروع'] || row['project'] || row['Project'] || row['المشروع'] || '';
+        let interestedInProjectId = null;
+        
+        if (projectName && projects.length > 0) {
+          const project = projects.find(p => 
+            p.name === projectName || 
+            p.name.includes(projectName) ||
+            projectName.includes(p.name)
+          );
+          if (project) interestedInProjectId = project.id;
+        }
+        
         const client = {
           name,
           mobile,
@@ -838,6 +899,7 @@ export default function ClientsPage() {
           salary_bank_id: salaryBankId,
           finance_bank_id: financeBankId,
           job_sector_id: jobSectorId,
+          interested_in_project_id: interestedInProjectId,  // <-- جديد
           status,
         };
         
@@ -848,7 +910,7 @@ export default function ClientsPage() {
     }
     
     return { processedClients, errors };
-  }, [banks, jobSectors]);
+  }, [banks, jobSectors, projects]);  // <-- إضافة projects هنا
 
   function handleExportExcel() {
     if (totalClients === 0) {
@@ -902,6 +964,11 @@ export default function ClientsPage() {
           query = query.eq('job_sector_id', filters.job_sector_id);
         }
 
+        // فلتر المشروع المهتم به - جديد
+        if (filters.interested_in_project_id !== null) {
+          query = query.eq('interested_in_project_id', filters.interested_in_project_id);
+        }
+
         if (filters.from_date) {
           query = query.gte('created_at', filters.from_date);
         }
@@ -919,7 +986,7 @@ export default function ClientsPage() {
           ? `العملاء_المفلترة_${new Date().toISOString().split('T')[0]}.xlsx`
           : `العملاء_${new Date().toISOString().split('T')[0]}.xlsx`;
         
-        exportToExcel(data || [], fileName);
+        exportToExcel(data || [], projects, fileName);  // <-- تحديث
         
       } catch (err) {
         console.error('Error fetching clients for export:', err);
@@ -1041,7 +1108,8 @@ export default function ClientsPage() {
         'الأهلية': 'مستحق',
         'بنك الراتب': 'البنك الأهلي',
         'بنك التمويل': 'مصرف الراجحي',
-        'القطاع الوظيفي': 'حكومي'
+        'القطاع الوظيفي': 'حكومي',
+        'مهتم بمشروع': 'مشروع النخيل'  // <-- جديد
       }
     ];
     
@@ -1241,6 +1309,18 @@ export default function ClientsPage() {
               >
                 <option value="">القطاع الوظيفي</option>
                 {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
+              </select>
+              
+              {/* =============== جديد: المشروع المهتم به =============== */}
+              <select 
+                value={interestedInProjectId} 
+                onChange={(e) => setInterestedInProjectId(e.target.value)}
+                style={{ minWidth: '150px' }}
+              >
+                <option value="">مهتم بمشروع (اختياري)</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
               </select>
               
               <Button 
@@ -1478,6 +1558,31 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
+                  {/* =============== جديد: فلتر المشروع المهتم به =============== */}
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
+                      المشروع المهتم به:
+                    </label>
+                    <select 
+                      value={filters.interested_in_project_id || ''}
+                      onChange={(e) => updateFilter('interested_in_project_id', e.target.value || null)}
+                      style={{ 
+                        width: '100%', 
+                        padding: '8px 12px',
+                        borderRadius: '4px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '14px'
+                      }}
+                    >
+                      <option value="">جميع المشاريع</option>
+                      {projects.map(project => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       تاريخ الإضافة:
@@ -1639,6 +1744,35 @@ export default function ClientsPage() {
                           </button>
                         </span>
                       )}
+                      
+                      {/* فلتر المشروع النشط */}
+                      {filters.interested_in_project_id && (
+                        <span style={{ 
+                          backgroundColor: '#e1f5fe', 
+                          color: '#0288d1',
+                          padding: '5px 10px',
+                          borderRadius: '15px',
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}>
+                          مشروع: {projects.find(p => p.id === filters.interested_in_project_id)?.name || 'غير معروف'}
+                          <button 
+                            onClick={() => updateFilter('interested_in_project_id', null)}
+                            style={{ 
+                              background: 'none', 
+                              border: 'none', 
+                              color: '#0288d1',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              padding: 0
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1729,11 +1863,11 @@ export default function ClientsPage() {
             </div>
           )}
           
-          <Table headers={['الاسم','الجوال','مستحق','الحالة','إجراء']}>
+          <Table headers={['الاسم','الجوال','مستحق','الحالة','مهتم بـ','إجراء']}>
             {loading ? (
-              <tr><td colSpan={5} style={{textAlign:'center', padding: '2rem'}}>جاري تحميل العملاء...</td></tr>
+              <tr><td colSpan={6} style={{textAlign:'center', padding: '2rem'}}>جاري تحميل العملاء...</td></tr>
             ) : clients.length === 0 ? (
-              <tr><td colSpan={5} style={{textAlign:'center', padding: '2rem'}}>لا يوجد عملاء</td></tr>
+              <tr><td colSpan={6} style={{textAlign:'center', padding: '2rem'}}>لا يوجد عملاء</td></tr>
             ) : (
               clients.map(c => (
                 <tr key={c.id}>
@@ -1748,6 +1882,15 @@ export default function ClientsPage() {
                     <span className={`badge status-${c.status}`}>
                       {translateStatus(c.status)}
                     </span>
+                  </td>
+                  <td>
+                    {c.interested_in_project_id ? (
+                      <span className="badge" style={{ backgroundColor: '#e1f5fe', color: '#0288d1' }}>
+                        {projects.find(p => p.id === c.interested_in_project_id)?.name || 'غير معروف'}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#999', fontSize: '12px' }}>-</span>
+                    )}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

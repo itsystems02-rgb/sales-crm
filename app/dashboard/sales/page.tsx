@@ -1,9 +1,9 @@
-// app/dashboard/sales/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 
 /* =====================
    Types
@@ -65,6 +65,80 @@ function StatusBadge({
 }
 
 /* =====================
+   Helper Functions
+===================== */
+
+// جلب المشاريع المسموحة للموظف
+async function fetchAllowedProjects(employee: any) {
+  try {
+    // إذا كان ادمن، اجلب جميع المشاريع
+    if (employee?.role === 'admin') {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      return data || [];
+    }
+    
+    // إذا كان sales أو sales_manager، اجلب المشاريع المخصصة له فقط
+    if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+      // جلب المشاريع المسموحة من جدول employee_projects
+      const { data: employeeProjects, error: empError } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', employee.id);
+
+      if (empError) throw empError;
+
+      const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+      
+      if (allowedProjectIds.length > 0) {
+        const { data: projectsData, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .in('id', allowedProjectIds)
+          .order('name');
+        
+        if (projectsError) throw projectsError;
+        return projectsData || [];
+      } else {
+        return [];
+      }
+    }
+    
+    return [];
+  } catch (err) {
+    console.error('Error fetching allowed projects:', err);
+    return [];
+  }
+}
+
+// جلب الوحدات في المشاريع المسموحة
+async function fetchAllowedUnits(employee: any, allowedProjects: any[]) {
+  try {
+    const allowedProjectIds = allowedProjects.map(p => p.id);
+    
+    if (allowedProjectIds.length === 0) {
+      return [];
+    }
+
+    const { data: unitsData, error } = await supabase
+      .from('units')
+      .select('id, project_id')
+      .in('project_id', allowedProjectIds);
+    
+    if (error) throw error;
+    
+    return unitsData || [];
+  } catch (err) {
+    console.error('Error fetching allowed units:', err);
+    return [];
+  }
+}
+
+/* =====================
    Page
 ===================== */
 
@@ -77,12 +151,19 @@ export default function SalesPage() {
   const [error, setError] = useState<string | null>(null);
   
   const [clients, setClients] = useState<Record<string, {name: string, mobile: string}>>({});
-  const [units, setUnits] = useState<Record<string, {unit_code: string, unit_type: string | null}>>({});
+  const [units, setUnits] = useState<Record<string, {unit_code: string, unit_type: string | null, project_id: string}>>({});
   const [employees, setEmployees] = useState<Record<string, {name: string, role: string}>>({});
+  const [projects, setProjects] = useState<Record<string, {name: string}>>({});
+  
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [allowedProjects, setAllowedProjects] = useState<any[]>([]);
+  const [allowedUnits, setAllowedUnits] = useState<any[]>([]);
   
   const [filters, setFilters] = useState({
     status: 'all',
     search: '',
+    project: 'all',
+    employee: 'all',
     sortBy: 'created_at',
     sortOrder: 'desc' as 'asc' | 'desc'
   });
@@ -97,25 +178,74 @@ export default function SalesPage() {
   });
 
   useEffect(() => {
-    fetchData();
+    initPage();
   }, []);
 
   useEffect(() => {
     applyFilters();
   }, [sales, filters]);
 
-  async function fetchData() {
+  async function initPage() {
     setLoading(true);
     setError(null);
     
     try {
-      console.log('🔍 جلب بيانات التنفيذات...');
+      // 1. جلب بيانات المستخدم الحالي
+      const user = await getCurrentEmployee();
+      setCurrentUser(user);
       
-      // 1. جلب المبيعات الأساسية
-      const { data: salesData, error: salesError } = await supabase
+      // 2. جلب المشاريع المسموحة للمستخدم
+      const userProjects = await fetchAllowedProjects(user);
+      setAllowedProjects(userProjects);
+      
+      // 3. جلب الوحدات المسموحة
+      const userUnits = await fetchAllowedUnits(user, userProjects);
+      setAllowedUnits(userUnits);
+      
+      // 4. جلب المبيعات بناءً على صلاحية المستخدم
+      await fetchSales(user, userUnits);
+      
+      // 5. جلب بيانات المشاريع للعرض
+      await fetchProjectsData();
+      
+      // 6. جلب بيانات الموظفين (مقيدة بالصلاحيات)
+      await fetchEmployeesData(user);
+      
+    } catch (err) {
+      console.error('❌ خطأ في تهيئة الصفحة:', err);
+      setError(`حدث خطأ: ${err instanceof Error ? err.message : 'غير معروف'}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchSales(user: any, allowedUnits: any[]) {
+    try {
+      let query = supabase
         .from('sales')
         .select('*')
         .order('created_at', { ascending: false });
+
+      // تطبيق الصلاحيات بناءً على دور المستخدم
+      if (user?.role === 'sales') {
+        // الموظف العادي: يشاهد مبيعاته فقط
+        query = query.eq('sales_employee_id', user.id);
+      } else if (user?.role === 'sales_manager') {
+        // مدير المبيعات: يشاهد مبيعات المشاريع المسموحة له
+        const allowedUnitIds = allowedUnits.map(u => u.id);
+        
+        if (allowedUnitIds.length > 0) {
+          query = query.in('unit_id', allowedUnitIds);
+        } else {
+          // لا توجد وحدات في المشاريع المسموحة
+          setSales([]);
+          calculateStats([]);
+          return;
+        }
+      }
+      // إذا كان admin: لا نضيف فلتر، يشاهد جميع المبيعات
+
+      const { data: salesData, error: salesError } = await query;
 
       if (salesError) {
         console.error('❌ خطأ في جلب المبيعات:', salesError);
@@ -123,28 +253,87 @@ export default function SalesPage() {
         return;
       }
 
-      console.log(`✅ تم جلب ${salesData?.length || 0} عملية بيع`);
+      console.log(`✅ تم جلب ${salesData?.length || 0} عملية بيع للمستخدم ${user?.role}`);
 
       if (!salesData || salesData.length === 0) {
         setSales([]);
         calculateStats([]);
-        setLoading(false);
         return;
       }
 
       setSales(salesData);
-
-      // 2. جلب البيانات المرتبطة
-      await fetchRelatedData(salesData);
-      
-      // 3. حساب الإحصائيات
       calculateStats(salesData);
       
+      // جلب البيانات المرتبطة
+      await fetchRelatedData(salesData);
+      
     } catch (err) {
-      console.error('❌ حدث خطأ غير متوقع:', err);
-      setError(`حدث خطأ: ${err instanceof Error ? err.message : 'غير معروف'}`);
-    } finally {
-      setLoading(false);
+      console.error('❌ خطأ في جلب المبيعات:', err);
+      setSales([]);
+    }
+  }
+
+  async function fetchProjectsData() {
+    try {
+      const { data: projectsData } = await supabase
+        .from('projects')
+        .select('id, name');
+      
+      if (projectsData) {
+        const projectsMap: Record<string, {name: string}> = {};
+        projectsData.forEach(project => {
+          projectsMap[project.id] = { name: project.name };
+        });
+        setProjects(projectsMap);
+      }
+    } catch (err) {
+      console.error('❌ خطأ في جلب المشاريع:', err);
+    }
+  }
+
+  async function fetchEmployeesData(user: any) {
+    try {
+      let query = supabase
+        .from('employees')
+        .select('id, name, role');
+      
+      // إذا كان موظف عادي، يرى نفسه فقط
+      if (user?.role === 'sales') {
+        query = query.eq('id', user.id);
+      } else if (user?.role === 'sales_manager') {
+        // مدير المبيعات يرى الموظفين في المشاريع المسموحة له
+        // جلب الموظفين المرتبطين بالمشاريع المسموحة
+        const allowedProjectIds = allowedProjects.map(p => p.id);
+        
+        if (allowedProjectIds.length > 0) {
+          const { data: employeeProjects } = await supabase
+            .from('employee_projects')
+            .select('employee_id')
+            .in('project_id', allowedProjectIds);
+          
+          const employeeIds = [...new Set([
+            ...(employeeProjects?.map(ep => ep.employee_id) || []),
+            user.id // إضافة المدير نفسه
+          ])];
+          
+          query = query.in('id', employeeIds);
+        } else {
+          query = query.eq('id', user.id); // فقط المدير نفسه
+        }
+      }
+      // إذا كان admin: لا نضيف فلتر، يرى جميع الموظفين
+
+      const { data: employeesData } = await query;
+      
+      if (employeesData) {
+        const employeesMap: Record<string, {name: string, role: string}> = {};
+        employeesData.forEach(emp => {
+          employeesMap[emp.id] = { name: emp.name, role: emp.role };
+        });
+        setEmployees(employeesMap);
+      }
+    } catch (err) {
+      console.error('❌ خطأ في جلب الموظفين:', err);
     }
   }
 
@@ -172,35 +361,21 @@ export default function SalesPage() {
       if (unitIds.length > 0) {
         const { data: unitsData } = await supabase
           .from('units')
-          .select('id, unit_code, unit_type')
+          .select('id, unit_code, unit_type, project_id')
           .in('id', unitIds);
         
         if (unitsData) {
-          const unitsMap: Record<string, {unit_code: string, unit_type: string | null}> = {};
+          const unitsMap: Record<string, {unit_code: string, unit_type: string | null, project_id: string}> = {};
           unitsData.forEach(unit => {
-            unitsMap[unit.id] = { unit_code: unit.unit_code, unit_type: unit.unit_type };
+            unitsMap[unit.id] = { 
+              unit_code: unit.unit_code, 
+              unit_type: unit.unit_type,
+              project_id: unit.project_id
+            };
           });
           setUnits(unitsMap);
         }
       }
-
-      // جلب جميع الموظفين
-      const employeeIds = [...new Set(salesData.map(s => s.sales_employee_id).filter(Boolean))];
-      if (employeeIds.length > 0) {
-        const { data: employeesData } = await supabase
-          .from('employees')
-          .select('id, name, role')
-          .in('id', employeeIds);
-        
-        if (employeesData) {
-          const employeesMap: Record<string, {name: string, role: string}> = {};
-          employeesData.forEach(emp => {
-            employeesMap[emp.id] = { name: emp.name, role: emp.role };
-          });
-          setEmployees(employeesMap);
-        }
-      }
-
     } catch (err) {
       console.error('❌ خطأ في جلب البيانات المرتبطة:', err);
     }
@@ -229,6 +404,19 @@ export default function SalesPage() {
       filtered = filtered.filter(s => 
         s.status?.toLowerCase() === filters.status.toLowerCase()
       );
+    }
+
+    // فلترة بالمشروع
+    if (filters.project !== 'all') {
+      filtered = filtered.filter(s => {
+        const unit = units[s.unit_id];
+        return unit?.project_id === filters.project;
+      });
+    }
+
+    // فلترة بالموظف
+    if (filters.employee !== 'all') {
+      filtered = filtered.filter(s => s.sales_employee_id === filters.employee);
     }
 
     // فلترة بالبحث
@@ -286,6 +474,8 @@ export default function SalesPage() {
     setFilters({
       status: 'all',
       search: '',
+      project: 'all',
+      employee: 'all',
       sortBy: 'created_at',
       sortOrder: 'desc'
     });
@@ -347,7 +537,47 @@ export default function SalesPage() {
 
   function getEmployeeRole(employeeId: string | null) {
     if (!employeeId) return '';
-    return employees[employeeId]?.role === 'admin' ? 'مدير' : 'مندوب مبيعات';
+    const role = employees[employeeId]?.role;
+    switch (role) {
+      case 'admin': return 'مدير';
+      case 'sales_manager': return 'مدير مبيعات';
+      case 'sales': return 'مندوب مبيعات';
+      default: return role || '';
+    }
+  }
+
+  function getProjectName(unitId: string) {
+    const unit = units[unitId];
+    if (!unit?.project_id) return 'غير محدد';
+    return projects[unit.project_id]?.name || 'غير محدد';
+  }
+
+  // تحديد المشاريع المعروضة في الفلاتر بناءً على الدور
+  const getDisplayProjects = () => {
+    return currentUser?.role === 'admin' 
+      ? Object.entries(projects).map(([id, project]) => ({ id, name: project.name }))
+      : allowedProjects;
+  };
+
+  // تحديد الموظفين المعروضين في الفلاتر بناءً على الدور
+  const getDisplayEmployees = () => {
+    return Object.entries(employees).map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+  };
+
+  // عرض معلومات الصلاحية للمستخدم
+  function getUserPermissionInfo() {
+    if (!currentUser) return '';
+    
+    switch (currentUser.role) {
+      case 'admin':
+        return 'مدير النظام - مشاهدة جميع التنفيذات';
+      case 'sales_manager':
+        return `مدير مبيعات - مشاهدة تنفيذات ${allowedProjects.length} مشروع`;
+      case 'sales':
+        return 'مندوب مبيعات - مشاهدة تنفيذاتك فقط';
+      default:
+        return 'صلاحية غير معروفة';
+    }
   }
 
   if (loading) {
@@ -372,6 +602,18 @@ export default function SalesPage() {
         }}></div>
         <h2 style={{ color: '#2c3e50', marginBottom: '10px' }}>جاري تحميل التنفيذات...</h2>
         <p style={{ color: '#666' }}>يرجى الانتظار أثناء جلب البيانات</p>
+        {currentUser && (
+          <div style={{ 
+            marginTop: '10px',
+            padding: '8px 16px',
+            backgroundColor: '#e3f2fd',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#1565c0'
+          }}>
+            ⚙️ {getUserPermissionInfo()}
+          </div>
+        )}
         <style jsx>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -404,7 +646,7 @@ export default function SalesPage() {
         </div>
         
         <button
-          onClick={fetchData}
+          onClick={initPage}
           style={{
             padding: '10px 20px',
             backgroundColor: '#dc3545',
@@ -444,6 +686,19 @@ export default function SalesPage() {
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي التنفيذات: <strong>{sales.length}</strong> عملية بيع
           </p>
+          {currentUser && (
+            <div style={{ 
+              marginTop: '10px',
+              padding: '8px 16px',
+              backgroundColor: '#e3f2fd',
+              borderRadius: '4px',
+              fontSize: '13px',
+              color: '#1565c0',
+              display: 'inline-block'
+            }}>
+              ⚙️ {getUserPermissionInfo()}
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -482,7 +737,7 @@ export default function SalesPage() {
           </button>
 
           <button
-            onClick={fetchData}
+            onClick={initPage}
             style={{
               padding: '10px 20px',
               backgroundColor: '#28a745',
@@ -610,6 +865,69 @@ export default function SalesPage() {
                 <option value="pending">قيد الانتظار</option>
                 <option value="cancelled">ملغاة</option>
                 <option value="active">نشطة</option>
+              </select>
+            </div>
+
+            {/* فلترة بالمشروع */}
+            <div>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#2c3e50'
+              }}>
+                المشروع
+              </label>
+              <select
+                value={filters.project}
+                onChange={(e) => handleFilterChange('project', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 15px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="all">جميع المشاريع</option>
+                {getDisplayProjects().map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* فلترة بالموظف */}
+            <div>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontWeight: '500',
+                color: '#2c3e50'
+              }}>
+                الموظف
+              </label>
+              <select
+                value={filters.employee}
+                onChange={(e) => handleFilterChange('employee', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 15px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="all">جميع الموظفين</option>
+                {getDisplayEmployees().map(emp => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name} ({emp.role === 'admin' ? 'مدير' : 
+                               emp.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب مبيعات'})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -823,6 +1141,13 @@ export default function SalesPage() {
                     fontWeight: '600',
                     color: '#495057',
                     fontSize: '14px'
+                  }}>المشروع</th>
+                  <th style={{ 
+                    padding: '15px', 
+                    textAlign: 'right',
+                    fontWeight: '600',
+                    color: '#495057',
+                    fontSize: '14px'
                   }}>تاريخ البيع</th>
                   <th style={{ 
                     padding: '15px', 
@@ -905,6 +1230,12 @@ export default function SalesPage() {
                       </div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
                         {getUnitType(sale.unit_id)}
+                      </div>
+                    </td>
+                    
+                    <td style={{ padding: '15px' }}>
+                      <div style={{ color: '#495057' }}>
+                        {getProjectName(sale.unit_id)}
                       </div>
                     </td>
                     
@@ -1081,6 +1412,8 @@ export default function SalesPage() {
           <span>آخر تحديث للتنفيذات: {new Date().toLocaleString('ar-SA')}</span>
           <span>إجمالي النتائج: {filteredSales.length} من {sales.length}</span>
           <span>الإيرادات الإجمالية: {formatCurrency(stats.totalRevenue)}</span>
+          <span>عدد المشاريع: {getDisplayProjects().length}</span>
+          <span>عدد الموظفين: {getDisplayEmployees().length}</span>
         </div>
       </div>
     </div>

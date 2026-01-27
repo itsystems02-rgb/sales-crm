@@ -221,7 +221,7 @@ export default function ReservationPage() {
   }
 
   /* =====================
-     دالة جديدة لجلب الحجوزات للمدير
+     دالة جديدة لجلب الحجوزات للمدير - مصححة
   ===================== */
   async function fetchAllReservationsForManager(emp: Employee) {
     try {
@@ -250,7 +250,7 @@ export default function ReservationPage() {
           reservation_date,
           status,
           notes,
-          unit:units!reservations_unit_id_fkey (
+          units (
             id,
             unit_code,
             project_id,
@@ -259,21 +259,26 @@ export default function ReservationPage() {
             land_area,
             build_area,
             status,
-            project:projects!units_project_id_fkey (name, code),
-            model:project_models!units_model_id_fkey (name)
+            projects (
+              name,
+              code
+            ),
+            project_models (
+              name
+            )
           ),
-          employee:employees!reservations_employee_id_fkey (
+          employees (
             id,
             name,
             role
           ),
-          client:clients!reservations_client_id_fkey (
+          clients (
             id,
             name,
             phone
           )
         `)
-        .in('unit.project_id', managedProjectIds)
+        .in('units.project_id', managedProjectIds)
         .order('reservation_date', { ascending: false });
 
       if (reservationsError) throw reservationsError;
@@ -288,29 +293,37 @@ export default function ReservationPage() {
       if (countError) throw countError;
 
       // 4. تحويل البيانات إلى نفس تنسيق الوحدات للتوافق
-      const reservationUnits = (reservations || []).map(res => ({
-        id: res.unit.id,
-        unit_code: res.unit.unit_code,
-        project_id: res.unit.project_id,
-        project_name: res.unit.project?.name || '',
-        project_code: res.unit.project?.code || '',
-        model_name: res.unit.model?.name || '',
-        unit_type: res.unit.unit_type,
-        supported_price: Number(res.unit.supported_price || 0),
-        land_area: res.unit.land_area ? Number(res.unit.land_area) : null,
-        build_area: res.unit.build_area ? Number(res.unit.build_area) : null,
-        status: res.unit.status,
-        reservation_data: {
-          reservation_id: res.id,
-          reservation_date: res.reservation_date,
-          reservation_status: res.status,
-          reservation_notes: res.notes,
-          employee_name: res.employee?.name || 'غير معروف',
-          employee_role: res.employee?.role || 'غير معروف',
-          client_name: res.client?.name || 'غير معروف',
-          client_phone: res.client?.phone || 'غير معروف'
-        }
-      }));
+      const reservationUnits = (reservations || []).map(res => {
+        const unit = Array.isArray(res.units) ? res.units[0] : res.units;
+        const project = Array.isArray(unit?.projects) ? unit?.projects[0] : unit?.projects;
+        const model = Array.isArray(unit?.project_models) ? unit?.project_models[0] : unit?.project_models;
+        const employee = Array.isArray(res.employees) ? res.employees[0] : res.employees;
+        const client = Array.isArray(res.clients) ? res.clients[0] : res.clients;
+
+        return {
+          id: unit?.id || '',
+          unit_code: unit?.unit_code || '',
+          project_id: unit?.project_id || '',
+          project_name: project?.name || '',
+          project_code: project?.code || '',
+          model_name: model?.name || '',
+          unit_type: unit?.unit_type || '',
+          supported_price: Number(unit?.supported_price || 0),
+          land_area: unit?.land_area ? Number(unit.land_area) : null,
+          build_area: unit?.build_area ? Number(unit.build_area) : null,
+          status: unit?.status || '',
+          reservation_data: {
+            reservation_id: res.id,
+            reservation_date: res.reservation_date,
+            reservation_status: res.status,
+            reservation_notes: res.notes,
+            employee_name: employee?.name || 'غير معروف',
+            employee_role: employee?.role || 'غير معروف',
+            client_name: client?.name || 'غير معروف',
+            client_phone: client?.phone || 'غير معروف'
+          }
+        };
+      }).filter(unit => unit.id); // تصفية الوحدات التي ليس لها معرف
 
       setUnits(reservationUnits);
       setUnitStats({
@@ -417,8 +430,13 @@ export default function ReservationPage() {
           build_area,
           block_no,
           unit_no,
-          project:projects!units_project_id_fkey (name,code),
-          model:project_models!units_model_id_fkey (name)
+          projects!inner (
+            name,
+            code
+          ),
+          project_models!inner (
+            name
+          )
         `, { count: 'exact' })
         .eq('status', 'available')
         .order('unit_code')
@@ -485,9 +503,9 @@ export default function ReservationPage() {
         id: item.id,
         unit_code: item.unit_code,
         project_id: item.project_id,
-        project_name: item.project?.name || '',
-        project_code: item.project?.code || '',
-        model_name: item.model?.name || '',
+        project_name: Array.isArray(item.projects) ? item.projects[0]?.name : item.projects?.name || '',
+        project_code: Array.isArray(item.projects) ? item.projects[0]?.code : item.projects?.code || '',
+        model_name: Array.isArray(item.project_models) ? item.project_models[0]?.name : item.project_models?.name || '',
         unit_type: item.unit_type,
         supported_price: Number(item.supported_price || 0),
         land_area: item.land_area ? Number(item.land_area) : null,
@@ -541,8 +559,13 @@ export default function ReservationPage() {
           supported_price,
           land_area,
           build_area,
-          project:projects!units_project_id_fkey (name,code),
-          model:project_models!units_model_id_fkey (name)
+          projects!inner (
+            name,
+            code
+          ),
+          project_models!inner (
+            name
+          )
         `)
         .eq('status', 'available')
         .ilike('unit_code', `%${searchTerm}%`)
@@ -577,9 +600,9 @@ export default function ReservationPage() {
         id: item.id,
         unit_code: item.unit_code,
         project_id: item.project_id,
-        project_name: item.project?.name || '',
-        project_code: item.project?.code || '',
-        model_name: item.model?.name || '',
+        project_name: Array.isArray(item.projects) ? item.projects[0]?.name : item.projects?.name || '',
+        project_code: Array.isArray(item.projects) ? item.projects[0]?.code : item.projects?.code || '',
+        model_name: Array.isArray(item.project_models) ? item.project_models[0]?.name : item.project_models?.name || '',
         unit_type: item.unit_type,
         supported_price: Number(item.supported_price || 0),
         land_area: item.land_area ? Number(item.land_area) : null,

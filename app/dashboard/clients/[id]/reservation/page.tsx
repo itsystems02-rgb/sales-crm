@@ -92,6 +92,29 @@ export default function ReservationPage() {
   
   // Search debounce state
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  
+  // Note options states
+  const [noteOptions, setNoteOptions] = useState<string[]>([
+    'حجز قائم - المستفيد يرغب في الإلغاء',
+    'جاري رفع الطلب',
+    'لم يتم الرد',
+    'تحويل راتب - تغيير الجهة التمويلية',
+    'جديد - جاري المتابعة',
+    'توفير دفعة أولى',
+    'انتظار موافقة البنك',
+    'البحث عن نسبة',
+    'البحث عن جهة تمويلية',
+    'تم التنفيذ',
+    'تأخير من قبل الجهة التمويلية',
+    'سداد التزامات',
+    'العميل غير جاد',
+    'فترة انتظار البنك',
+    'في انتظار نزول الراتب',
+    'تم الرفض من الجهة التمويلية',
+    'لا يمكن تمويل العميل'
+  ]);
+  const [noteSearchTerm, setNoteSearchTerm] = useState('');
+  const [filteredNoteOptions, setFilteredNoteOptions] = useState<string[]>([]);
 
   /* =====================
      INIT
@@ -180,6 +203,42 @@ export default function ReservationPage() {
       setUnitStats({ total: 0, filtered: 0 });
     }
   }
+
+  /* =====================
+     Note Functions
+  ===================== */
+
+  // دالة لتصفية خيارات الملاحظات
+  const filterNoteOptions = useCallback((search: string) => {
+    if (!search.trim()) {
+      setFilteredNoteOptions(noteOptions);
+      return;
+    }
+    
+    const filtered = noteOptions.filter(option =>
+      option.toLowerCase().includes(search.toLowerCase())
+    );
+    setFilteredNoteOptions(filtered);
+  }, [noteOptions]);
+
+  // دالة لإضافة ملاحظة مخصصة
+  const handleAddCustomNote = () => {
+    if (notes.trim() && !noteOptions.includes(notes.trim())) {
+      setNoteOptions([notes.trim(), ...noteOptions]);
+      setNotes('');
+      setNoteSearchTerm('');
+    }
+  };
+
+  // تهيئة خيارات الملاحظات عند التحميل
+  useEffect(() => {
+    setFilteredNoteOptions(noteOptions);
+  }, [noteOptions]);
+
+  // تصفية خيارات الملاحظات عند تغيير البحث
+  useEffect(() => {
+    filterNoteOptions(noteSearchTerm);
+  }, [noteSearchTerm, filterNoteOptions]);
 
   /* =====================
      Search and Load Functions - محسّنة
@@ -311,13 +370,6 @@ export default function ReservationPage() {
         setTotalUnits(count);
         setTotalPages(Math.ceil(count / itemsPerPage));
         setUnitStats(prev => ({ ...prev, filtered: count }));
-      }
-      
-      // تسجيل للتصحيح
-      console.log('Units loaded:', normalized.length);
-      if (searchTerm.trim()) {
-        console.log('Search term:', searchTerm);
-        console.log('Search results:', normalized.map(u => u.unit_code));
       }
       
     } catch (err) {
@@ -538,6 +590,20 @@ export default function ReservationPage() {
   }
 
   /* =====================
+     Reset Form
+  ===================== */
+  function resetForm() {
+    setUnitId('');
+    setReservationDate('');
+    setBankName('');
+    setBankEmployeeName('');
+    setBankEmployeeMobile('');
+    setStatus('');
+    setNotes('');
+    setNoteSearchTerm('');
+  }
+
+  /* =====================
      UI Components
   ===================== */
 
@@ -637,19 +703,6 @@ export default function ReservationPage() {
         </div>
       </div>
     );
-  }
-
-  /* =====================
-     Reset Form
-  ===================== */
-  function resetForm() {
-    setUnitId('');
-    setReservationDate('');
-    setBankName('');
-    setBankEmployeeName('');
-    setBankEmployeeMobile('');
-    setStatus('');
-    setNotes('');
   }
 
   /* =====================
@@ -989,13 +1042,124 @@ export default function ReservationPage() {
               </select>
             </div>
 
+            {/* Notes Section - UPDATED */}
             <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>ملاحظات</label>
-              <textarea 
-                value={notes} 
-                onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
-                style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '4px', border: '1px solid #ddd' }}
-              />
+              <label>ملاحظات (اختياري)</label>
+              
+              {/* شريط البحث داخل الـ Select */}
+              <div style={{ marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="🔍 ابحث في الملاحظات..."
+                  value={noteSearchTerm}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNoteSearchTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    marginBottom: '5px'
+                  }}
+                />
+                <div style={{ fontSize: '12px', color: '#666', textAlign: 'right' }}>
+                  {noteSearchTerm && filteredNoteOptions.length > 0 ? `تم العثور على ${filteredNoteOptions.length} خيار` : ''}
+                </div>
+              </div>
+              
+              {/* الـ Select مع البحث */}
+              <select
+                value={notes}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                  setNotes(e.target.value);
+                  setNoteSearchTerm(''); // إعادة ضبط البحث بعد الاختيار
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  marginBottom: '10px',
+                  backgroundColor: 'white'
+                }}
+              >
+                <option value="">-- اختر ملاحظة من القائمة --</option>
+                {filteredNoteOptions.map((option, index) => (
+                  <option key={index} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              
+              {/* إمكانية إضافة ملاحظة مخصصة */}
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <input
+                  type="text"
+                  placeholder="أو اكتب ملاحظة مخصصة..."
+                  value={notes}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomNote}
+                  disabled={!notes.trim() || noteOptions.includes(notes.trim())}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: notes.trim() && !noteOptions.includes(notes.trim()) ? '#3b82f6' : '#e5e7eb',
+                    color: notes.trim() && !noteOptions.includes(notes.trim()) ? 'white' : '#9ca3af',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: notes.trim() && !noteOptions.includes(notes.trim()) ? 'pointer' : 'not-allowed',
+                    fontSize: '14px'
+                  }}
+                >
+                  + إضافة
+                </button>
+              </div>
+              
+              {/* عرض الخيارات المختارة حالياً */}
+              {notes && (
+                <div style={{
+                  marginTop: '10px',
+                  padding: '10px',
+                  backgroundColor: '#f0f9ff',
+                  borderRadius: '6px',
+                  border: '1px solid #bae6fd',
+                  fontSize: '14px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>✅ <strong>الملاحظة المختارة:</strong> {notes}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNotes('')}
+                      style={{
+                        padding: '4px 8px',
+                        backgroundColor: '#fee2e2',
+                        color: '#dc2626',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      حذف
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* ملاحظة إرشادية */}
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px', textAlign: 'right' }}>
+                يمكنك اختيار ملاحظة جاهزة أو كتابة ملاحظة مخصصة
+              </div>
             </div>
           </div>
         </Card>
@@ -1104,6 +1268,8 @@ export default function ReservationPage() {
             • الصفحة تعرض {itemsPerPage} وحدة في كل مرة لتحسين الأداء
             <br />
             • تأكد من صحة البيانات واختيار الوحدة الصحيحة قبل الحفظ
+            <br />
+            • يمكنك اختيار ملاحظة جاهزة من القائمة أو كتابة ملاحظة مخصصة
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee'; // استيراد الدالة المساعدة
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
@@ -18,6 +19,13 @@ type FollowUp = {
   visit_location: string | null;
   created_at: string;
   employee: { name: string } | null;
+};
+
+type Employee = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 };
 
 /* =====================
@@ -52,7 +60,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   const [notes, setNotes] = useState('');
   const [nextDate, setNextDate] = useState('');
   const [visitLocation, setVisitLocation] = useState('');
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(false);
 
   /* =====================
@@ -61,23 +69,32 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
   useEffect(() => {
     fetchFollowUps();
+    getCurrentEmployeeData();
   }, [clientId]);
 
-  useEffect(() => {
-    getEmployee();
-  }, []);
-
-  async function getEmployee() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.email) return;
-
-    const { data } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('email', user.email)
-      .maybeSingle();
-
-    if (data) setEmployeeId(data.id);
+  async function getCurrentEmployeeData() {
+    try {
+      const emp = await getCurrentEmployee();
+      if (emp) {
+        // إحضار بيانات الموظف بالكامل من قاعدة البيانات
+        const { data, error } = await supabase
+          .from('employees')
+          .select('id, name, email, role')
+          .eq('id', emp.id)
+          .single();
+        
+        if (error) {
+          console.error('Error fetching employee details:', error);
+          return;
+        }
+        
+        if (data) {
+          setEmployee(data);
+        }
+      }
+    } catch (error) {
+      console.error('Error getting current employee:', error);
+    }
   }
 
   async function fetchFollowUps() {
@@ -116,8 +133,8 @@ export default function FollowUps({ clientId }: { clientId: string }) {
   ===================== */
 
   async function addFollowUp() {
-    if (!employeeId) {
-      alert('لم يتم تحديد الموظف');
+    if (!employee?.id) {
+      alert('لم يتم تحديد الموظف. يرجى تسجيل الدخول مرة أخرى.');
       return;
     }
 
@@ -135,7 +152,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
     const { error } = await supabase.from('client_followups').insert({
       client_id: clientId,
-      employee_id: employeeId,
+      employee_id: employee.id,
       type,
       notes: finalNotes,
       next_follow_up_date: nextDate || null,
@@ -173,67 +190,235 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
   return (
     <>
+      {/* عرض معلومات الموظف الحالي */}
+      {employee && (
+        <div style={{ 
+          marginBottom: '20px', 
+          padding: '12px 16px', 
+          backgroundColor: '#e6f4ea', 
+          borderRadius: '8px',
+          borderLeft: '5px solid #34a853'
+        }}>
+          <strong>المستخدم الحالي:</strong> {employee.name} ({employee.role === 'admin' ? 'مدير' : employee.role === 'sales' ? 'مندوب مبيعات' : 'مدير مبيعات'})
+        </div>
+      )}
+
       <Card title="إضافة متابعة">
-        <div className="form-col" style={{ gap: 8 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select value={type} onChange={(e) => setType(e.target.value as any)}>
-              {TYPES.map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-
-            <select value={details} onChange={(e) => setDetails(e.target.value)}>
-              <option value="">تفاصيل المتابعة</option>
-              {DETAILS_OPTIONS.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-
-          {type === 'visit' && (
-            <input
-              placeholder="مكان الزيارة"
-              value={visitLocation}
-              onChange={(e) => setVisitLocation(e.target.value)}
-            />
-          )}
-
-          <textarea
-            placeholder="ملاحظات إضافية"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            style={{ minHeight: 80 }}
-          />
-
-          <input
-            type="date"
-            value={nextDate}
-            onChange={(e) => setNextDate(e.target.value)}
-          />
-
-          <div style={{ width: '100%' }}>
-            <Button onClick={addFollowUp} disabled={loading} className="full-width">
-              حفظ
+        {!employee ? (
+          <div style={{ 
+            padding: '20px', 
+            textAlign: 'center', 
+            backgroundColor: '#fee2e2', 
+            borderRadius: '6px',
+            border: '1px solid #fecaca'
+          }}>
+            <p style={{ color: '#dc2626', marginBottom: '10px' }}>
+              ⚠️ لم يتم تحديد الموظف. يرجى تسجيل الدخول مرة أخرى.
+            </p>
+            <Button 
+              onClick={getCurrentEmployeeData}
+              style={{ backgroundColor: '#3b82f6', color: 'white' }}
+            >
+              تحديث بيانات الموظف
             </Button>
           </div>
-        </div>
+        ) : (
+          <div className="form-col" style={{ gap: 8 }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '10px', 
+              marginBottom: '10px',
+              padding: '10px',
+              backgroundColor: '#f0f9ff',
+              borderRadius: '6px'
+            }}>
+              <span>📝</span>
+              <span>
+                <strong>موظف المتابعة:</strong> {employee.name}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select 
+                value={type} 
+                onChange={(e) => setType(e.target.value as any)}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
+                }}
+              >
+                {TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+
+              <select 
+                value={details} 
+                onChange={(e) => setDetails(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
+                }}
+              >
+                <option value="">تفاصيل المتابعة</option>
+                {DETAILS_OPTIONS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+
+            {type === 'visit' && (
+              <input
+                placeholder="مكان الزيارة"
+                value={visitLocation}
+                onChange={(e) => setVisitLocation(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
+                }}
+              />
+            )}
+
+            <textarea
+              placeholder="ملاحظات إضافية"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              style={{ 
+                minHeight: 80, 
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontFamily: 'inherit',
+                fontSize: '14px'
+              }}
+            />
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#666' }}>
+                تاريخ المتابعة القادمة (اختياري)
+              </label>
+              <input
+                type="date"
+                value={nextDate}
+                onChange={(e) => setNextDate(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
+                }}
+              />
+            </div>
+
+            <div style={{ width: '100%', marginTop: '10px' }}>
+              <Button 
+                onClick={addFollowUp} 
+                disabled={loading || !employee}
+                className="full-width"
+                style={{
+                  backgroundColor: loading ? '#94a3b8' : '#3b82f6',
+                  color: 'white',
+                  padding: '10px 16px',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                {loading ? 'جاري الحفظ...' : 'حفظ المتابعة'}
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card title="سجل المتابعات">
+        <div style={{ 
+          marginBottom: '15px', 
+          padding: '10px',
+          backgroundColor: '#f8fafc',
+          borderRadius: '6px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span>
+            <strong>عدد المتابعات:</strong> {items.length}
+          </span>
+          <button 
+            onClick={fetchFollowUps}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#e2e8f0',
+              border: '1px solid #cbd5e1',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            تحديث القائمة
+          </button>
+        </div>
+
         <Table headers={['النوع','التفاصيل','مكان الزيارة','المتابعة القادمة','الموظف','التاريخ']}>
           {items.length === 0 ? (
             <tr>
-              <td colSpan={6} style={{ textAlign: 'center' }}>لا توجد متابعات</td>
+              <td colSpan={6} style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ color: '#666', fontSize: '14px' }}>
+                  لا توجد متابعات لهذا العميل بعد
+                </div>
+              </td>
             </tr>
           ) : (
             items.map(f => (
               <tr key={f.id}>
-                <td>{typeLabel(f.type)}</td>
-                <td>{f.notes || '-'}</td>
+                <td>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '4px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    backgroundColor: 
+                      f.type === 'visit' ? '#e0f2fe' : 
+                      f.type === 'call' ? '#f0f9ff' : '#f0fdf4',
+                    color: 
+                      f.type === 'visit' ? '#0369a1' : 
+                      f.type === 'call' ? '#0c4a6e' : '#166534'
+                  }}>
+                    {typeLabel(f.type)}
+                  </span>
+                </td>
+                <td style={{ maxWidth: '300px', wordBreak: 'break-word' }}>
+                  {f.notes || '-'}
+                </td>
                 <td>{f.visit_location || '-'}</td>
-                <td>{f.next_follow_up_date || '-'}</td>
+                <td>
+                  {f.next_follow_up_date ? (
+                    <span style={{ 
+                      padding: '4px 8px', 
+                      backgroundColor: '#fef3c7', 
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500'
+                    }}>
+                      {new Date(f.next_follow_up_date).toLocaleDateString('ar-SA')}
+                    </span>
+                  ) : '-'}
+                </td>
                 <td>{f.employee?.name || '-'}</td>
-                <td>{new Date(f.created_at).toLocaleDateString()}</td>
+                <td>
+                  {new Date(f.created_at).toLocaleDateString('ar-SA')}
+                  <div style={{ fontSize: '12px', color: '#666' }}>
+                    {new Date(f.created_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </td>
               </tr>
             ))
           )}

@@ -218,7 +218,7 @@ export default function SalesPage() {
       // 5. جلب بيانات المشاريع للعرض
       await fetchProjectsData();
       
-      // 6. جلب بيانات الموظفين (مقيدة بالصلاحيات)
+      // 6. جلب بيانات الموظفين (للإدمن ومدير المبيعات)
       await fetchEmployeesData(user);
       
     } catch (err) {
@@ -258,13 +258,15 @@ export default function SalesPage() {
         console.log('👤 الموظف العادي - جلب مبيعاته فقط');
         query = query.eq('sales_employee_id', user.id);
       } else if (user?.role === 'sales_manager') {
-        // مدير المبيعات: يشاهد مبيعات المشاريع المسموحة له
+        // مدير المبيعات: يشاهد جميع المبيعات في المشاريع المسموحة له
         const allowedUnitIds = allowedUnits.map(u => u.id);
         
-        console.log(`👨‍💼 مدير المبيعات - جلب مبيعات ${allowedUnitIds.length} وحدة مسموحة`);
+        console.log(`👨‍💼 مدير المبيعات - جلب جميع المبيعات في ${allowedUnitIds.length} وحدة مسموحة`);
+        
         // تأكد من أن المصفوفة ليست فارغة قبل استخدام .in()
         if (allowedUnitIds.length > 0) {
           query = query.in('unit_id', allowedUnitIds);
+          // ملاحظة: لا نضيف فلتر sales_employee_id لمدير المبيعات حتى يرى جميع المبيعات
         } else {
           // إذا كانت المصفوفة فارغة، لا نضيف فلتر ونرجع مصفوفة فارغة
           console.log('⚠️ لا توجد وحدات مسموحة للفلترة');
@@ -345,39 +347,9 @@ export default function SalesPage() {
       if (user?.role === 'sales') {
         query = query.eq('id', user.id);
       } else if (user?.role === 'sales_manager') {
-        // مدير المبيعات يرى الموظفين في المشاريع المسموحة له
-        const allowedProjectIds = allowedProjects.map(p => p.id);
-        
-        console.log(`📊 مشاريع مدير المبيعات: ${allowedProjectIds.length} مشروع`);
-        
-        if (allowedProjectIds.length > 0) {
-          const { data: employeeProjects, error: empProjError } = await supabase
-            .from('employee_projects')
-            .select('employee_id')
-            .in('project_id', allowedProjectIds);
-          
-          if (empProjError) {
-            console.error('❌ خطأ في جلب موظفي المشاريع:', empProjError);
-            query = query.eq('id', user.id); // فقط المدير نفسه
-          } else {
-            const employeeIds = [...new Set([
-              ...(employeeProjects?.map(ep => ep.employee_id) || []),
-              user.id // إضافة المدير نفسه
-            ])];
-            
-            console.log(`👥 موظفين في المشاريع: ${employeeIds.length} موظف`);
-            
-            // تأكد من أن المصفوفة ليست فارغة قبل استخدام .in()
-            if (employeeIds.length > 0) {
-              query = query.in('id', employeeIds);
-            } else {
-              query = query.eq('id', user.id); // فقط المدير نفسه
-            }
-          }
-        } else {
-          console.log('⚠️ لا توجد مشاريع مسموحة، عرض المدير فقط');
-          query = query.eq('id', user.id); // فقط المدير نفسه
-        }
+        // مدير المبيعات يرى جميع الموظفين في النظام
+        // جلب جميع الموظفين (للعرض في الفلاتر)
+        query = query.in('role', ['sales', 'sales_manager']);
       } else if (user?.role === 'admin') {
         console.log('👑 الإدمن - جلب جميع الموظفين');
       }
@@ -397,13 +369,23 @@ export default function SalesPage() {
         employeesData.forEach(emp => {
           employeesMap[emp.id] = { name: emp.name, role: emp.role };
         });
+        // إضافة المستخدم الحالي إذا لم يكن موجوداً
+        if (!employeesMap[user.id]) {
+          employeesMap[user.id] = { name: user.name, role: user.role };
+        }
         setEmployees(employeesMap);
       } else {
-        setEmployees({});
+        // على الأقل إضافة المستخدم الحالي
+        const employeesMap: Record<string, {name: string, role: string}> = {};
+        employeesMap[user.id] = { name: user.name, role: user.role };
+        setEmployees(employeesMap);
       }
     } catch (err) {
       console.error('❌ خطأ في جلب الموظفين:', err);
-      setEmployees({});
+      // على الأقل إضافة المستخدم الحالي
+      const employeesMap: Record<string, {name: string, role: string}> = {};
+      employeesMap[user.id] = { name: user.name, role: user.role };
+      setEmployees(employeesMap);
     }
   }
 
@@ -641,7 +623,21 @@ export default function SalesPage() {
 
   // تحديد الموظفين المعروضين في الفلاتر بناءً على الدور
   const getDisplayEmployees = () => {
-    return Object.entries(employees).map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    if (currentUser?.role === 'sales') {
+      // الموظف العادي يرى نفسه فقط
+      return Object.entries(employees)
+        .filter(([id, emp]) => id === currentUser.id)
+        .map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    } else if (currentUser?.role === 'sales_manager') {
+      // مدير المبيعات يرى جميع الموظفين في المشاريع المسموحة له
+      return Object.entries(employees)
+        .filter(([id, emp]) => emp.role === 'sales' || emp.role === 'sales_manager')
+        .map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    } else if (currentUser?.role === 'admin') {
+      // الإدمن يرى جميع الموظفين
+      return Object.entries(employees).map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    }
+    return [];
   };
 
   // عرض معلومات الصلاحية للمستخدم
@@ -652,7 +648,7 @@ export default function SalesPage() {
       case 'admin':
         return `مدير النظام - مشاهدة جميع التنفيذات (${sales.length} عملية)`;
       case 'sales_manager':
-        return `مدير مبيعات - ${allowedProjects.length} مشروع، ${allowedUnits.length} وحدة، ${sales.length} عملية`;
+        return `مدير مبيعات - ${allowedProjects.length} مشروع، ${allowedUnits.length} وحدة، ${sales.length} عملية (جميع الموظفين)`;
       case 'sales':
         return `مندوب مبيعات - مشاهدة تنفيذاتك فقط (${sales.length} عملية)`;
       default:
@@ -1383,29 +1379,32 @@ export default function SalesPage() {
                           👁️ عرض
                         </button>
                         
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            router.push(`/dashboard/sales/edit/${sale.id}`);
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            backgroundColor: '#fff3e0',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: '#f57c00',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#ffe0b2'}
-                          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fff3e0'}
-                        >
-                          ✏️ تعديل
-                        </button>
+                        {/* عرض زر التعديل للإدمن ومدير المبيعات */}
+                        {(currentUser?.role === 'admin' || currentUser?.role === 'sales_manager') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              router.push(`/dashboard/sales/edit/${sale.id}`);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#fff3e0',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: '#f57c00',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#ffe0b2'}
+                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#fff3e0'}
+                          >
+                            ✏️ تعديل
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

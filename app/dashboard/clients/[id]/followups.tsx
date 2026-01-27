@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { getCurrentEmployee } from '@/lib/getCurrentEmployee'; // استيراد الدالة المساعدة
+import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Table from '@/components/ui/Table';
@@ -76,7 +76,6 @@ export default function FollowUps({ clientId }: { clientId: string }) {
     try {
       const emp = await getCurrentEmployee();
       if (emp) {
-        // إحضار بيانات الموظف بالكامل من قاعدة البيانات
         const { data, error } = await supabase
           .from('employees')
           .select('id, name, email, role')
@@ -165,11 +164,9 @@ export default function FollowUps({ clientId }: { clientId: string }) {
       return;
     }
 
-    // تحديث حالة العميل
     const status = type === 'visit' ? 'visited' : 'interested';
     await supabase.from('clients').update({ status }).eq('id', clientId);
 
-    // إعادة تهيئة الفورم
     setDetails('');
     setNotes('');
     setNextDate('');
@@ -190,7 +187,6 @@ export default function FollowUps({ clientId }: { clientId: string }) {
 
   return (
     <>
-      {/* عرض معلومات الموظف الحالي */}
       {employee && (
         <div style={{ 
           marginBottom: '20px', 
@@ -217,7 +213,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
             </p>
             <Button 
               onClick={getCurrentEmployeeData}
-              style={{ backgroundColor: '#3b82f6', color: 'white' }}
+              variant="primary"  // استخدام variant بدلاً من style
             >
               تحديث بيانات الموظف
             </Button>
@@ -323,13 +319,7 @@ export default function FollowUps({ clientId }: { clientId: string }) {
                 onClick={addFollowUp} 
                 disabled={loading || !employee}
                 className="full-width"
-                style={{
-                  backgroundColor: loading ? '#94a3b8' : '#3b82f6',
-                  color: 'white',
-                  padding: '10px 16px',
-                  fontSize: '16px',
-                  fontWeight: 'bold'
-                }}
+                variant="primary"  // استخدام variant بدلاً من style
               >
                 {loading ? 'جاري الحفظ...' : 'حفظ المتابعة'}
               </Button>
@@ -351,19 +341,12 @@ export default function FollowUps({ clientId }: { clientId: string }) {
           <span>
             <strong>عدد المتابعات:</strong> {items.length}
           </span>
-          <button 
+          <Button 
             onClick={fetchFollowUps}
-            style={{
-              padding: '6px 12px',
-              backgroundColor: '#e2e8f0',
-              border: '1px solid #cbd5e1',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
+            variant="secondary"  // استخدام Button المخصص
           >
             تحديث القائمة
-          </button>
+          </Button>
         </div>
 
         <Table headers={['النوع','التفاصيل','مكان الزيارة','المتابعة القادمة','الموظف','التاريخ']}>

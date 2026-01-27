@@ -1357,26 +1357,46 @@ export default function ReservationPage() {
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '5px', flexDirection: 'column' }}>
                             {unit.reservation_id && (
-                              <Button 
-                                variant="secondary"
-                                onClick={() => router.push(`/dashboard/reservations/${unit.reservation_id}`)}
-                                style={{ padding: '4px 8px', fontSize: '12px' }}
-                              >
-                                عرض الحجز
-                              </Button>
+                              <div>
+                                <button
+                                  onClick={() => router.push(`/dashboard/reservations/${unit.reservation_id}`)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '12px',
+                                    backgroundColor: '#3b82f6',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    width: '100%'
+                                  }}
+                                >
+                                  عرض الحجز
+                                </button>
+                              </div>
                             )}
                             {employee?.role === 'admin' && unit.reservation_id && (
-                              <Button 
-                                variant="danger"
-                                onClick={() => {
-                                  if (confirm('هل أنت متأكد من حذف هذا الحجز؟')) {
-                                    // TODO: تنفيذ حذف الحجز
-                                  }
-                                }}
-                                style={{ padding: '4px 8px', fontSize: '12px' }}
-                              >
-                                حذف
-                              </Button>
+                              <div>
+                                <button
+                                  onClick={() => {
+                                    if (confirm('هل أنت متأكد من حذف هذا الحجز؟')) {
+                                      // TODO: تنفيذ حذف الحجز
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '12px',
+                                    backgroundColor: '#ef4444',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    width: '100%'
+                                  }}
+                                >
+                                  حذف
+                                </button>
+                              </div>
                             )}
                           </div>
                         </td>

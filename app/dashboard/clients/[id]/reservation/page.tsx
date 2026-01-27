@@ -35,6 +35,9 @@ type Unit = {
     client_name: string;
     client_phone: string;
   };
+  reservation_id?: string;
+  reservation_employee_id?: string;
+  is_my_reservation?: boolean;
 };
 
 type Bank = {
@@ -58,6 +61,7 @@ type Employee = {
 type UnitStats = {
   total: number;
   filtered: number;
+  my_reservations: number;
 };
 
 /* =====================
@@ -87,7 +91,7 @@ export default function ReservationPage() {
   const [selectedType, setSelectedType] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [unitStats, setUnitStats] = useState<UnitStats>({ total: 0, filtered: 0 });
+  const [unitStats, setUnitStats] = useState<UnitStats>({ total: 0, filtered: 0, my_reservations: 0 });
   
   // Form states
   const [unitId, setUnitId] = useState('');
@@ -145,12 +149,18 @@ export default function ReservationPage() {
 
       await fetchBanksAndFollowUp();
       
-      // Sales Manager يستطيع رؤية جميع الحجوزات في مشاريعه
-      if (emp.role === 'sales_manager') {
-        await fetchAllReservationsForManager(emp);
-      } else {
-        await fetchUnitStats(emp);
-        await loadUnits(emp, currentPage);
+      // بناءً على الدور، نحدد ما يجب عرضه
+      switch (emp.role) {
+        case 'admin':
+          await fetchAllReservations(emp);
+          break;
+        case 'sales_manager':
+          await fetchManagerReservations(emp);
+          break;
+        case 'sales':
+        default:
+          await fetchSalesReservations(emp);
+          break;
       }
       
       setLoading(false);
@@ -183,49 +193,130 @@ export default function ReservationPage() {
     setLastFollowUp(follow || null);
   }
 
-  async function fetchUnitStats(emp: Employee) {
+  /* =====================
+     دالة لجلب جميع الحجوزات للادمن
+  ===================== */
+  async function fetchAllReservations(emp: Employee) {
     try {
-      // إجمالي الوحدات المتاحة
-      let countQuery = supabase
+      // جلب جميع الحجوزات مع البيانات المرتبطة
+      const { data: reservations, error } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          unit_id,
+          reservation_date,
+          status,
+          notes,
+          employee_id,
+          units (
+            id,
+            unit_code,
+            project_id,
+            unit_type,
+            supported_price,
+            land_area,
+            build_area,
+            status,
+            projects (
+              name,
+              code
+            ),
+            project_models (
+              name
+            )
+          ),
+          employees (
+            id,
+            name,
+            role
+          ),
+          clients (
+            id,
+            name,
+            phone
+          )
+        `)
+        .order('reservation_date', { ascending: false });
+
+      if (error) throw error;
+
+      // جلب إحصائيات الوحدات المتاحة
+      const { count } = await supabase
         .from('units')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'available');
 
-      if (emp.role === 'sales') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
+      // تحويل البيانات
+      const reservationUnits = (reservations || []).map(res => {
+        const unit = Array.isArray(res.units) ? res.units[0] : res.units;
+        if (!unit) return null;
 
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        const projects = unit.projects;
+        const project = Array.isArray(projects) ? projects[0] : projects;
         
-        if (allowedProjectIds.length > 0) {
-          countQuery = countQuery.in('project_id', allowedProjectIds);
-        } else {
-          countQuery = countQuery.eq('project_id', 'no-projects');
-        }
-      }
+        const projectModels = unit.project_models;
+        const model = Array.isArray(projectModels) ? projectModels[0] : projectModels;
+        
+        const employees = res.employees;
+        const employee = Array.isArray(employees) ? employees[0] : employees;
+        
+        const clients = res.clients;
+        const client = Array.isArray(clients) ? clients[0] : clients;
 
-      const { count, error } = await countQuery;
-      if (error) throw error;
+        const isMyReservation = res.employee_id === emp.id;
 
+        return {
+          id: unit.id,
+          unit_code: unit.unit_code,
+          project_id: unit.project_id,
+          project_name: project?.name || '',
+          project_code: project?.code || '',
+          model_name: model?.name || '',
+          unit_type: unit.unit_type,
+          supported_price: Number(unit.supported_price || 0),
+          land_area: unit.land_area ? Number(unit.land_area) : null,
+          build_area: unit.build_area ? Number(unit.build_area) : null,
+          status: unit.status,
+          reservation_id: res.id,
+          reservation_employee_id: res.employee_id,
+          is_my_reservation: isMyReservation,
+          reservation_data: {
+            reservation_id: res.id,
+            reservation_date: res.reservation_date,
+            reservation_status: res.status,
+            reservation_notes: res.notes,
+            employee_name: employee?.name || 'غير معروف',
+            employee_role: employee?.role || 'غير معروف',
+            client_name: client?.name || 'غير معروف',
+            client_phone: client?.phone || 'غير معروف'
+          }
+        };
+      }).filter(unit => unit !== null) as Unit[];
+
+      const myReservationsCount = reservationUnits.filter(unit => unit.is_my_reservation).length;
+
+      setUnits(reservationUnits);
       setUnitStats({
         total: count || 0,
-        filtered: count || 0
+        filtered: reservationUnits.length,
+        my_reservations: myReservationsCount
       });
-      
+      setTotalUnits(reservationUnits.length);
+      setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
+
     } catch (err) {
-      console.error('Error fetching unit stats:', err);
-      setUnitStats({ total: 0, filtered: 0 });
+      console.error('Error fetching all reservations:', err);
+      setUnits([]);
+      setUnitStats({ total: 0, filtered: 0, my_reservations: 0 });
     }
   }
 
   /* =====================
-     دالة جديدة لجلب الحجوزات للمدير - مصححة بشكل كامل
+     دالة لجلب حجوزات مدير المبيعات في المشاريع التابعة له
   ===================== */
-  async function fetchAllReservationsForManager(emp: Employee) {
+  async function fetchManagerReservations(emp: Employee) {
     try {
-      // 1. جلب المشاريع التي يديرها
+      // جلب المشاريع التي يديرها
       const { data: managerProjects, error: projectsError } = await supabase
         .from('employee_projects')
         .select('project_id')
@@ -237,12 +328,12 @@ export default function ReservationPage() {
       
       if (managedProjectIds.length === 0) {
         setUnits([]);
-        setUnitStats({ total: 0, filtered: 0 });
+        setUnitStats({ total: 0, filtered: 0, my_reservations: 0 });
         return;
       }
 
-      // 2. جلب جميع الحجوزات في هذه المشاريع باستخدام join
-      const { data: reservations, error: reservationsError } = await supabase
+      // جلب الحجوزات في المشاريع التابعة له
+      const { data: reservations, error } = await supabase
         .from('reservations')
         .select(`
           id,
@@ -250,6 +341,7 @@ export default function ReservationPage() {
           reservation_date,
           status,
           notes,
+          employee_id,
           units (
             id,
             unit_code,
@@ -281,30 +373,151 @@ export default function ReservationPage() {
         .in('units.project_id', managedProjectIds)
         .order('reservation_date', { ascending: false });
 
-      if (reservationsError) {
-        console.error('Error fetching reservations:', reservationsError);
-        throw reservationsError;
-      }
+      if (error) throw error;
 
-      // 3. جلب الوحدات المتاحة في نفس المشاريع للإحصاءات
-      const { count, error: countError } = await supabase
+      // جلب إحصائيات الوحدات المتاحة في مشاريعه
+      const { count } = await supabase
         .from('units')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'available')
         .in('project_id', managedProjectIds);
 
-      if (countError) throw countError;
-
-      // 4. تحويل البيانات إلى نفس تنسيق الوحدات للتوافق
+      // تحويل البيانات
       const reservationUnits = (reservations || []).map(res => {
-        // معالجة البيانات المرتبطة
         const unit = Array.isArray(res.units) ? res.units[0] : res.units;
+        if (!unit) return null;
+
+        const projects = unit.projects;
+        const project = Array.isArray(projects) ? projects[0] : projects;
         
-        if (!unit) {
-          console.warn('No unit found for reservation:', res.id);
-          return null;
-        }
+        const projectModels = unit.project_models;
+        const model = Array.isArray(projectModels) ? projectModels[0] : projectModels;
         
+        const employees = res.employees;
+        const employee = Array.isArray(employees) ? employees[0] : employees;
+        
+        const clients = res.clients;
+        const client = Array.isArray(clients) ? clients[0] : clients;
+
+        const isMyReservation = res.employee_id === emp.id;
+
+        return {
+          id: unit.id,
+          unit_code: unit.unit_code,
+          project_id: unit.project_id,
+          project_name: project?.name || '',
+          project_code: project?.code || '',
+          model_name: model?.name || '',
+          unit_type: unit.unit_type,
+          supported_price: Number(unit.supported_price || 0),
+          land_area: unit.land_area ? Number(unit.land_area) : null,
+          build_area: unit.build_area ? Number(unit.build_area) : null,
+          status: unit.status,
+          reservation_id: res.id,
+          reservation_employee_id: res.employee_id,
+          is_my_reservation: isMyReservation,
+          reservation_data: {
+            reservation_id: res.id,
+            reservation_date: res.reservation_date,
+            reservation_status: res.status,
+            reservation_notes: res.notes,
+            employee_name: employee?.name || 'غير معروف',
+            employee_role: employee?.role || 'غير معروف',
+            client_name: client?.name || 'غير معروف',
+            client_phone: client?.phone || 'غير معروف'
+          }
+        };
+      }).filter(unit => unit !== null) as Unit[];
+
+      const myReservationsCount = reservationUnits.filter(unit => unit.is_my_reservation).length;
+
+      setUnits(reservationUnits);
+      setUnitStats({
+        total: count || 0,
+        filtered: reservationUnits.length,
+        my_reservations: myReservationsCount
+      });
+      setTotalUnits(reservationUnits.length);
+      setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
+
+    } catch (err) {
+      console.error('Error fetching manager reservations:', err);
+      setUnits([]);
+      setUnitStats({ total: 0, filtered: 0, my_reservations: 0 });
+    }
+  }
+
+  /* =====================
+     دالة لجلب حجوزات السيلز الخاصة به فقط
+  ===================== */
+  async function fetchSalesReservations(emp: Employee) {
+    try {
+      // جلب الحجوزات الخاصة بالسيلز فقط
+      const { data: reservations, error } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          unit_id,
+          reservation_date,
+          status,
+          notes,
+          employee_id,
+          units (
+            id,
+            unit_code,
+            project_id,
+            unit_type,
+            supported_price,
+            land_area,
+            build_area,
+            status,
+            projects (
+              name,
+              code
+            ),
+            project_models (
+              name
+            )
+          ),
+          employees (
+            id,
+            name,
+            role
+          ),
+          clients (
+            id,
+            name,
+            phone
+          )
+        `)
+        .eq('employee_id', emp.id)
+        .order('reservation_date', { ascending: false });
+
+      if (error) throw error;
+
+      // جلب إحصائيات الوحدات المتاحة في مشاريعه
+      const { data: employeeProjects } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', emp.id);
+
+      const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+      
+      let count = 0;
+      if (allowedProjectIds.length > 0) {
+        const { count: availableCount } = await supabase
+          .from('units')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'available')
+          .in('project_id', allowedProjectIds);
+        count = availableCount || 0;
+      }
+
+      // تحويل البيانات
+      const reservationUnits = (reservations || []).map(res => {
+        const unit = Array.isArray(res.units) ? res.units[0] : res.units;
+        if (!unit) return null;
+
         const projects = unit.projects;
         const project = Array.isArray(projects) ? projects[0] : projects;
         
@@ -329,6 +542,9 @@ export default function ReservationPage() {
           land_area: unit.land_area ? Number(unit.land_area) : null,
           build_area: unit.build_area ? Number(unit.build_area) : null,
           status: unit.status,
+          reservation_id: res.id,
+          reservation_employee_id: res.employee_id,
+          is_my_reservation: true, // كلها خاصة به
           reservation_data: {
             reservation_id: res.id,
             reservation_date: res.reservation_date,
@@ -340,243 +556,29 @@ export default function ReservationPage() {
             client_phone: client?.phone || 'غير معروف'
           }
         };
-      }).filter(unit => unit !== null) as Unit[]; // تصفية الوحدات الفارغة
-
-      console.log('Reservation units loaded:', reservationUnits.length);
+      }).filter(unit => unit !== null) as Unit[];
 
       setUnits(reservationUnits);
       setUnitStats({
-        total: count || 0,
-        filtered: reservationUnits.length
+        total: count,
+        filtered: reservationUnits.length,
+        my_reservations: reservationUnits.length
       });
       setTotalUnits(reservationUnits.length);
       setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
 
     } catch (err) {
-      console.error('Error fetching reservations for manager:', err);
-      // محاولة طريقة بديلة
-      await tryAlternativeMethod(emp);
-    }
-  }
-
-  /* =====================
-     طريقة بديلة لجلب الحجوزات
-  ===================== */
-  async function tryAlternativeMethod(emp: Employee) {
-    try {
-      // 1. جلب المشاريع التي يديرها
-      const { data: managerProjects, error: projectsError } = await supabase
-        .from('employee_projects')
-        .select('project_id')
-        .eq('employee_id', emp.id);
-
-      if (projectsError) throw projectsError;
-
-      const managedProjectIds = (managerProjects || []).map(p => p.project_id);
-      
-      if (managedProjectIds.length === 0) {
-        setUnits([]);
-        setUnitStats({ total: 0, filtered: 0 });
-        return;
-      }
-
-      // 2. جلب جميع الوحدات في المشاريع
-      const { data: unitsData, error: unitsError } = await supabase
-        .from('units')
-        .select(`
-          id,
-          unit_code,
-          project_id,
-          unit_type,
-          supported_price,
-          land_area,
-          build_area,
-          status,
-          projects (
-            name,
-            code
-          ),
-          project_models (
-            name
-          )
-        `)
-        .in('project_id', managedProjectIds)
-        .order('unit_code');
-
-      if (unitsError) throw unitsError;
-
-      // 3. جلب جميع الحجوزات
-      const { data: allReservations, error: reservationsError } = await supabase
-        .from('reservations')
-        .select(`
-          id,
-          unit_id,
-          reservation_date,
-          status,
-          notes,
-          employees (
-            name,
-            role
-          ),
-          clients (
-            name,
-            phone
-          )
-        `)
-        .order('reservation_date', { ascending: false });
-
-      if (reservationsError) throw reservationsError;
-
-      // 4. ربط الوحدات بالحجوزات يدوياً
-      const reservationUnits: Unit[] = [];
-      
-      const unitsMap = new Map<string, any>();
-      (unitsData || []).forEach(unit => {
-        unitsMap.set(unit.id, unit);
-      });
-
-      (allReservations || []).forEach(res => {
-        const unit = unitsMap.get(res.unit_id);
-        
-        if (unit && managedProjectIds.includes(unit.project_id)) {
-          const projects = unit.projects;
-          const project = Array.isArray(projects) ? projects[0] : projects;
-          
-          const projectModels = unit.project_models;
-          const model = Array.isArray(projectModels) ? projectModels[0] : projectModels;
-          
-          const employees = res.employees;
-          const employee = Array.isArray(employees) ? employees[0] : employees;
-          
-          const clients = res.clients;
-          const client = Array.isArray(clients) ? clients[0] : clients;
-
-          reservationUnits.push({
-            id: unit.id,
-            unit_code: unit.unit_code,
-            project_id: unit.project_id,
-            project_name: project?.name || '',
-            project_code: project?.code || '',
-            model_name: model?.name || '',
-            unit_type: unit.unit_type,
-            supported_price: Number(unit.supported_price || 0),
-            land_area: unit.land_area ? Number(unit.land_area) : null,
-            build_area: unit.build_area ? Number(unit.build_area) : null,
-            status: unit.status,
-            reservation_data: {
-              reservation_id: res.id,
-              reservation_date: res.reservation_date,
-              reservation_status: res.status,
-              reservation_notes: res.notes,
-              employee_name: employee?.name || 'غير معروف',
-              employee_role: employee?.role || 'غير معروف',
-              client_name: client?.name || 'غير معروف',
-              client_phone: client?.phone || 'غير معروف'
-            }
-          });
-        }
-      });
-
-      // 5. جلب الوحدات المتاحة للإحصاءات
-      const { count, error: countError } = await supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'available')
-        .in('project_id', managedProjectIds);
-
-      if (countError) throw countError;
-
-      console.log('Reservation units loaded (alternative method):', reservationUnits.length);
-
-      setUnits(reservationUnits);
-      setUnitStats({
-        total: count || 0,
-        filtered: reservationUnits.length
-      });
-      setTotalUnits(reservationUnits.length);
-      setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
-
-    } catch (err) {
-      console.error('Error in alternative method:', err);
+      console.error('Error fetching sales reservations:', err);
       setUnits([]);
-      setUnitStats({ total: 0, filtered: 0 });
+      setUnitStats({ total: 0, filtered: 0, my_reservations: 0 });
     }
   }
 
   /* =====================
-     Note Functions
+     دالة لتحميل الوحدات المتاحة للادمن والسيلز (عند إضافة حجوزات جديدة)
   ===================== */
-
-  // دالة لتصفية خيارات الملاحظات
-  const filterNoteOptions = useCallback((search: string) => {
-    if (!search.trim()) {
-      setFilteredNoteOptions(noteOptions);
-      return;
-    }
-    
-    const filtered = noteOptions.filter(option =>
-      option.toLowerCase().includes(search.toLowerCase())
-    );
-    setFilteredNoteOptions(filtered);
-  }, [noteOptions]);
-
-  // دالة لإضافة ملاحظة مخصصة
-  const handleAddCustomNote = () => {
-    if (notes.trim() && !noteOptions.includes(notes.trim())) {
-      setNoteOptions([notes.trim(), ...noteOptions]);
-      setNotes('');
-      setNoteSearchTerm('');
-    }
-  };
-
-  // تهيئة خيارات الملاحظات عند التحميل
-  useEffect(() => {
-    setFilteredNoteOptions(noteOptions);
-  }, [noteOptions]);
-
-  // تصفية خيارات الملاحظات عند تغيير البحث
-  useEffect(() => {
-    filterNoteOptions(noteSearchTerm);
-  }, [noteSearchTerm, filterNoteOptions]);
-
-  /* =====================
-     Search and Load Functions - محسّنة
-  ===================== */
-
-  // دالة البحث المحسنة مع دعم جميع الحقول
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    
-    // إلغاء الوقت السابق إذا كان موجودًا
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-    
-    // ضبط وقت جديد للبحث
-    const timeout = setTimeout(() => {
-      setCurrentPage(1);
-      if (employee) {
-        loadUnits(employee, 1);
-      }
-    }, 300); // انتظار 300 مللي ثانية بعد آخر كتابة
-    
-    setSearchTimeout(timeout);
-  }, [employee, searchTimeout]);
-
-  async function loadUnits(emp: Employee | null = null, page: number = currentPage) {
-    if (!emp) return;
-    
-    setLoading(true);
-
+  async function loadAvailableUnits(emp: Employee, page: number = currentPage) {
     try {
-      // إذا كان Sales Manager، نعرض الحجوزات بدلاً من الوحدات المتاحة
-      if (emp.role === 'sales_manager') {
-        await fetchAllReservationsForManager(emp);
-        setLoading(false);
-        return;
-      }
-
-      // الكود الأصلي للـ Sales والـ Admin
       const from = (page - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
 
@@ -591,8 +593,6 @@ export default function ReservationPage() {
           supported_price,
           land_area,
           build_area,
-          block_no,
-          unit_no,
           projects!inner (
             name,
             code
@@ -605,7 +605,7 @@ export default function ReservationPage() {
         .order('unit_code')
         .range(from, to);
 
-      // تطبيق الفلاتر
+      // للـ Sales، نطبق فلتر المشاريع المسموحة
       if (emp.role === 'sales') {
         const { data: employeeProjects } = await supabase
           .from('employee_projects')
@@ -621,47 +621,32 @@ export default function ReservationPage() {
         }
       }
 
-      // فلتر المشروع
+      // تطبيق الفلاتر
       if (selectedProject) {
         query = query.eq('project_id', selectedProject);
       }
-
-      // فلتر النوع
       if (selectedType) {
         query = query.eq('unit_type', selectedType);
       }
-
-      // فلتر السعر
       if (minPrice) {
         query = query.gte('supported_price', Number(minPrice));
       }
       if (maxPrice) {
         query = query.lte('supported_price', Number(maxPrice));
       }
-
-      // فلتر البحث - محسّن بشكل كبير
       if (searchTerm.trim()) {
         const searchTermLower = searchTerm.trim().toLowerCase();
-        
-        // البحث في جميع الحقول المهمة
         query = query.or(
           `unit_code.ilike.%${searchTermLower}%,` +
           `projects.name.ilike.%${searchTermLower}%,` +
-          `project_models.name.ilike.%${searchTermLower}%,` +
-          `block_no.ilike.%${searchTermLower}%,` +
-          `unit_no.ilike.%${searchTermLower}%`
+          `project_models.name.ilike.%${searchTermLower}%`
         );
       }
 
       const { data, error, count } = await query;
       
-      if (error) {
-        console.error('Error loading units:', error);
-        setUnits([]);
-        return;
-      }
+      if (error) throw error;
 
-      // Normalize data
       const normalized = (data || []).map((item: any) => ({
         id: item.id,
         unit_code: item.unit_code,
@@ -681,120 +666,74 @@ export default function ReservationPage() {
       if (count !== null) {
         setTotalUnits(count);
         setTotalPages(Math.ceil(count / itemsPerPage));
-        setUnitStats(prev => ({ ...prev, filtered: count }));
       }
-      
+
     } catch (err) {
-      console.error('Error in loadUnits():', err);
+      console.error('Error loading available units:', err);
       setUnits([]);
-    } finally {
-      setLoading(false);
     }
   }
 
-  // دالة البحث السريع بالضغط على Enter
+  /* =====================
+     Note Functions
+  ===================== */
+
+  const filterNoteOptions = useCallback((search: string) => {
+    if (!search.trim()) {
+      setFilteredNoteOptions(noteOptions);
+      return;
+    }
+    
+    const filtered = noteOptions.filter(option =>
+      option.toLowerCase().includes(search.toLowerCase())
+    );
+    setFilteredNoteOptions(filtered);
+  }, [noteOptions]);
+
+  const handleAddCustomNote = () => {
+    if (notes.trim() && !noteOptions.includes(notes.trim())) {
+      setNoteOptions([notes.trim(), ...noteOptions]);
+      setNotes('');
+      setNoteSearchTerm('');
+    }
+  };
+
+  useEffect(() => {
+    setFilteredNoteOptions(noteOptions);
+  }, [noteOptions]);
+
+  useEffect(() => {
+    filterNoteOptions(noteSearchTerm);
+  }, [noteSearchTerm, filterNoteOptions]);
+
+  /* =====================
+     Search and Load Functions
+  ===================== */
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchTerm(value);
+    
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    const timeout = setTimeout(() => {
+      setCurrentPage(1);
+      if (employee) {
+        loadAvailableUnits(employee, 1);
+      }
+    }, 300);
+    
+    setSearchTimeout(timeout);
+  }, [employee, searchTimeout]);
+
   const handleSearch = () => {
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
     setCurrentPage(1);
     if (employee) {
-      loadUnits(employee, 1);
-    }
-  };
-
-  // دالة البحث الدقيق (اختياري)
-  async function searchUnitsExact(searchTerm: string) {
-    if (!employee) return;
-    
-    setLoading(true);
-    
-    try {
-      // استعلام منفصل للبحث الدقيق
-      const { data, error } = await supabase
-        .from('units')
-        .select(`
-          id,
-          unit_code,
-          project_id,
-          unit_type,
-          status,
-          supported_price,
-          land_area,
-          build_area,
-          projects!inner (
-            name,
-            code
-          ),
-          project_models!inner (
-            name
-          )
-        `)
-        .eq('status', 'available')
-        .ilike('unit_code', `%${searchTerm}%`)
-        .limit(100);
-
-      if (error) {
-        console.error('Search error:', error);
-        return;
-      }
-
-      // تطبيق فلتر الصلاحية إذا كان sales
-      let filteredData = data || [];
-      if (employee.role === 'sales') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', employee.id);
-
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        
-        if (allowedProjectIds.length > 0) {
-          filteredData = filteredData.filter(unit => 
-            allowedProjectIds.includes(unit.project_id)
-          );
-        } else {
-          filteredData = [];
-        }
-      }
-
-      // تحديث الوحدات
-      const normalized = filteredData.map((item: any) => ({
-        id: item.id,
-        unit_code: item.unit_code,
-        project_id: item.project_id,
-        project_name: Array.isArray(item.projects) ? item.projects[0]?.name : item.projects?.name || '',
-        project_code: Array.isArray(item.projects) ? item.projects[0]?.code : item.projects?.code || '',
-        model_name: Array.isArray(item.project_models) ? item.project_models[0]?.name : item.project_models?.name || '',
-        unit_type: item.unit_type,
-        supported_price: Number(item.supported_price || 0),
-        land_area: item.land_area ? Number(item.land_area) : null,
-        build_area: item.build_area ? Number(item.build_area) : null,
-        status: item.status
-      }));
-
-      setUnits(normalized);
-      setTotalUnits(normalized.length);
-      setTotalPages(Math.ceil(normalized.length / itemsPerPage));
-      setUnitStats(prev => ({ ...prev, filtered: normalized.length }));
-      
-    } catch (err) {
-      console.error('Search error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // دالة البحث المحسنة
-  const handleSearchImproved = () => {
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-    setCurrentPage(1);
-    if (employee && searchTerm.trim()) {
-      searchUnitsExact(searchTerm.trim());
-    } else if (employee) {
-      loadUnits(employee, 1);
+      loadAvailableUnits(employee, 1);
     }
   };
 
@@ -803,8 +742,8 @@ export default function ReservationPage() {
   ===================== */
 
   useEffect(() => {
-    if (employee) {
-      loadUnits(employee, currentPage);
+    if (employee && employee.role !== 'admin' && employee.role !== 'sales_manager') {
+      loadAvailableUnits(employee, currentPage);
     }
   }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice]);
 
@@ -832,8 +771,8 @@ export default function ReservationPage() {
       clearTimeout(searchTimeout);
     }
     
-    if (employee) {
-      loadUnits(employee, 1);
+    if (employee && employee.role !== 'admin' && employee.role !== 'sales_manager') {
+      loadAvailableUnits(employee, 1);
     }
   };
 
@@ -852,7 +791,7 @@ export default function ReservationPage() {
       return;
     }
 
-    // Sales Manager لا يستطيع إضافة حجوزات جديدة
+    // التحقق من أن الموظف يمكنه إضافة حجوزات
     if (employee.role === 'sales_manager') {
       alert('مدير المبيعات لا يستطيع إضافة حجوزات جديدة');
       return;
@@ -867,7 +806,9 @@ export default function ReservationPage() {
 
     if (selectedUnit.status !== 'available') {
       alert('عذراً، هذه الوحدة لم تعد متاحة للحجز');
-      await loadUnits(employee, currentPage);
+      if (employee.role !== 'admin' && employee.role !== 'sales_manager') {
+        await loadAvailableUnits(employee, currentPage);
+      }
       return;
     }
 
@@ -904,11 +845,16 @@ export default function ReservationPage() {
 
     setReservationId(data.id);
     
-    // تحديث قائمة الوحدات بعد الحجز
-    await fetchUnitStats(employee);
-    await loadUnits(employee, currentPage);
-    resetForm();
+    // إعادة تحميل البيانات
+    if (employee.role === 'admin') {
+      await fetchAllReservations(employee);
+    } else if (employee.role === 'sales') {
+      await fetchSalesReservations(employee);
+      // أيضا نحتاج تحميل الوحدات المتاحة للتحديث
+      await loadAvailableUnits(employee, currentPage);
+    }
     
+    resetForm();
     setSaving(false);
   }
 
@@ -1032,13 +978,33 @@ export default function ReservationPage() {
      دالة للحصول على عنوان البطاقة بناءً على الصلاحية
   ===================== */
   function getCardTitleBasedOnRole() {
-    if (!employee) return "اختيار الوحدة";
+    if (!employee) return "قائمة الحجوزات";
     
-    if (employee.role === 'sales_manager') {
-      return "الحجوزات في المشاريع التابعة لي";
+    switch (employee.role) {
+      case 'admin':
+        return "جميع الحجوزات في النظام";
+      case 'sales_manager':
+        return "الحجوزات في المشاريع التابعة لي";
+      case 'sales':
+      default:
+        return "الحجوزات الخاصة بي";
     }
-    
-    return "الوحدات المتاحة";
+  }
+
+  /* =====================
+     دالة لمعرفة ما إذا كان يجب عرض نموذج إضافة حجوزات جديدة
+  ===================== */
+  function shouldShowAddReservationForm() {
+    if (!employee) return false;
+    return employee.role === 'admin' || employee.role === 'sales';
+  }
+
+  /* =====================
+     دالة لمعرفة ما إذا كان يجب عرض جدول الوحدات المتاحة
+  ===================== */
+  function shouldShowAvailableUnitsTable() {
+    if (!employee) return false;
+    return employee.role === 'admin' || employee.role === 'sales';
   }
 
   /* =====================
@@ -1062,7 +1028,7 @@ export default function ReservationPage() {
         <Button variant="primary">حجز</Button>
       </div>
 
-      {/* معلومات الصلاحية - محدث */}
+      {/* معلومات الصلاحية */}
       {employee && (
         <div style={{ 
           padding: '12px 16px', 
@@ -1085,160 +1051,163 @@ export default function ReservationPage() {
                employee.role === 'sales_manager' ? 'مدير مبيعات' : 
                'مندوب مبيعات'}
               
-              {employee.role === 'sales' && ' (في مشاريعك فقط)'}
               {employee.role === 'sales_manager' && ' (جميع الحجوزات في مشاريعك)'}
+              {employee.role === 'sales' && ' (الحجوزات الخاصة بك فقط)'}
             </div>
             <div>
-              {employee.role === 'sales_manager' ? (
-                <strong>عدد الحجوزات:</strong>
-              ) : (
-                <strong>الوحدات المتاحة:</strong>
-              )}{' '}
-              {unitStats.filtered.toLocaleString()} من {unitStats.total.toLocaleString()} وحدة
+              <strong>عدد الحجوزات:</strong> {' '}
+              {unitStats.filtered.toLocaleString()} حجز
+              {employee.role !== 'sales' && unitStats.my_reservations > 0 && (
+                <span style={{ marginRight: '15px' }}>
+                  | <strong>حجوزاتي:</strong> {unitStats.my_reservations.toLocaleString()}
+                </span>
+              )}
+              {shouldShowAvailableUnitsTable() && (
+                <span style={{ marginRight: '15px' }}>
+                  | <strong>الوحدات المتاحة:</strong> {unitStats.total.toLocaleString()} وحدة
+                </span>
+              )}
             </div>
           </div>
         </div>
       )}
 
       <div className="details-layout">
-        {/* Filters Card - محسّنة */}
-        <Card title="تصفية الوحدات المتاحة">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
-            <div>
-              <label>بحث سريع</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="text"
-                  placeholder={employee?.role === 'sales_manager' 
-                    ? "ابحث بكود الوحدة، المشروع، العميل..." 
-                    : "ابحث بكود الوحدة، المشروع، النموذج..."}
-                  value={searchTerm}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    handleSearchChange(e.target.value);
-                  }}
-                  onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
+        {/* Filters Card - تظهر فقط للادمن والسيلز عند إضافة حجوزات جديدة */}
+        {shouldShowAvailableUnitsTable() && !reservationId && (
+          <Card title="تصفية الوحدات المتاحة لإضافة حجوزات جديدة">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
+              <div>
+                <label>بحث سريع</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    placeholder="ابحث بكود الوحدة، المشروع، النموذج..."
+                    value={searchTerm}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      handleSearchChange(e.target.value);
+                    }}
+                    onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSearch()}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px 8px 35px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: '#666'
+                  }}>
+                    🔍
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label>النوع</label>
+                <select 
+                  value={selectedType} 
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedType(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '8px 12px 8px 35px',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                >
+                  <option value="">كل الأنواع</option>
+                  <option value="villa">فيلا</option>
+                  <option value="duplex">دوبلكس</option>
+                  <option value="apartment">شقة</option>
+                  <option value="townhouse">تاون هاوس</option>
+                </select>
+              </div>
+
+              <div>
+                <label>السعر من</label>
+                <input
+                  type="number"
+                  placeholder="الحد الأدنى"
+                  value={minPrice}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setMinPrice(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
                     border: '1px solid #ddd',
                     borderRadius: '4px',
                     fontSize: '14px'
                   }}
                 />
-                <div style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#666'
+              </div>
+
+              <div>
+                <label>السعر إلى</label>
+                <input
+                  type="number"
+                  placeholder="الحد الأقصى"
+                  value={maxPrice}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setMaxPrice(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
+              <Button onClick={handleSearch}>
+                🔍 تطبيق البحث
+              </Button>
+              
+              <Button variant="secondary" onClick={handleResetFilters}>
+                🔄 إعادة تعيين الفلاتر
+              </Button>
+              
+              {searchTerm && (
+                <div style={{ 
+                  padding: '8px 12px', 
+                  backgroundColor: totalUnits > 0 ? '#f0f9ff' : '#fee2e2',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  color: totalUnits > 0 ? '#0369a1' : '#dc2626',
+                  border: totalUnits > 0 ? '1px solid #bae6fd' : '1px solid #fecaca',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
                 }}>
-                  🔍
+                  <span>{totalUnits > 0 ? '✅' : '❌'}</span>
+                  <span>
+                    {totalUnits > 0 
+                      ? `تم العثور على ${totalUnits} نتيجة` 
+                      : 'لم يتم العثور على نتائج'}
+                  </span>
                 </div>
-              </div>
-              <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
-                {searchTerm && (
-                  <span>البحث عن: "<strong>{searchTerm}</strong>"</span>
-                )}
-              </div>
+              )}
             </div>
+          </Card>
+        )}
 
-            <div>
-              <label>النوع</label>
-              <select 
-                value={selectedType} 
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedType(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">كل الأنواع</option>
-                <option value="villa">فيلا</option>
-                <option value="duplex">دوبلكس</option>
-                <option value="apartment">شقة</option>
-                <option value="townhouse">تاون هاوس</option>
-              </select>
-            </div>
-
-            <div>
-              <label>السعر من</label>
-              <input
-                type="number"
-                placeholder="الحد الأدنى"
-                value={minPrice}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setMinPrice(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div>
-              <label>السعر إلى</label>
-              <input
-                type="number"
-                placeholder="الحد الأقصى"
-                value={maxPrice}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setMaxPrice(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
-            <Button onClick={handleSearchImproved}>
-              🔍 تطبيق البحث
-            </Button>
-            
-            <Button variant="secondary" onClick={handleResetFilters}>
-              🔄 إعادة تعيين الفلاتر
-            </Button>
-            
-            {searchTerm && (
-              <div style={{ 
-                padding: '8px 12px', 
-                backgroundColor: totalUnits > 0 ? '#f0f9ff' : '#fee2e2',
-                borderRadius: '4px',
-                fontSize: '13px',
-                color: totalUnits > 0 ? '#0369a1' : '#dc2626',
-                border: totalUnits > 0 ? '1px solid #bae6fd' : '1px solid #fecaca',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px'
-              }}>
-                <span>{totalUnits > 0 ? '✅' : '❌'}</span>
-                <span>
-                  {totalUnits > 0 
-                    ? `تم العثور على ${totalUnits} نتيجة` 
-                    : 'لم يتم العثور على نتائج'}
-                </span>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Unit Selection Card - محدث */}
+        {/* الوحدات أو الحجوزات Card */}
         <Card title={getCardTitleBasedOnRole()}>
           {units.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: '#666' }}>
-              {searchTerm || selectedType || minPrice || maxPrice
-                ? 'لا توجد نتائج تطابق الفلاتر المحددة'
-                : employee?.role === 'sales_manager'
-                  ? 'لا توجد حجوزات في المشاريع التابعة لك'
-                  : 'لا توجد وحدات متاحة حالياً'}
+              {employee?.role === 'sales_manager'
+                ? 'لا توجد حجوزات في المشاريع التابعة لك'
+                : employee?.role === 'sales'
+                ? 'لا توجد حجوزات خاصة بك'
+                : employee?.role === 'admin'
+                ? 'لا توجد حجوزات في النظام'
+                : 'لا توجد بيانات'}
             </div>
           ) : (
             <>
@@ -1246,25 +1215,23 @@ export default function ReservationPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
-                      {employee?.role !== 'sales_manager' && (
+                      {/* عمود الاختيار يظهر فقط عند إضافة حجوزات جديدة */}
+                      {shouldShowAvailableUnitsTable() && !reservationId && (
                         <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الاختيار</th>
                       )}
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>كود الوحدة</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>النوع</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>المشروع</th>
                       
-                      {/* أعمدة إضافية لـ Sales Manager */}
-                      {employee?.role === 'sales_manager' && (
-                        <>
-                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الموظف المضيف</th>
-                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>العميل</th>
-                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>حالة الحجز</th>
-                        </>
-                      )}
+                      {/* أعمدة معلومات الحجز - تظهر للجميع عندما تكون هناك حجوزات */}
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الموظف المضيف</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>العميل</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>حالة الحجز</th>
                       
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>السعر</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الأرض</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>البناء</th>
+                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>إجراءات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1272,13 +1239,15 @@ export default function ReservationPage() {
                       <tr 
                         key={unit.id} 
                         style={{ 
-                          backgroundColor: unitId === unit.id ? '#e6f4ff' : 'white',
-                          cursor: employee?.role !== 'sales_manager' ? 'pointer' : 'default',
+                          backgroundColor: unitId === unit.id && shouldShowAvailableUnitsTable() ? '#e6f4ff' : 
+                                         unit.is_my_reservation ? '#f0fff4' : 'white',
+                          cursor: shouldShowAvailableUnitsTable() && !reservationId ? 'pointer' : 'default',
                           borderBottom: '1px solid #eee'
                         }}
-                        onClick={() => employee?.role !== 'sales_manager' && setUnitId(unit.id)}
+                        onClick={() => shouldShowAvailableUnitsTable() && !reservationId && setUnitId(unit.id)}
                       >
-                        {employee?.role !== 'sales_manager' && (
+                        {/* خلية الاختيار تظهر فقط عند إضافة حجوزات جديدة */}
+                        {shouldShowAvailableUnitsTable() && !reservationId && (
                           <td style={{ padding: '12px', textAlign: 'center' }}>
                             <input 
                               type="radio" 
@@ -1289,75 +1258,127 @@ export default function ReservationPage() {
                             />
                           </td>
                         )}
+                        
                         <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>
                           {unit.unit_code}
-                          {employee?.role === 'sales_manager' && unit.reservation_data && (
+                          {unit.reservation_data && (
                             <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
                               📅 {new Date(unit.reservation_data.reservation_date).toLocaleDateString('ar-EG')}
                             </div>
                           )}
                         </td>
+                        
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.unit_type === 'villa' ? 'فيلا' :
                            unit.unit_type === 'duplex' ? 'دوبلكس' :
                            unit.unit_type === 'apartment' ? 'شقة' : 'تاون هاوس'}
                         </td>
+                        
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.project_name} {unit.project_code ? `(${unit.project_code})` : ''}
                         </td>
                         
-                        {/* أعمدة إضافية لـ Sales Manager */}
-                        {employee?.role === 'sales_manager' && unit.reservation_data && (
-                          <>
-                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                        {/* معلومات الحجز */}
+                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                          {unit.reservation_data ? (
+                            <>
                               <div style={{ fontSize: '13px' }}>
                                 👤 {unit.reservation_data.employee_name}
+                                {unit.is_my_reservation && ' ⭐'}
                               </div>
                               <div style={{ fontSize: '12px', color: '#666' }}>
                                 {unit.reservation_data.employee_role === 'sales' ? 'مندوب مبيعات' : 
                                  unit.reservation_data.employee_role === 'sales_manager' ? 'مدير مبيعات' : 
                                  unit.reservation_data.employee_role === 'admin' ? 'مدير' : 'غير معروف'}
                               </div>
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                            </>
+                          ) : '-'}
+                        </td>
+                        
+                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                          {unit.reservation_data ? (
+                            <>
                               <div style={{ fontSize: '13px' }}>
                                 🤵 {unit.reservation_data.client_name}
                               </div>
                               <div style={{ fontSize: '12px', color: '#666' }}>
                                 {unit.reservation_data.client_phone}
                               </div>
-                            </td>
-                            <td style={{ padding: '12px', textAlign: 'right' }}>
-                              <div style={{
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                fontWeight: 'bold',
-                                backgroundColor: 
-                                  unit.reservation_data.reservation_status === 'active' ? '#dcfce7' :
-                                  unit.reservation_data.reservation_status === 'converted' ? '#fef7cd' :
-                                  '#fee2e2',
-                                color: 
-                                  unit.reservation_data.reservation_status === 'active' ? '#166534' :
-                                  unit.reservation_data.reservation_status === 'converted' ? '#92400e' :
-                                  '#991b1b'
-                              }}>
-                                {unit.reservation_data.reservation_status === 'active' ? 'نشط' :
-                                 unit.reservation_data.reservation_status === 'converted' ? 'تم التحويل' :
-                                 'ملغي'}
-                              </div>
-                            </td>
-                          </>
-                        )}
+                            </>
+                          ) : '-'}
+                        </td>
+                        
+                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                          {unit.reservation_data ? (
+                            <div style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              backgroundColor: 
+                                unit.reservation_data.reservation_status === 'active' ? '#dcfce7' :
+                                unit.reservation_data.reservation_status === 'converted' ? '#fef7cd' :
+                                '#fee2e2',
+                              color: 
+                                unit.reservation_data.reservation_status === 'active' ? '#166534' :
+                                unit.reservation_data.reservation_status === 'converted' ? '#92400e' :
+                                '#991b1b'
+                            }}>
+                              {unit.reservation_data.reservation_status === 'active' ? 'نشط' :
+                               unit.reservation_data.reservation_status === 'converted' ? 'تم التحويل' :
+                               'ملغي'}
+                            </div>
+                          ) : (
+                            <div style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              backgroundColor: '#dbeafe',
+                              color: '#1e40af'
+                            }}>
+                              متاحة
+                            </div>
+                          )}
+                        </td>
                         
                         <td style={{ padding: '12px', textAlign: 'right', direction: 'ltr' }}>
                           {unit.supported_price.toLocaleString()} جنيه
                         </td>
+                        
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.land_area ? `${unit.land_area} م²` : '-'}
                         </td>
+                        
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.build_area ? `${unit.build_area} م²` : '-'}
+                        </td>
+                        
+                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '5px', flexDirection: 'column' }}>
+                            {unit.reservation_id && (
+                              <Button 
+                                variant="secondary"
+                                onClick={() => router.push(`/dashboard/reservations/${unit.reservation_id}`)}
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                              >
+                                عرض الحجز
+                              </Button>
+                            )}
+                            {employee?.role === 'admin' && unit.reservation_id && (
+                              <Button 
+                                variant="danger"
+                                onClick={() => {
+                                  if (confirm('هل أنت متأكد من حذف هذا الحجز؟')) {
+                                    // TODO: تنفيذ حذف الحجز
+                                  }
+                                }}
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                              >
+                                حذف
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1367,7 +1388,7 @@ export default function ReservationPage() {
 
               {renderPagination()}
 
-              {unitId && employee?.role !== 'sales_manager' && (
+              {unitId && shouldShowAvailableUnitsTable() && !reservationId && (
                 <div style={{ 
                   marginTop: '20px', 
                   padding: '15px',
@@ -1389,9 +1410,9 @@ export default function ReservationPage() {
           )}
         </Card>
 
-        {/* Reservation Form Card - غير ظاهر لـ Sales Manager */}
-        {employee?.role !== 'sales_manager' && (
-          <Card title="بيانات الحجز">
+        {/* نموذج إضافة حجوزات جديدة - يظهر فقط للادمن والسيلز */}
+        {shouldShowAddReservationForm() && !reservationId && (
+          <Card title="إضافة حجز جديد">
             <div className="details-grid">
               <div className="form-field">
                 <label>تاريخ الحجز *</label>
@@ -1483,9 +1504,6 @@ export default function ReservationPage() {
                       marginBottom: '5px'
                     }}
                   />
-                  <div style={{ fontSize: '12px', color: '#666', textAlign: 'right' }}>
-                    {noteSearchTerm && filteredNoteOptions.length > 0 ? `تم العثور على ${filteredNoteOptions.length} خيار` : ''}
-                  </div>
                 </div>
                 
                 <select
@@ -1543,40 +1561,6 @@ export default function ReservationPage() {
                     + إضافة
                   </button>
                 </div>
-                
-                {notes && (
-                  <div style={{
-                    marginTop: '10px',
-                    padding: '10px',
-                    backgroundColor: '#f0f9ff',
-                    borderRadius: '6px',
-                    border: '1px solid #bae6fd',
-                    fontSize: '14px'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>✅ <strong>الملاحظة المختارة:</strong> {notes}</span>
-                      <button
-                        type="button"
-                        onClick={() => setNotes('')}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#fee2e2',
-                          color: '#dc2626',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
-                      >
-                        حذف
-                      </button>
-                    </div>
-                  </div>
-                )}
-                
-                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px', textAlign: 'right' }}>
-                  يمكنك اختيار ملاحظة جاهزة أو كتابة ملاحظة مخصصة
-                </div>
               </div>
             </div>
           </Card>
@@ -1606,7 +1590,7 @@ export default function ReservationPage() {
         </Card>
       </div>
 
-      {/* Action Buttons - محدث */}
+      {/* Action Buttons */}
       <div style={{ 
         display: 'flex', 
         gap: '10px', 
@@ -1614,7 +1598,8 @@ export default function ReservationPage() {
         justifyContent: 'center',
         flexWrap: 'wrap' 
       }}>
-        {!reservationId && employee?.role !== 'sales_manager' && (
+        {/* زر حفظ الحجز - يظهر فقط عند إضافة حجوزات جديدة */}
+        {shouldShowAddReservationForm() && !reservationId && (
           <>
             <Button 
               variant="primary" 
@@ -1624,7 +1609,7 @@ export default function ReservationPage() {
               {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
             </Button>
             
-            {totalUnits > units.length && (
+            {unitStats.total > 0 && employee?.role !== 'admin' && employee?.role !== 'sales_manager' && (
               <div style={{ 
                 padding: '12px 20px',
                 backgroundColor: '#f3f4f6',
@@ -1637,13 +1622,14 @@ export default function ReservationPage() {
                 gap: '8px'
               }}>
                 <span>📊</span>
-                <span>عرض {units.length} من {totalUnits.toLocaleString()} وحدة متاحة</span>
+                <span>عرض {units.length} من {unitStats.total.toLocaleString()} وحدة متاحة</span>
               </div>
             )}
           </>
         )}
         
-        {reservationId && employee?.role !== 'sales_manager' && (
+        {/* بعد إضافة الحجز بنجاح */}
+        {reservationId && shouldShowAddReservationForm() && (
           <>
             <Button 
               onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}
@@ -1657,11 +1643,12 @@ export default function ReservationPage() {
                 resetForm();
               }}
             >
-              حجز جديد
+              إضافة حجز جديد
             </Button>
           </>
         )}
 
+        {/* معلومات خاصة بمدير المبيعات */}
         {employee?.role === 'sales_manager' && (
           <div style={{ 
             padding: '15px 20px',
@@ -1682,7 +1669,7 @@ export default function ReservationPage() {
         )}
       </div>
 
-      {/* معلومات إضافية في الأسفل - محدث */}
+      {/* معلومات إضافية */}
       <div style={{ 
         marginTop: '20px', 
         padding: '15px',
@@ -1697,29 +1684,41 @@ export default function ReservationPage() {
             <strong>ملاحظات مهمة:</strong>
           </div>
           <div style={{ textAlign: 'right', maxWidth: '600px' }}>
-            {employee?.role === 'sales_manager' ? (
+            {employee?.role === 'admin' ? (
+              <>
+                • يمكنك رؤية جميع الحجوزات في النظام
+                <br />
+                • يمكنك إضافة حجوزات جديدة وتعديلها وحذفها
+                <br />
+                • الحجوزات التي أضفتها تظهر بمؤشر ⭐
+                <br />
+                • الحجوزات مرتبة حسب تاريخ الحجز (الأحدث أولاً)
+                <br />
+                • يمكنك الانتقال لتفاصيل الحجز بالضغط على "عرض الحجز"
+              </>
+            ) : employee?.role === 'sales_manager' ? (
               <>
                 • يمكنك رؤية جميع الحجوزات في المشاريع التي تديرها
                 <br />
                 • يمكنك رؤية تفاصيل كل حجز والموظف الذي أضافه
                 <br />
+                • الحجوزات التي أضفتها تظهر بمؤشر ⭐ وبلون أخضر فاتح
+                <br />
                 • يمكنك رؤية بيانات العملاء المرتبطين بالحجوزات
                 <br />
                 • الحجوزات مرتبة حسب تاريخ الحجز (الأحدث أولاً)
-                <br />
-                • يمكنك البحث بكود الوحدة أو اسم العميل
               </>
             ) : (
               <>
-                • يمكنك البحث بكود الوحدة، اسم المشروع، أو اسم النموذج
+                • يمكنك رؤية الحجوزات التي أضفتها فقط
                 <br />
-                • استخدم الفلاتر للبحث الدقيق حسب النوع والسعر
+                • يمكنك إضافة حجوزات جديدة من الوحدات المتاحة في مشاريعك
                 <br />
-                • الصفحة تعرض {itemsPerPage} وحدة في كل مرة لتحسين الأداء
+                • جميع حجوزاتك تظهر بمؤشر ⭐ وبلون أخضر فاتح
+                <br />
+                • يمكنك البحث في الوحدات المتاحة باستخدام الفلاتر
                 <br />
                 • تأكد من صحة البيانات واختيار الوحدة الصحيحة قبل الحفظ
-                <br />
-                • يمكنك اختيار ملاحظة جاهزة من القائمة أو كتابة ملاحظة مخصصة
               </>
             )}
           </div>

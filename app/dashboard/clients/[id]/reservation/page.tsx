@@ -221,7 +221,7 @@ export default function ReservationPage() {
   }
 
   /* =====================
-     دالة جديدة لجلب الحجوزات للمدير - مصححة
+     دالة جديدة لجلب الحجوزات للمدير - مصححة بشكل كامل
   ===================== */
   async function fetchAllReservationsForManager(emp: Employee) {
     try {
@@ -241,7 +241,7 @@ export default function ReservationPage() {
         return;
       }
 
-      // 2. جلب جميع الحجوزات في هذه المشاريع
+      // 2. جلب جميع الحجوزات في هذه المشاريع باستخدام join
       const { data: reservations, error: reservationsError } = await supabase
         .from('reservations')
         .select(`
@@ -281,7 +281,10 @@ export default function ReservationPage() {
         .in('units.project_id', managedProjectIds)
         .order('reservation_date', { ascending: false });
 
-      if (reservationsError) throw reservationsError;
+      if (reservationsError) {
+        console.error('Error fetching reservations:', reservationsError);
+        throw reservationsError;
+      }
 
       // 3. جلب الوحدات المتاحة في نفس المشاريع للإحصاءات
       const { count, error: countError } = await supabase
@@ -294,24 +297,38 @@ export default function ReservationPage() {
 
       // 4. تحويل البيانات إلى نفس تنسيق الوحدات للتوافق
       const reservationUnits = (reservations || []).map(res => {
+        // معالجة البيانات المرتبطة
         const unit = Array.isArray(res.units) ? res.units[0] : res.units;
-        const project = Array.isArray(unit?.projects) ? unit?.projects[0] : unit?.projects;
-        const model = Array.isArray(unit?.project_models) ? unit?.project_models[0] : unit?.project_models;
-        const employee = Array.isArray(res.employees) ? res.employees[0] : res.employees;
-        const client = Array.isArray(res.clients) ? res.clients[0] : res.clients;
+        
+        if (!unit) {
+          console.warn('No unit found for reservation:', res.id);
+          return null;
+        }
+        
+        const projects = unit.projects;
+        const project = Array.isArray(projects) ? projects[0] : projects;
+        
+        const projectModels = unit.project_models;
+        const model = Array.isArray(projectModels) ? projectModels[0] : projectModels;
+        
+        const employees = res.employees;
+        const employee = Array.isArray(employees) ? employees[0] : employees;
+        
+        const clients = res.clients;
+        const client = Array.isArray(clients) ? clients[0] : clients;
 
         return {
-          id: unit?.id || '',
-          unit_code: unit?.unit_code || '',
-          project_id: unit?.project_id || '',
+          id: unit.id,
+          unit_code: unit.unit_code,
+          project_id: unit.project_id,
           project_name: project?.name || '',
           project_code: project?.code || '',
           model_name: model?.name || '',
-          unit_type: unit?.unit_type || '',
-          supported_price: Number(unit?.supported_price || 0),
-          land_area: unit?.land_area ? Number(unit.land_area) : null,
-          build_area: unit?.build_area ? Number(unit.build_area) : null,
-          status: unit?.status || '',
+          unit_type: unit.unit_type,
+          supported_price: Number(unit.supported_price || 0),
+          land_area: unit.land_area ? Number(unit.land_area) : null,
+          build_area: unit.build_area ? Number(unit.build_area) : null,
+          status: unit.status,
           reservation_data: {
             reservation_id: res.id,
             reservation_date: res.reservation_date,
@@ -323,7 +340,9 @@ export default function ReservationPage() {
             client_phone: client?.phone || 'غير معروف'
           }
         };
-      }).filter(unit => unit.id); // تصفية الوحدات التي ليس لها معرف
+      }).filter(unit => unit !== null) as Unit[]; // تصفية الوحدات الفارغة
+
+      console.log('Reservation units loaded:', reservationUnits.length);
 
       setUnits(reservationUnits);
       setUnitStats({
@@ -335,6 +354,150 @@ export default function ReservationPage() {
 
     } catch (err) {
       console.error('Error fetching reservations for manager:', err);
+      // محاولة طريقة بديلة
+      await tryAlternativeMethod(emp);
+    }
+  }
+
+  /* =====================
+     طريقة بديلة لجلب الحجوزات
+  ===================== */
+  async function tryAlternativeMethod(emp: Employee) {
+    try {
+      // 1. جلب المشاريع التي يديرها
+      const { data: managerProjects, error: projectsError } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', emp.id);
+
+      if (projectsError) throw projectsError;
+
+      const managedProjectIds = (managerProjects || []).map(p => p.project_id);
+      
+      if (managedProjectIds.length === 0) {
+        setUnits([]);
+        setUnitStats({ total: 0, filtered: 0 });
+        return;
+      }
+
+      // 2. جلب جميع الوحدات في المشاريع
+      const { data: unitsData, error: unitsError } = await supabase
+        .from('units')
+        .select(`
+          id,
+          unit_code,
+          project_id,
+          unit_type,
+          supported_price,
+          land_area,
+          build_area,
+          status,
+          projects (
+            name,
+            code
+          ),
+          project_models (
+            name
+          )
+        `)
+        .in('project_id', managedProjectIds)
+        .order('unit_code');
+
+      if (unitsError) throw unitsError;
+
+      // 3. جلب جميع الحجوزات
+      const { data: allReservations, error: reservationsError } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          unit_id,
+          reservation_date,
+          status,
+          notes,
+          employees (
+            name,
+            role
+          ),
+          clients (
+            name,
+            phone
+          )
+        `)
+        .order('reservation_date', { ascending: false });
+
+      if (reservationsError) throw reservationsError;
+
+      // 4. ربط الوحدات بالحجوزات يدوياً
+      const reservationUnits: Unit[] = [];
+      
+      const unitsMap = new Map<string, any>();
+      (unitsData || []).forEach(unit => {
+        unitsMap.set(unit.id, unit);
+      });
+
+      (allReservations || []).forEach(res => {
+        const unit = unitsMap.get(res.unit_id);
+        
+        if (unit && managedProjectIds.includes(unit.project_id)) {
+          const projects = unit.projects;
+          const project = Array.isArray(projects) ? projects[0] : projects;
+          
+          const projectModels = unit.project_models;
+          const model = Array.isArray(projectModels) ? projectModels[0] : projectModels;
+          
+          const employees = res.employees;
+          const employee = Array.isArray(employees) ? employees[0] : employees;
+          
+          const clients = res.clients;
+          const client = Array.isArray(clients) ? clients[0] : clients;
+
+          reservationUnits.push({
+            id: unit.id,
+            unit_code: unit.unit_code,
+            project_id: unit.project_id,
+            project_name: project?.name || '',
+            project_code: project?.code || '',
+            model_name: model?.name || '',
+            unit_type: unit.unit_type,
+            supported_price: Number(unit.supported_price || 0),
+            land_area: unit.land_area ? Number(unit.land_area) : null,
+            build_area: unit.build_area ? Number(unit.build_area) : null,
+            status: unit.status,
+            reservation_data: {
+              reservation_id: res.id,
+              reservation_date: res.reservation_date,
+              reservation_status: res.status,
+              reservation_notes: res.notes,
+              employee_name: employee?.name || 'غير معروف',
+              employee_role: employee?.role || 'غير معروف',
+              client_name: client?.name || 'غير معروف',
+              client_phone: client?.phone || 'غير معروف'
+            }
+          });
+        }
+      });
+
+      // 5. جلب الوحدات المتاحة للإحصاءات
+      const { count, error: countError } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'available')
+        .in('project_id', managedProjectIds);
+
+      if (countError) throw countError;
+
+      console.log('Reservation units loaded (alternative method):', reservationUnits.length);
+
+      setUnits(reservationUnits);
+      setUnitStats({
+        total: count || 0,
+        filtered: reservationUnits.length
+      });
+      setTotalUnits(reservationUnits.length);
+      setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
+
+    } catch (err) {
+      console.error('Error in alternative method:', err);
       setUnits([]);
       setUnitStats({ total: 0, filtered: 0 });
     }

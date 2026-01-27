@@ -129,11 +129,14 @@ async function fetchAllowedUnits(employee: any, allowedProjects: any[]) {
       .select('id, project_id')
       .in('project_id', allowedProjectIds);
     
-    if (error) throw error;
+    if (error) {
+      console.error('❌ خطأ في جلب الوحدات المسموحة:', error);
+      return [];
+    }
     
     return unitsData || [];
   } catch (err) {
-    console.error('Error fetching allowed units:', err);
+    console.error('❌ خطأ في جلب الوحدات المسموحة:', err);
     return [];
   }
 }
@@ -192,14 +195,21 @@ export default function SalesPage() {
     try {
       // 1. جلب بيانات المستخدم الحالي
       const user = await getCurrentEmployee();
+      if (!user) {
+        throw new Error('لم يتم العثور على بيانات المستخدم');
+      }
       setCurrentUser(user);
+      
+      console.log(`👤 المستخدم الحالي: ${user.name} (${user.role})`);
       
       // 2. جلب المشاريع المسموحة للمستخدم
       const userProjects = await fetchAllowedProjects(user);
+      console.log(`📋 عدد المشاريع المسموحة: ${userProjects.length}`);
       setAllowedProjects(userProjects);
       
       // 3. جلب الوحدات المسموحة
       const userUnits = await fetchAllowedUnits(user, userProjects);
+      console.log(`🏢 عدد الوحدات المسموحة: ${userUnits.length}`);
       setAllowedUnits(userUnits);
       
       // 4. جلب المبيعات بناءً على صلاحية المستخدم
@@ -214,6 +224,10 @@ export default function SalesPage() {
     } catch (err) {
       console.error('❌ خطأ في تهيئة الصفحة:', err);
       setError(`حدث خطأ: ${err instanceof Error ? err.message : 'غير معروف'}`);
+      
+      // تعيين البيانات الافتراضية لمنع أخطاء العرض
+      setSales([]);
+      calculateStats([]);
     } finally {
       setLoading(false);
     }
@@ -221,6 +235,18 @@ export default function SalesPage() {
 
   async function fetchSales(user: any, allowedUnits: any[]) {
     try {
+      // إذا كان مدير مبيعات ولم يكن لديه وحدات مسموحة، نرجع مصفوفة فارغة
+      if (user?.role === 'sales_manager' && allowedUnits.length === 0) {
+        console.log('⚠️ مدير المبيعات ليس لديه وحدات مسموحة');
+        setSales([]);
+        calculateStats([]);
+        setError(null); // مسح أي أخطاء سابقة
+        
+        // جلب البيانات المرتبطة مع مصفوفة فارغة
+        await fetchRelatedData([]);
+        return;
+      }
+
       let query = supabase
         .from('sales')
         .select('*')
@@ -229,27 +255,35 @@ export default function SalesPage() {
       // تطبيق الصلاحيات بناءً على دور المستخدم
       if (user?.role === 'sales') {
         // الموظف العادي: يشاهد مبيعاته فقط
+        console.log('👤 الموظف العادي - جلب مبيعاته فقط');
         query = query.eq('sales_employee_id', user.id);
       } else if (user?.role === 'sales_manager') {
         // مدير المبيعات: يشاهد مبيعات المشاريع المسموحة له
         const allowedUnitIds = allowedUnits.map(u => u.id);
         
+        console.log(`👨‍💼 مدير المبيعات - جلب مبيعات ${allowedUnitIds.length} وحدة مسموحة`);
+        // تأكد من أن المصفوفة ليست فارغة قبل استخدام .in()
         if (allowedUnitIds.length > 0) {
           query = query.in('unit_id', allowedUnitIds);
         } else {
-          // لا توجد وحدات في المشاريع المسموحة
+          // إذا كانت المصفوفة فارغة، لا نضيف فلتر ونرجع مصفوفة فارغة
+          console.log('⚠️ لا توجد وحدات مسموحة للفلترة');
           setSales([]);
           calculateStats([]);
+          await fetchRelatedData([]);
           return;
         }
+      } else if (user?.role === 'admin') {
+        console.log('👑 الإدمن - جلب جميع المبيعات');
       }
-      // إذا كان admin: لا نضيف فلتر، يشاهد جميع المبيعات
 
       const { data: salesData, error: salesError } = await query;
 
       if (salesError) {
         console.error('❌ خطأ في جلب المبيعات:', salesError);
         setError(`خطأ في قاعدة البيانات: ${salesError.message}`);
+        setSales([]);
+        calculateStats([]);
         return;
       }
 
@@ -258,6 +292,9 @@ export default function SalesPage() {
       if (!salesData || salesData.length === 0) {
         setSales([]);
         calculateStats([]);
+        
+        // جلب البيانات المرتبطة مع مصفوفة فارغة
+        await fetchRelatedData([]);
         return;
       }
 
@@ -268,8 +305,10 @@ export default function SalesPage() {
       await fetchRelatedData(salesData);
       
     } catch (err) {
-      console.error('❌ خطأ في جلب المبيعات:', err);
+      console.error('❌ خطأ غير متوقع في جلب المبيعات:', err);
+      setError(`حدث خطأ غير متوقع: ${err instanceof Error ? err.message : 'غير معروف'}`);
       setSales([]);
+      calculateStats([]);
     }
   }
 
@@ -285,14 +324,19 @@ export default function SalesPage() {
           projectsMap[project.id] = { name: project.name };
         });
         setProjects(projectsMap);
+      } else {
+        setProjects({});
       }
     } catch (err) {
       console.error('❌ خطأ في جلب المشاريع:', err);
+      setProjects({});
     }
   }
 
   async function fetchEmployeesData(user: any) {
     try {
+      console.log(`👥 جلب بيانات الموظفين للمستخدم: ${user.name} (${user.role})`);
+      
       let query = supabase
         .from('employees')
         .select('id, name, role');
@@ -302,28 +346,51 @@ export default function SalesPage() {
         query = query.eq('id', user.id);
       } else if (user?.role === 'sales_manager') {
         // مدير المبيعات يرى الموظفين في المشاريع المسموحة له
-        // جلب الموظفين المرتبطين بالمشاريع المسموحة
         const allowedProjectIds = allowedProjects.map(p => p.id);
         
+        console.log(`📊 مشاريع مدير المبيعات: ${allowedProjectIds.length} مشروع`);
+        
         if (allowedProjectIds.length > 0) {
-          const { data: employeeProjects } = await supabase
+          const { data: employeeProjects, error: empProjError } = await supabase
             .from('employee_projects')
             .select('employee_id')
             .in('project_id', allowedProjectIds);
           
-          const employeeIds = [...new Set([
-            ...(employeeProjects?.map(ep => ep.employee_id) || []),
-            user.id // إضافة المدير نفسه
-          ])];
-          
-          query = query.in('id', employeeIds);
+          if (empProjError) {
+            console.error('❌ خطأ في جلب موظفي المشاريع:', empProjError);
+            query = query.eq('id', user.id); // فقط المدير نفسه
+          } else {
+            const employeeIds = [...new Set([
+              ...(employeeProjects?.map(ep => ep.employee_id) || []),
+              user.id // إضافة المدير نفسه
+            ])];
+            
+            console.log(`👥 موظفين في المشاريع: ${employeeIds.length} موظف`);
+            
+            // تأكد من أن المصفوفة ليست فارغة قبل استخدام .in()
+            if (employeeIds.length > 0) {
+              query = query.in('id', employeeIds);
+            } else {
+              query = query.eq('id', user.id); // فقط المدير نفسه
+            }
+          }
         } else {
+          console.log('⚠️ لا توجد مشاريع مسموحة، عرض المدير فقط');
           query = query.eq('id', user.id); // فقط المدير نفسه
         }
+      } else if (user?.role === 'admin') {
+        console.log('👑 الإدمن - جلب جميع الموظفين');
       }
-      // إذا كان admin: لا نضيف فلتر، يرى جميع الموظفين
 
-      const { data: employeesData } = await query;
+      const { data: employeesData, error: employeesError } = await query;
+      
+      if (employeesError) {
+        console.error('❌ خطأ في جلب الموظفين:', employeesError);
+        setEmployees({}); // تعيين مصفوفة فارغة بدلاً من إظهار خطأ
+        return;
+      }
+      
+      console.log(`✅ تم جلب ${employeesData?.length || 0} موظف`);
       
       if (employeesData) {
         const employeesMap: Record<string, {name: string, role: string}> = {};
@@ -331,9 +398,12 @@ export default function SalesPage() {
           employeesMap[emp.id] = { name: emp.name, role: emp.role };
         });
         setEmployees(employeesMap);
+      } else {
+        setEmployees({});
       }
     } catch (err) {
       console.error('❌ خطأ في جلب الموظفين:', err);
+      setEmployees({});
     }
   }
 
@@ -353,7 +423,11 @@ export default function SalesPage() {
             clientsMap[client.id] = { name: client.name, mobile: client.mobile };
           });
           setClients(clientsMap);
+        } else {
+          setClients({});
         }
+      } else {
+        setClients({});
       }
 
       // جلب جميع الوحدات
@@ -374,10 +448,16 @@ export default function SalesPage() {
             };
           });
           setUnits(unitsMap);
+        } else {
+          setUnits({});
         }
+      } else {
+        setUnits({});
       }
     } catch (err) {
       console.error('❌ خطأ في جلب البيانات المرتبطة:', err);
+      setClients({});
+      setUnits({});
     }
   }
 
@@ -570,11 +650,11 @@ export default function SalesPage() {
     
     switch (currentUser.role) {
       case 'admin':
-        return 'مدير النظام - مشاهدة جميع التنفيذات';
+        return `مدير النظام - مشاهدة جميع التنفيذات (${sales.length} عملية)`;
       case 'sales_manager':
-        return `مدير مبيعات - مشاهدة تنفيذات ${allowedProjects.length} مشروع`;
+        return `مدير مبيعات - ${allowedProjects.length} مشروع، ${allowedUnits.length} وحدة، ${sales.length} عملية`;
       case 'sales':
-        return 'مندوب مبيعات - مشاهدة تنفيذاتك فقط';
+        return `مندوب مبيعات - مشاهدة تنفيذاتك فقط (${sales.length} عملية)`;
       default:
         return 'صلاحية غير معروفة';
     }

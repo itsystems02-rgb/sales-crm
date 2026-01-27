@@ -25,6 +25,16 @@ type Unit = {
   land_area: number | null;
   build_area: number | null;
   status: string;
+  reservation_data?: {
+    reservation_id: string;
+    reservation_date: string;
+    reservation_status: string;
+    reservation_notes: string | null;
+    employee_name: string;
+    employee_role: string;
+    client_name: string;
+    client_phone: string;
+  };
 };
 
 type Bank = {
@@ -42,7 +52,7 @@ type ReservationStatus = 'active' | 'cancelled' | 'converted';
 
 type Employee = {
   id: string;
-  role: 'admin' | 'sales';
+  role: 'admin' | 'sales' | 'sales_manager';
 };
 
 type UnitStats = {
@@ -134,8 +144,14 @@ export default function ReservationPage() {
       }
 
       await fetchBanksAndFollowUp();
-      await fetchUnitStats(emp);
-      await loadUnits(emp, currentPage);
+      
+      // Sales Manager يستطيع رؤية جميع الحجوزات في مشاريعه
+      if (emp.role === 'sales_manager') {
+        await fetchAllReservationsForManager(emp);
+      } else {
+        await fetchUnitStats(emp);
+        await loadUnits(emp, currentPage);
+      }
       
       setLoading(false);
     } catch (err) {
@@ -200,6 +216,113 @@ export default function ReservationPage() {
       
     } catch (err) {
       console.error('Error fetching unit stats:', err);
+      setUnitStats({ total: 0, filtered: 0 });
+    }
+  }
+
+  /* =====================
+     دالة جديدة لجلب الحجوزات للمدير
+  ===================== */
+  async function fetchAllReservationsForManager(emp: Employee) {
+    try {
+      // 1. جلب المشاريع التي يديرها
+      const { data: managerProjects, error: projectsError } = await supabase
+        .from('employee_projects')
+        .select('project_id')
+        .eq('employee_id', emp.id);
+
+      if (projectsError) throw projectsError;
+
+      const managedProjectIds = (managerProjects || []).map(p => p.project_id);
+      
+      if (managedProjectIds.length === 0) {
+        setUnits([]);
+        setUnitStats({ total: 0, filtered: 0 });
+        return;
+      }
+
+      // 2. جلب جميع الحجوزات في هذه المشاريع
+      const { data: reservations, error: reservationsError } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          unit_id,
+          reservation_date,
+          status,
+          notes,
+          unit:units!reservations_unit_id_fkey (
+            id,
+            unit_code,
+            project_id,
+            unit_type,
+            supported_price,
+            land_area,
+            build_area,
+            status,
+            project:projects!units_project_id_fkey (name, code),
+            model:project_models!units_model_id_fkey (name)
+          ),
+          employee:employees!reservations_employee_id_fkey (
+            id,
+            name,
+            role
+          ),
+          client:clients!reservations_client_id_fkey (
+            id,
+            name,
+            phone
+          )
+        `)
+        .in('unit.project_id', managedProjectIds)
+        .order('reservation_date', { ascending: false });
+
+      if (reservationsError) throw reservationsError;
+
+      // 3. جلب الوحدات المتاحة في نفس المشاريع للإحصاءات
+      const { count, error: countError } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'available')
+        .in('project_id', managedProjectIds);
+
+      if (countError) throw countError;
+
+      // 4. تحويل البيانات إلى نفس تنسيق الوحدات للتوافق
+      const reservationUnits = (reservations || []).map(res => ({
+        id: res.unit.id,
+        unit_code: res.unit.unit_code,
+        project_id: res.unit.project_id,
+        project_name: res.unit.project?.name || '',
+        project_code: res.unit.project?.code || '',
+        model_name: res.unit.model?.name || '',
+        unit_type: res.unit.unit_type,
+        supported_price: Number(res.unit.supported_price || 0),
+        land_area: res.unit.land_area ? Number(res.unit.land_area) : null,
+        build_area: res.unit.build_area ? Number(res.unit.build_area) : null,
+        status: res.unit.status,
+        reservation_data: {
+          reservation_id: res.id,
+          reservation_date: res.reservation_date,
+          reservation_status: res.status,
+          reservation_notes: res.notes,
+          employee_name: res.employee?.name || 'غير معروف',
+          employee_role: res.employee?.role || 'غير معروف',
+          client_name: res.client?.name || 'غير معروف',
+          client_phone: res.client?.phone || 'غير معروف'
+        }
+      }));
+
+      setUnits(reservationUnits);
+      setUnitStats({
+        total: count || 0,
+        filtered: reservationUnits.length
+      });
+      setTotalUnits(reservationUnits.length);
+      setTotalPages(Math.ceil(reservationUnits.length / itemsPerPage));
+
+    } catch (err) {
+      console.error('Error fetching reservations for manager:', err);
+      setUnits([]);
       setUnitStats({ total: 0, filtered: 0 });
     }
   }
@@ -270,6 +393,14 @@ export default function ReservationPage() {
     setLoading(true);
 
     try {
+      // إذا كان Sales Manager، نعرض الحجوزات بدلاً من الوحدات المتاحة
+      if (emp.role === 'sales_manager') {
+        await fetchAllReservationsForManager(emp);
+        setLoading(false);
+        return;
+      }
+
+      // الكود الأصلي للـ Sales والـ Admin
       const from = (page - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
 
@@ -535,6 +666,12 @@ export default function ReservationPage() {
       return;
     }
 
+    // Sales Manager لا يستطيع إضافة حجوزات جديدة
+    if (employee.role === 'sales_manager') {
+      alert('مدير المبيعات لا يستطيع إضافة حجوزات جديدة');
+      return;
+    }
+
     // التحقق من أن الوحدة مازالت متاحة
     const selectedUnit = units.find(u => u.id === unitId);
     if (!selectedUnit) {
@@ -706,13 +843,26 @@ export default function ReservationPage() {
   }
 
   /* =====================
+     دالة للحصول على عنوان البطاقة بناءً على الصلاحية
+  ===================== */
+  function getCardTitleBasedOnRole() {
+    if (!employee) return "اختيار الوحدة";
+    
+    if (employee.role === 'sales_manager') {
+      return "الحجوزات في المشاريع التابعة لي";
+    }
+    
+    return "الوحدات المتاحة";
+  }
+
+  /* =====================
      Main Render
   ===================== */
 
   if (loading && units.length === 0) {
     return (
       <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-        <div>جاري تحميل الوحدات المتاحة...</div>
+        <div>جاري تحميل البيانات...</div>
       </div>
     );
   }
@@ -726,22 +876,39 @@ export default function ReservationPage() {
         <Button variant="primary">حجز</Button>
       </div>
 
-      {/* معلومات الصلاحية */}
+      {/* معلومات الصلاحية - محدث */}
       {employee && (
         <div style={{ 
           padding: '12px 16px', 
           marginBottom: '20px', 
-          backgroundColor: employee.role === 'admin' ? '#e6f4ea' : '#fef7e6',
+          backgroundColor: 
+            employee.role === 'admin' ? '#e6f4ea' : 
+            employee.role === 'sales_manager' ? '#e8f4fd' : 
+            '#fef7e6',
           borderRadius: '8px',
-          borderLeft: `5px solid ${employee.role === 'admin' ? '#34a853' : '#fbbc04'}`
+          borderLeft: `5px solid ${
+            employee.role === 'admin' ? '#34a853' : 
+            employee.role === 'sales_manager' ? '#4285f4' : 
+            '#fbbc04'
+          }`
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div>
-              <strong>الصلاحية:</strong> {employee.role === 'admin' ? 'مدير' : 'مندوب مبيعات'}
+              <strong>الصلاحية:</strong> 
+              {employee.role === 'admin' ? 'مدير' : 
+               employee.role === 'sales_manager' ? 'مدير مبيعات' : 
+               'مندوب مبيعات'}
+              
               {employee.role === 'sales' && ' (في مشاريعك فقط)'}
+              {employee.role === 'sales_manager' && ' (جميع الحجوزات في مشاريعك)'}
             </div>
             <div>
-              <strong>الوحدات المتاحة:</strong> {unitStats.filtered.toLocaleString()} من {unitStats.total.toLocaleString()} وحدة
+              {employee.role === 'sales_manager' ? (
+                <strong>عدد الحجوزات:</strong>
+              ) : (
+                <strong>الوحدات المتاحة:</strong>
+              )}{' '}
+              {unitStats.filtered.toLocaleString()} من {unitStats.total.toLocaleString()} وحدة
             </div>
           </div>
         </div>
@@ -756,7 +923,9 @@ export default function ReservationPage() {
               <div style={{ position: 'relative' }}>
                 <input
                   type="text"
-                  placeholder="ابحث بكود الوحدة، المشروع، النموذج..."
+                  placeholder={employee?.role === 'sales_manager' 
+                    ? "ابحث بكود الوحدة، المشروع، العميل..." 
+                    : "ابحث بكود الوحدة، المشروع، النموذج..."}
                   value={searchTerm}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                     handleSearchChange(e.target.value);
@@ -875,13 +1044,15 @@ export default function ReservationPage() {
           </div>
         </Card>
 
-        {/* Unit Selection Card */}
-        <Card title="اختيار الوحدة">
+        {/* Unit Selection Card - محدث */}
+        <Card title={getCardTitleBasedOnRole()}>
           {units.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: '#666' }}>
               {searchTerm || selectedType || minPrice || maxPrice
-                ? 'لا توجد وحدات تطابق الفلاتر المحددة'
-                : 'لا توجد وحدات متاحة حالياً'}
+                ? 'لا توجد نتائج تطابق الفلاتر المحددة'
+                : employee?.role === 'sales_manager'
+                  ? 'لا توجد حجوزات في المشاريع التابعة لك'
+                  : 'لا توجد وحدات متاحة حالياً'}
             </div>
           ) : (
             <>
@@ -889,10 +1060,22 @@ export default function ReservationPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
-                      <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الاختيار</th>
+                      {employee?.role !== 'sales_manager' && (
+                        <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الاختيار</th>
+                      )}
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>كود الوحدة</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>النوع</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>المشروع</th>
+                      
+                      {/* أعمدة إضافية لـ Sales Manager */}
+                      {employee?.role === 'sales_manager' && (
+                        <>
+                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الموظف المضيف</th>
+                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>العميل</th>
+                          <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>حالة الحجز</th>
+                        </>
+                      )}
+                      
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>السعر</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الأرض</th>
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>البناء</th>
@@ -904,22 +1087,29 @@ export default function ReservationPage() {
                         key={unit.id} 
                         style={{ 
                           backgroundColor: unitId === unit.id ? '#e6f4ff' : 'white',
-                          cursor: 'pointer',
+                          cursor: employee?.role !== 'sales_manager' ? 'pointer' : 'default',
                           borderBottom: '1px solid #eee'
                         }}
-                        onClick={() => setUnitId(unit.id)}
+                        onClick={() => employee?.role !== 'sales_manager' && setUnitId(unit.id)}
                       >
-                        <td style={{ padding: '12px', textAlign: 'center' }}>
-                          <input 
-                            type="radio" 
-                            name="unitSelect"
-                            checked={unitId === unit.id}
-                            onChange={() => setUnitId(unit.id)}
-                            style={{ width: '18px', height: '18px' }}
-                          />
-                        </td>
+                        {employee?.role !== 'sales_manager' && (
+                          <td style={{ padding: '12px', textAlign: 'center' }}>
+                            <input 
+                              type="radio" 
+                              name="unitSelect"
+                              checked={unitId === unit.id}
+                              onChange={() => setUnitId(unit.id)}
+                              style={{ width: '18px', height: '18px' }}
+                            />
+                          </td>
+                        )}
                         <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold' }}>
                           {unit.unit_code}
+                          {employee?.role === 'sales_manager' && unit.reservation_data && (
+                            <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                              📅 {new Date(unit.reservation_data.reservation_date).toLocaleDateString('ar-EG')}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.unit_type === 'villa' ? 'فيلا' :
@@ -929,6 +1119,51 @@ export default function ReservationPage() {
                         <td style={{ padding: '12px', textAlign: 'right' }}>
                           {unit.project_name} {unit.project_code ? `(${unit.project_code})` : ''}
                         </td>
+                        
+                        {/* أعمدة إضافية لـ Sales Manager */}
+                        {employee?.role === 'sales_manager' && unit.reservation_data && (
+                          <>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              <div style={{ fontSize: '13px' }}>
+                                👤 {unit.reservation_data.employee_name}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#666' }}>
+                                {unit.reservation_data.employee_role === 'sales' ? 'مندوب مبيعات' : 
+                                 unit.reservation_data.employee_role === 'sales_manager' ? 'مدير مبيعات' : 
+                                 unit.reservation_data.employee_role === 'admin' ? 'مدير' : 'غير معروف'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              <div style={{ fontSize: '13px' }}>
+                                🤵 {unit.reservation_data.client_name}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#666' }}>
+                                {unit.reservation_data.client_phone}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right' }}>
+                              <div style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                                backgroundColor: 
+                                  unit.reservation_data.reservation_status === 'active' ? '#dcfce7' :
+                                  unit.reservation_data.reservation_status === 'converted' ? '#fef7cd' :
+                                  '#fee2e2',
+                                color: 
+                                  unit.reservation_data.reservation_status === 'active' ? '#166534' :
+                                  unit.reservation_data.reservation_status === 'converted' ? '#92400e' :
+                                  '#991b1b'
+                              }}>
+                                {unit.reservation_data.reservation_status === 'active' ? 'نشط' :
+                                 unit.reservation_data.reservation_status === 'converted' ? 'تم التحويل' :
+                                 'ملغي'}
+                              </div>
+                            </td>
+                          </>
+                        )}
+                        
                         <td style={{ padding: '12px', textAlign: 'right', direction: 'ltr' }}>
                           {unit.supported_price.toLocaleString()} جنيه
                         </td>
@@ -946,7 +1181,7 @@ export default function ReservationPage() {
 
               {renderPagination()}
 
-              {unitId && (
+              {unitId && employee?.role !== 'sales_manager' && (
                 <div style={{ 
                   marginTop: '20px', 
                   padding: '15px',
@@ -968,201 +1203,198 @@ export default function ReservationPage() {
           )}
         </Card>
 
-        {/* Reservation Form Card */}
-        <Card title="بيانات الحجز">
-          <div className="details-grid">
-            <div className="form-field">
-              <label>تاريخ الحجز *</label>
-              <input
-                type="date"
-                value={reservationDate}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setReservationDate(e.target.value)}
-                required
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div className="form-field">
-              <label>اسم البنك</label>
-              <select 
-                value={bankName} 
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setBankName(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">اختر البنك</option>
-                {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-              </select>
-            </div>
-
-            <div className="form-field">
-              <label>اسم موظف البنك</label>
-              <Input 
-                value={bankEmployeeName} 
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} 
-              />
-            </div>
-
-            <div className="form-field">
-              <label>رقم موظف البنك</label>
-              <Input 
-                value={bankEmployeeMobile} 
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeMobile(e.target.value)} 
-              />
-            </div>
-
-            <div className="form-field">
-              <label>حالة الحجز</label>
-              <select 
-                value={status} 
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as ReservationStatus)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">اختر الحالة</option>
-                <option value="active">حجز نشط</option>
-                <option value="converted">تم التحويل (بيع)</option>
-                <option value="cancelled">تم الإلغاء</option>
-              </select>
-            </div>
-
-            {/* Notes Section - UPDATED */}
-            <div className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <label>ملاحظات (اختياري)</label>
-              
-              {/* شريط البحث داخل الـ Select */}
-              <div style={{ marginBottom: '10px' }}>
+        {/* Reservation Form Card - غير ظاهر لـ Sales Manager */}
+        {employee?.role !== 'sales_manager' && (
+          <Card title="بيانات الحجز">
+            <div className="details-grid">
+              <div className="form-field">
+                <label>تاريخ الحجز *</label>
                 <input
-                  type="text"
-                  placeholder="🔍 ابحث في الملاحظات..."
-                  value={noteSearchTerm}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNoteSearchTerm(e.target.value)}
+                  type="date"
+                  value={reservationDate}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setReservationDate(e.target.value)}
+                  required
                   style={{
                     width: '100%',
                     padding: '8px 12px',
                     border: '1px solid #ddd',
                     borderRadius: '4px',
-                    fontSize: '14px',
-                    marginBottom: '5px'
+                    fontSize: '14px'
                   }}
                 />
-                <div style={{ fontSize: '12px', color: '#666', textAlign: 'right' }}>
-                  {noteSearchTerm && filteredNoteOptions.length > 0 ? `تم العثور على ${filteredNoteOptions.length} خيار` : ''}
-                </div>
               </div>
-              
-              {/* الـ Select مع البحث */}
-              <select
-                value={notes}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                  setNotes(e.target.value);
-                  setNoteSearchTerm(''); // إعادة ضبط البحث بعد الاختيار
-                }}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  marginBottom: '10px',
-                  backgroundColor: 'white'
-                }}
-              >
-                <option value="">-- اختر ملاحظة من القائمة --</option>
-                {filteredNoteOptions.map((option, index) => (
-                  <option key={index} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-              
-              {/* إمكانية إضافة ملاحظة مخصصة */}
-              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <input
-                  type="text"
-                  placeholder="أو اكتب ملاحظة مخصصة..."
-                  value={notes}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)}
+
+              <div className="form-field">
+                <label>اسم البنك</label>
+                <select 
+                  value={bankName} 
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setBankName(e.target.value)}
                   style={{
-                    flex: 1,
+                    width: '100%',
                     padding: '8px 12px',
                     border: '1px solid #ddd',
                     borderRadius: '4px',
                     fontSize: '14px'
                   }}
+                >
+                  <option value="">اختر البنك</option>
+                  {banks.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                </select>
+              </div>
+
+              <div className="form-field">
+                <label>اسم موظف البنك</label>
+                <Input 
+                  value={bankEmployeeName} 
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeName(e.target.value)} 
                 />
-                <button
-                  type="button"
-                  onClick={handleAddCustomNote}
-                  disabled={!notes.trim() || noteOptions.includes(notes.trim())}
+              </div>
+
+              <div className="form-field">
+                <label>رقم موظف البنك</label>
+                <Input 
+                  value={bankEmployeeMobile} 
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setBankEmployeeMobile(e.target.value)} 
+                />
+              </div>
+
+              <div className="form-field">
+                <label>حالة الحجز</label>
+                <select 
+                  value={status} 
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value as ReservationStatus)}
                   style={{
-                    padding: '8px 16px',
-                    backgroundColor: notes.trim() && !noteOptions.includes(notes.trim()) ? '#3b82f6' : '#e5e7eb',
-                    color: notes.trim() && !noteOptions.includes(notes.trim()) ? 'white' : '#9ca3af',
-                    border: 'none',
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #ddd',
                     borderRadius: '4px',
-                    cursor: notes.trim() && !noteOptions.includes(notes.trim()) ? 'pointer' : 'not-allowed',
                     fontSize: '14px'
                   }}
                 >
-                  + إضافة
-                </button>
+                  <option value="">اختر الحالة</option>
+                  <option value="active">حجز نشط</option>
+                  <option value="converted">تم التحويل (بيع)</option>
+                  <option value="cancelled">تم الإلغاء</option>
+                </select>
               </div>
-              
-              {/* عرض الخيارات المختارة حالياً */}
-              {notes && (
-                <div style={{
-                  marginTop: '10px',
-                  padding: '10px',
-                  backgroundColor: '#f0f9ff',
-                  borderRadius: '6px',
-                  border: '1px solid #bae6fd',
-                  fontSize: '14px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>✅ <strong>الملاحظة المختارة:</strong> {notes}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNotes('')}
-                      style={{
-                        padding: '4px 8px',
-                        backgroundColor: '#fee2e2',
-                        color: '#dc2626',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px'
-                      }}
-                    >
-                      حذف
-                    </button>
+
+              {/* Notes Section */}
+              <div className="form-field" style={{ gridColumn: '1 / -1' }}>
+                <label>ملاحظات (اختياري)</label>
+                
+                <div style={{ marginBottom: '10px' }}>
+                  <input
+                    type="text"
+                    placeholder="🔍 ابحث في الملاحظات..."
+                    value={noteSearchTerm}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setNoteSearchTerm(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      marginBottom: '5px'
+                    }}
+                  />
+                  <div style={{ fontSize: '12px', color: '#666', textAlign: 'right' }}>
+                    {noteSearchTerm && filteredNoteOptions.length > 0 ? `تم العثور على ${filteredNoteOptions.length} خيار` : ''}
                   </div>
                 </div>
-              )}
-              
-              {/* ملاحظة إرشادية */}
-              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px', textAlign: 'right' }}>
-                يمكنك اختيار ملاحظة جاهزة أو كتابة ملاحظة مخصصة
+                
+                <select
+                  value={notes}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    setNotes(e.target.value);
+                    setNoteSearchTerm('');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    marginBottom: '10px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <option value="">-- اختر ملاحظة من القائمة --</option>
+                  {filteredNoteOptions.map((option, index) => (
+                    <option key={index} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                
+                <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                  <input
+                    type="text"
+                    placeholder="أو اكتب ملاحظة مخصصة..."
+                    value={notes}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      fontSize: '14px'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomNote}
+                    disabled={!notes.trim() || noteOptions.includes(notes.trim())}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: notes.trim() && !noteOptions.includes(notes.trim()) ? '#3b82f6' : '#e5e7eb',
+                      color: notes.trim() && !noteOptions.includes(notes.trim()) ? 'white' : '#9ca3af',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: notes.trim() && !noteOptions.includes(notes.trim()) ? 'pointer' : 'not-allowed',
+                      fontSize: '14px'
+                    }}
+                  >
+                    + إضافة
+                  </button>
+                </div>
+                
+                {notes && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '10px',
+                    backgroundColor: '#f0f9ff',
+                    borderRadius: '6px',
+                    border: '1px solid #bae6fd',
+                    fontSize: '14px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>✅ <strong>الملاحظة المختارة:</strong> {notes}</span>
+                      <button
+                        type="button"
+                        onClick={() => setNotes('')}
+                        style={{
+                          padding: '4px 8px',
+                          backgroundColor: '#fee2e2',
+                          color: '#dc2626',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '12px'
+                        }}
+                      >
+                        حذف
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px', textAlign: 'right' }}>
+                  يمكنك اختيار ملاحظة جاهزة أو كتابة ملاحظة مخصصة
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        )}
 
         {/* Last Follow Up Card */}
         <Card title="آخر متابعة تلقائية">
@@ -1188,7 +1420,7 @@ export default function ReservationPage() {
         </Card>
       </div>
 
-      {/* Action Buttons */}
+      {/* Action Buttons - محدث */}
       <div style={{ 
         display: 'flex', 
         gap: '10px', 
@@ -1196,7 +1428,7 @@ export default function ReservationPage() {
         justifyContent: 'center',
         flexWrap: 'wrap' 
       }}>
-        {!reservationId && (
+        {!reservationId && employee?.role !== 'sales_manager' && (
           <>
             <Button 
               variant="primary" 
@@ -1206,7 +1438,6 @@ export default function ReservationPage() {
               {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
             </Button>
             
-            {/* زر عرض المزيد من الوحدات */}
             {totalUnits > units.length && (
               <div style={{ 
                 padding: '12px 20px',
@@ -1226,7 +1457,7 @@ export default function ReservationPage() {
           </>
         )}
         
-        {reservationId && (
+        {reservationId && employee?.role !== 'sales_manager' && (
           <>
             <Button 
               onClick={() => router.push(`/dashboard/reservations/${reservationId}`)}
@@ -1244,9 +1475,28 @@ export default function ReservationPage() {
             </Button>
           </>
         )}
+
+        {employee?.role === 'sales_manager' && (
+          <div style={{ 
+            padding: '15px 20px',
+            backgroundColor: '#f0f9ff',
+            borderRadius: '8px',
+            border: '2px solid #bae6fd',
+            maxWidth: '600px',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#0369a1', marginBottom: '8px' }}>
+              👨‍💼 وضع مدير المبيعات
+            </div>
+            <div style={{ fontSize: '14px', color: '#666' }}>
+              أنت في وضع العرض فقط. يمكنك رؤية جميع الحجوزات في المشاريع التابعة لك، 
+              لكن لا يمكنك إضافة حجوزات جديدة.
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* معلومات إضافية في الأسفل */}
+      {/* معلومات إضافية في الأسفل - محدث */}
       <div style={{ 
         marginTop: '20px', 
         padding: '15px',
@@ -1261,15 +1511,31 @@ export default function ReservationPage() {
             <strong>ملاحظات مهمة:</strong>
           </div>
           <div style={{ textAlign: 'right', maxWidth: '600px' }}>
-            • يمكنك البحث بكود الوحدة، اسم المشروع، أو اسم النموذج
-            <br />
-            • استخدم الفلاتر للبحث الدقيق حسب النوع والسعر
-            <br />
-            • الصفحة تعرض {itemsPerPage} وحدة في كل مرة لتحسين الأداء
-            <br />
-            • تأكد من صحة البيانات واختيار الوحدة الصحيحة قبل الحفظ
-            <br />
-            • يمكنك اختيار ملاحظة جاهزة من القائمة أو كتابة ملاحظة مخصصة
+            {employee?.role === 'sales_manager' ? (
+              <>
+                • يمكنك رؤية جميع الحجوزات في المشاريع التي تديرها
+                <br />
+                • يمكنك رؤية تفاصيل كل حجز والموظف الذي أضافه
+                <br />
+                • يمكنك رؤية بيانات العملاء المرتبطين بالحجوزات
+                <br />
+                • الحجوزات مرتبة حسب تاريخ الحجز (الأحدث أولاً)
+                <br />
+                • يمكنك البحث بكود الوحدة أو اسم العميل
+              </>
+            ) : (
+              <>
+                • يمكنك البحث بكود الوحدة، اسم المشروع، أو اسم النموذج
+                <br />
+                • استخدم الفلاتر للبحث الدقيق حسب النوع والسعر
+                <br />
+                • الصفحة تعرض {itemsPerPage} وحدة في كل مرة لتحسين الأداء
+                <br />
+                • تأكد من صحة البيانات واختيار الوحدة الصحيحة قبل الحفظ
+                <br />
+                • يمكنك اختيار ملاحظة جاهزة من القائمة أو كتابة ملاحظة مخصصة
+              </>
+            )}
           </div>
         </div>
       </div>

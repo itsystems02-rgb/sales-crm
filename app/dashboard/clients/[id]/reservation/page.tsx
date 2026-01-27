@@ -742,10 +742,10 @@ export default function ReservationPage() {
   ===================== */
 
   useEffect(() => {
-    if (employee && employee.role !== 'admin' && employee.role !== 'sales_manager') {
+    if (employee && (employee.role === 'admin' || employee.role === 'sales')) {
       loadAvailableUnits(employee, currentPage);
     }
-  }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice]);
+  }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice, employee]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -771,7 +771,7 @@ export default function ReservationPage() {
       clearTimeout(searchTimeout);
     }
     
-    if (employee && employee.role !== 'admin' && employee.role !== 'sales_manager') {
+    if (employee && (employee.role === 'admin' || employee.role === 'sales')) {
       loadAvailableUnits(employee, 1);
     }
   };
@@ -806,7 +806,7 @@ export default function ReservationPage() {
 
     if (selectedUnit.status !== 'available') {
       alert('عذراً، هذه الوحدة لم تعد متاحة للحجز');
-      if (employee.role !== 'admin' && employee.role !== 'sales_manager') {
+      if (employee.role === 'sales') {
         await loadAvailableUnits(employee, currentPage);
       }
       return;
@@ -1004,7 +1004,7 @@ export default function ReservationPage() {
   ===================== */
   function shouldShowAvailableUnitsTable() {
     if (!employee) return false;
-    return employee.role === 'admin' || employee.role === 'sales';
+    return (employee.role === 'admin' || employee.role === 'sales') && !reservationId;
   }
 
   /* =====================
@@ -1074,7 +1074,7 @@ export default function ReservationPage() {
 
       <div className="details-layout">
         {/* Filters Card - تظهر فقط للادمن والسيلز عند إضافة حجوزات جديدة */}
-        {shouldShowAvailableUnitsTable() && !reservationId && (
+        {shouldShowAvailableUnitsTable() && (
           <Card title="تصفية الوحدات المتاحة لإضافة حجوزات جديدة">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px' }}>
               <div>
@@ -1216,7 +1216,7 @@ export default function ReservationPage() {
                   <thead>
                     <tr style={{ backgroundColor: '#f5f5f5' }}>
                       {/* عمود الاختيار يظهر فقط عند إضافة حجوزات جديدة */}
-                      {shouldShowAvailableUnitsTable() && !reservationId && (
+                      {shouldShowAvailableUnitsTable() && (
                         <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>الاختيار</th>
                       )}
                       <th style={{ padding: '12px', textAlign: 'right', borderBottom: '2px solid #ddd' }}>كود الوحدة</th>
@@ -1241,13 +1241,13 @@ export default function ReservationPage() {
                         style={{ 
                           backgroundColor: unitId === unit.id && shouldShowAvailableUnitsTable() ? '#e6f4ff' : 
                                          unit.is_my_reservation ? '#f0fff4' : 'white',
-                          cursor: shouldShowAvailableUnitsTable() && !reservationId ? 'pointer' : 'default',
+                          cursor: shouldShowAvailableUnitsTable() ? 'pointer' : 'default',
                           borderBottom: '1px solid #eee'
                         }}
-                        onClick={() => shouldShowAvailableUnitsTable() && !reservationId && setUnitId(unit.id)}
+                        onClick={() => shouldShowAvailableUnitsTable() && setUnitId(unit.id)}
                       >
                         {/* خلية الاختيار تظهر فقط عند إضافة حجوزات جديدة */}
-                        {shouldShowAvailableUnitsTable() && !reservationId && (
+                        {shouldShowAvailableUnitsTable() && (
                           <td style={{ padding: '12px', textAlign: 'center' }}>
                             <input 
                               type="radio" 
@@ -1388,7 +1388,7 @@ export default function ReservationPage() {
 
               {renderPagination()}
 
-              {unitId && shouldShowAvailableUnitsTable() && !reservationId && (
+              {unitId && shouldShowAvailableUnitsTable() && (
                 <div style={{ 
                   marginTop: '20px', 
                   padding: '15px',
@@ -1609,7 +1609,7 @@ export default function ReservationPage() {
               {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
             </Button>
             
-            {unitStats.total > 0 && employee?.role !== 'admin' && employee?.role !== 'sales_manager' && (
+            {unitStats.total > 0 && employee?.role === 'sales' && (
               <div style={{ 
                 padding: '12px 20px',
                 backgroundColor: '#f3f4f6',

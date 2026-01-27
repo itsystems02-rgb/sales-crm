@@ -129,7 +129,7 @@ function translateEligible(eligible: boolean) {
   return eligible ? 'مستحق' : 'غير مستحق';
 }
 
-function getProjectText(project: Project | null) {
+function getProjectText(project: Project | null | undefined) {
   if (!project) return '-';
   return project.code ? `${project.name} (${project.code})` : project.name;
 }
@@ -144,7 +144,7 @@ function exportToExcel(clients: ClientListItem[], projects: Project[], fileName:
     const getProjectName = (projectId: string | null) => {
       if (!projectId) return '-';
       const project = projects.find(p => p.id === projectId);
-      return getProjectText(project);
+      return getProjectText(project); // ✅ تم التصحيح هنا
     };
 
     const excelData = clients.map(client => ({
@@ -2003,7 +2003,7 @@ export default function ClientsPage() {
                   <td>
                     {c.interested_in_project_id ? (
                       <span className="badge" style={{ backgroundColor: '#e1f5fe', color: '#0288d1' }}>
-                        {getProjectText(getDisplayProjects().find(p => p.id === c.interested_in_project_id) || null)}
+                        {getProjectText(getDisplayProjects().find(p => p.id === c.interested_in_project_id))}
                       </span>
                     ) : (
                       <span style={{ color: '#999', fontSize: '12px' }}>-</span>

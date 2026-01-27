@@ -29,7 +29,7 @@ type ClientListItem = {
   salary_bank_id: string | null;
   finance_bank_id: string | null;
   job_sector_id: string | null;
-  interested_in_project_id: string | null;  // <-- جديد
+  interested_in_project_id: string | null;
   created_at: string;
 };
 
@@ -41,6 +41,7 @@ type Option = {
 type Project = {
   id: string;
   name: string;
+  code: string | null;
 };
 
 type Employee = {
@@ -66,7 +67,7 @@ type ClientFilters = {
   salary_bank_id: string | null;
   finance_bank_id: string | null;
   job_sector_id: string | null;
-  interested_in_project_id: string | null;  // <-- جديد
+  interested_in_project_id: string | null;
   from_date: string;
   to_date: string;
 };
@@ -128,6 +129,11 @@ function translateEligible(eligible: boolean) {
   return eligible ? 'مستحق' : 'غير مستحق';
 }
 
+function getProjectText(project: Project | null) {
+  if (!project) return '-';
+  return project.code ? `${project.name} (${project.code})` : project.name;
+}
+
 /* =====================
    Excel Import/Export Functions
 ===================== */
@@ -138,7 +144,7 @@ function exportToExcel(clients: ClientListItem[], projects: Project[], fileName:
     const getProjectName = (projectId: string | null) => {
       if (!projectId) return '-';
       const project = projects.find(p => p.id === projectId);
-      return project ? project.name : '-';
+      return getProjectText(project);
     };
 
     const excelData = clients.map(client => ({
@@ -151,7 +157,7 @@ function exportToExcel(clients: ClientListItem[], projects: Project[], fileName:
       'نوع الإقامة': client.residency_type || '-',
       'الحالة': translateStatus(client.status),
       'الأهلية': translateEligible(client.eligible),
-      'مهتم بمشروع': getProjectName(client.interested_in_project_id),  // <-- جديد
+      'مهتم بمشروع': getProjectName(client.interested_in_project_id),
       'تاريخ الإنشاء': new Date(client.created_at).toLocaleDateString('ar-SA'),
     }));
 
@@ -217,7 +223,8 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [banks, setBanks] = useState<Option[]>([]);
   const [jobSectors, setJobSectors] = useState<Option[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);  // <-- جديد
+  const [allProjects, setAllProjects] = useState<Project[]>([]); // جميع المشاريع للادمن
+  const [allowedProjects, setAllowedProjects] = useState<Project[]>([]); // المشاريع المسموحة للباقي
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   
@@ -249,7 +256,7 @@ export default function ClientsPage() {
     salary_bank_id: null,
     finance_bank_id: null,
     job_sector_id: null,
-    interested_in_project_id: null,  // <-- جديد
+    interested_in_project_id: null,
     from_date: '',
     to_date: '',
   });
@@ -269,9 +276,81 @@ export default function ClientsPage() {
   const [salaryBankId, setSalaryBankId] = useState('');
   const [financeBankId, setFinanceBankId] = useState('');
   const [jobSectorId, setJobSectorId] = useState('');
-  const [interestedInProjectId, setInterestedInProjectId] = useState('');  // <-- جديد
+  const [interestedInProjectId, setInterestedInProjectId] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* =====================
+     HELPER FUNCTIONS
+  ===================== */
+  
+  // جلب المشاريع المسموحة للموظف
+  const fetchAllowedProjects = useCallback(async (emp: Employee | null) => {
+    try {
+      // إذا كان ادمن، اجلب جميع المشاريع
+      if (emp?.role === 'admin') {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id, name, code')
+          .order('name');
+        
+        if (error) throw error;
+        setAllProjects(data || []);
+        setAllowedProjects(data || []);
+        return data || [];
+      }
+      
+      // إذا كان sales أو sales_manager، اجلب المشاريع المخصصة له فقط
+      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+        // جلب المشاريع المسموحة من جدول employee_projects
+        const { data: employeeProjects, error: empError } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        if (empError) throw empError;
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        if (allowedProjectIds.length > 0) {
+          const { data: projectsData, error: projectsError } = await supabase
+            .from('projects')
+            .select('id, name, code')
+            .in('id', allowedProjectIds)
+            .order('name');
+          
+          if (projectsError) throw projectsError;
+          setAllowedProjects(projectsData || []);
+          return projectsData || [];
+        } else {
+          setAllowedProjects([]);
+          return [];
+        }
+      }
+      
+      setAllowedProjects([]);
+      return [];
+    } catch (err) {
+      console.error('Error fetching allowed projects:', err);
+      setAllowedProjects([]);
+      return [];
+    }
+  }, []);
+
+  // جلب جميع المشاريع (للادمن فقط في الاستيراد/التصدير)
+  const fetchAllProjects = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('id, name, code')
+        .order('name');
+      
+      if (error) throw error;
+      setAllProjects(data || []);
+    } catch (err) {
+      console.error('Error fetching all projects:', err);
+    }
+  }, []);
 
   /* =====================
      LOAD DATA FUNCTIONS
@@ -303,24 +382,6 @@ export default function ClientsPage() {
     }
   }, []);
 
-  // دالة جديدة لجلب المشاريع
-  const fetchProjects = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id, name')
-        .order('name');
-      
-      if (error) {
-        console.error('Error fetching projects:', error);
-        return;
-      }
-      setProjects(data || []);
-    } catch (error) {
-      console.error('Error in fetchProjects:', error);
-    }
-  }, []);
-
   const fetchClientStats = useCallback(async (emp: Employee | null = null) => {
     try {
       const getCount = async (field: string, value?: any) => {
@@ -332,6 +393,18 @@ export default function ClientsPage() {
           query = query.eq('status', value);
         } else if (field === 'eligible' && value !== undefined) {
           query = query.eq('eligible', value);
+        }
+
+        // تطبيق فلترة المشاريع حسب دور الموظف
+        if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+          const allowedProjects = await fetchAllowedProjects(emp);
+          const allowedProjectIds = allowedProjects.map(p => p.id);
+          
+          if (allowedProjectIds.length > 0) {
+            query = query.in('interested_in_project_id', allowedProjectIds);
+          } else {
+            return 0; // لا توجد مشاريع مسموحة
+          }
         }
 
         const { count, error } = await query;
@@ -376,7 +449,7 @@ export default function ClientsPage() {
       setTotalClients(0);
       setTotalPages(1);
     }
-  }, [itemsPerPage]);
+  }, [itemsPerPage, fetchAllowedProjects]);
 
   useEffect(() => {
     async function init() {
@@ -386,7 +459,10 @@ export default function ClientsPage() {
         setEmployee(emp);
         await fetchBanks();
         await fetchJobSectors();
-        await fetchProjects();  // <-- جديد
+        await fetchAllowedProjects(emp); // جلب المشاريع المسموحة
+        if (emp?.role === 'admin') {
+          await fetchAllProjects(); // جلب جميع المشاريع للادمن
+        }
         await loadClients(emp);
         await fetchClientStats(emp);
       } catch (error) {
@@ -397,7 +473,7 @@ export default function ClientsPage() {
       }
     }
     init();
-  }, [fetchBanks, fetchJobSectors, fetchProjects, fetchClientStats]);
+  }, [fetchBanks, fetchJobSectors, fetchAllowedProjects, fetchAllProjects, fetchClientStats]);
 
   useEffect(() => {
     if (nationality !== 'non_saudi') {
@@ -439,7 +515,7 @@ export default function ClientsPage() {
       salary_bank_id: null,
       finance_bank_id: null,
       job_sector_id: null,
-      interested_in_project_id: null,  // <-- جديد
+      interested_in_project_id: null,
       from_date: '',
       to_date: '',
     });
@@ -456,7 +532,7 @@ export default function ClientsPage() {
            filters.salary_bank_id !== null ||
            filters.finance_bank_id !== null ||
            filters.job_sector_id !== null ||
-           filters.interested_in_project_id !== null ||  // <-- جديد
+           filters.interested_in_project_id !== null ||
            filters.from_date ||
            filters.to_date;
   };
@@ -468,7 +544,7 @@ export default function ClientsPage() {
   };
 
   /* =====================
-     LOAD CLIENTS WITH FILTERS
+     LOAD CLIENTS WITH FILTERS AND PROJECT PERMISSIONS
   ===================== */
   const loadClients = useCallback(async (emp: Employee | null = null, page: number = currentPage) => {
     try {
@@ -480,6 +556,20 @@ export default function ClientsPage() {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      // تطبيق فلترة المشاريع حسب دور الموظف
+      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+        const allowedProjects = await fetchAllowedProjects(emp);
+        const allowedProjectIds = allowedProjects.map(p => p.id);
+        
+        if (allowedProjectIds.length > 0) {
+          query = query.in('interested_in_project_id', allowedProjectIds);
+        } else {
+          setClients([]);
+          setTotalClients(0);
+          return;
+        }
+      }
 
       if (filters.search) {
         query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
@@ -509,7 +599,7 @@ export default function ClientsPage() {
         query = query.eq('job_sector_id', filters.job_sector_id);
       }
 
-      // فلتر المشروع المهتم به - جديد
+      // فلتر المشروع المهتم به
       if (filters.interested_in_project_id !== null) {
         query = query.eq('interested_in_project_id', filters.interested_in_project_id);
       }
@@ -541,7 +631,7 @@ export default function ClientsPage() {
       console.error('Error in loadClients:', error);
       setClients([]);
     }
-  }, [currentPage, itemsPerPage, filters, employee]);
+  }, [currentPage, itemsPerPage, filters, employee, fetchAllowedProjects]);
 
   useEffect(() => {
     if (employee) {
@@ -577,7 +667,7 @@ export default function ClientsPage() {
     setSalaryBankId('');
     setFinanceBankId('');
     setJobSectorId('');
-    setInterestedInProjectId('');  // <-- جديد
+    setInterestedInProjectId('');
   }
 
   async function handleSubmit() {
@@ -601,7 +691,7 @@ export default function ClientsPage() {
         salary_bank_id: salaryBankId || null,
         finance_bank_id: financeBankId || null,
         job_sector_id: jobSectorId || null,
-        interested_in_project_id: interestedInProjectId || null,  // <-- جديد
+        interested_in_project_id: interestedInProjectId || null,
         status: 'lead',
       };
 
@@ -699,7 +789,7 @@ export default function ClientsPage() {
       setSalaryBankId(client.salary_bank_id || '');
       setFinanceBankId(client.finance_bank_id || '');
       setJobSectorId(client.job_sector_id || '');
-      setInterestedInProjectId(client.interested_in_project_id || '');  // <-- جديد
+      setInterestedInProjectId(client.interested_in_project_id || '');
       
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
@@ -731,7 +821,7 @@ export default function ClientsPage() {
         salary_bank_id: salaryBankId || null,
         finance_bank_id: financeBankId || null,
         job_sector_id: jobSectorId || null,
-        interested_in_project_id: interestedInProjectId || null,  // <-- جديد
+        interested_in_project_id: interestedInProjectId || null,
       };
 
       const { error } = await supabase
@@ -874,17 +964,22 @@ export default function ClientsPage() {
           if (jobSector) jobSectorId = jobSector.id;
         }
         
-        // البحث عن المشروع المهتم به - جديد
+        // البحث عن المشروع المهتم به
         const projectName = row['مهتم بمشروع'] || row['project'] || row['Project'] || row['المشروع'] || '';
         let interestedInProjectId = null;
         
-        if (projectName && projects.length > 0) {
-          const project = projects.find(p => 
-            p.name === projectName || 
-            p.name.includes(projectName) ||
-            projectName.includes(p.name)
-          );
-          if (project) interestedInProjectId = project.id;
+        if (projectName) {
+          // استخدام allowedProjects للموظفين العاديين، وallProjects للادمن
+          const projectsToSearch = employee?.role === 'admin' ? allProjects : allowedProjects;
+          
+          if (projectsToSearch.length > 0) {
+            const project = projectsToSearch.find(p => 
+              p.name === projectName || 
+              p.name.includes(projectName) ||
+              projectName.includes(p.name)
+            );
+            if (project) interestedInProjectId = project.id;
+          }
         }
         
         const client = {
@@ -899,7 +994,7 @@ export default function ClientsPage() {
           salary_bank_id: salaryBankId,
           finance_bank_id: financeBankId,
           job_sector_id: jobSectorId,
-          interested_in_project_id: interestedInProjectId,  // <-- جديد
+          interested_in_project_id: interestedInProjectId,
           status,
         };
         
@@ -910,7 +1005,7 @@ export default function ClientsPage() {
     }
     
     return { processedClients, errors };
-  }, [banks, jobSectors, projects]);  // <-- إضافة projects هنا
+  }, [banks, jobSectors, allProjects, allowedProjects, employee]);
 
   function handleExportExcel() {
     if (totalClients === 0) {
@@ -935,6 +1030,20 @@ export default function ClientsPage() {
           .from('clients')
           .select('*')
           .order('created_at', { ascending: false });
+
+        // تطبيق فلترة المشاريع حسب دور الموظف
+        if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+          const allowedProjects = await fetchAllowedProjects(employee);
+          const allowedProjectIds = allowedProjects.map(p => p.id);
+          
+          if (allowedProjectIds.length > 0) {
+            query = query.in('interested_in_project_id', allowedProjectIds);
+          } else {
+            setClients([]);
+            setTotalClients(0);
+            return;
+          }
+        }
 
         if (filters.search) {
           query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
@@ -964,7 +1073,6 @@ export default function ClientsPage() {
           query = query.eq('job_sector_id', filters.job_sector_id);
         }
 
-        // فلتر المشروع المهتم به - جديد
         if (filters.interested_in_project_id !== null) {
           query = query.eq('interested_in_project_id', filters.interested_in_project_id);
         }
@@ -986,7 +1094,9 @@ export default function ClientsPage() {
           ? `العملاء_المفلترة_${new Date().toISOString().split('T')[0]}.xlsx`
           : `العملاء_${new Date().toISOString().split('T')[0]}.xlsx`;
         
-        exportToExcel(data || [], projects, fileName);  // <-- تحديث
+        // استخدام allProjects للادمن و allowedProjects للباقي
+        const projectsForExport = employee?.role === 'admin' ? allProjects : allowedProjects;
+        exportToExcel(data || [], projectsForExport, fileName);
         
       } catch (err) {
         console.error('Error fetching clients for export:', err);
@@ -1109,7 +1219,7 @@ export default function ClientsPage() {
         'بنك الراتب': 'البنك الأهلي',
         'بنك التمويل': 'مصرف الراجحي',
         'القطاع الوظيفي': 'حكومي',
-        'مهتم بمشروع': 'مشروع النخيل'  // <-- جديد
+        'مهتم بمشروع': 'مشروع النخيل'
       }
     ];
     
@@ -1118,6 +1228,11 @@ export default function ClientsPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'العملاء');
     XLSX.writeFile(wb, 'قالب_استيراد_العملاء.xlsx');
   }
+
+  // تحديد المشاريع المعروضة حسب الدور
+  const getDisplayProjects = () => {
+    return employee?.role === 'admin' ? allProjects : allowedProjects;
+  };
 
   /* =====================
      UI
@@ -1311,15 +1426,17 @@ export default function ClientsPage() {
                 {jobSectors.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </select>
               
-              {/* =============== جديد: المشروع المهتم به =============== */}
+              {/* المشروع المهتم به - يعتمد على الدور */}
               <select 
                 value={interestedInProjectId} 
                 onChange={(e) => setInterestedInProjectId(e.target.value)}
                 style={{ minWidth: '150px' }}
               >
                 <option value="">مهتم بمشروع (اختياري)</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
+                {getDisplayProjects().map(project => (
+                  <option key={project.id} value={project.id}>
+                    {getProjectText(project)}
+                  </option>
                 ))}
               </select>
               
@@ -1558,7 +1675,7 @@ export default function ClientsPage() {
                     </select>
                   </div>
                   
-                  {/* =============== جديد: فلتر المشروع المهتم به =============== */}
+                  {/* فلتر المشروع المهتم به */}
                   <div>
                     <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', fontSize: '14px' }}>
                       المشروع المهتم به:
@@ -1575,9 +1692,9 @@ export default function ClientsPage() {
                       }}
                     >
                       <option value="">جميع المشاريع</option>
-                      {projects.map(project => (
+                      {getDisplayProjects().map(project => (
                         <option key={project.id} value={project.id}>
-                          {project.name}
+                          {getProjectText(project)}
                         </option>
                       ))}
                     </select>
@@ -1757,7 +1874,7 @@ export default function ClientsPage() {
                           alignItems: 'center',
                           gap: '5px'
                         }}>
-                          مشروع: {projects.find(p => p.id === filters.interested_in_project_id)?.name || 'غير معروف'}
+                          مشروع: {getDisplayProjects().find(p => p.id === filters.interested_in_project_id)?.name || 'غير معروف'}
                           <button 
                             onClick={() => updateFilter('interested_in_project_id', null)}
                             style={{ 
@@ -1886,7 +2003,7 @@ export default function ClientsPage() {
                   <td>
                     {c.interested_in_project_id ? (
                       <span className="badge" style={{ backgroundColor: '#e1f5fe', color: '#0288d1' }}>
-                        {projects.find(p => p.id === c.interested_in_project_id)?.name || 'غير معروف'}
+                        {getProjectText(getDisplayProjects().find(p => p.id === c.interested_in_project_id) || null)}
                       </span>
                     ) : (
                       <span style={{ color: '#999', fontSize: '12px' }}>-</span>

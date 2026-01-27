@@ -349,7 +349,7 @@ export default function SalesPage() {
       } else if (user?.role === 'sales_manager') {
         // مدير المبيعات يرى جميع الموظفين في النظام
         // جلب جميع الموظفين (للعرض في الفلاتر)
-        query = query.in('role', ['sales', 'sales_manager']);
+        // لا نضيف فلتر role هنا لأننا نريد جميع الموظفين
       } else if (user?.role === 'admin') {
         console.log('👑 الإدمن - جلب جميع الموظفين');
       }
@@ -358,7 +358,10 @@ export default function SalesPage() {
       
       if (employeesError) {
         console.error('❌ خطأ في جلب الموظفين:', employeesError);
-        setEmployees({}); // تعيين مصفوفة فارغة بدلاً من إظهار خطأ
+        // على الأقل إضافة المستخدم الحالي
+        const employeesMap: Record<string, {name: string, role: string}> = {};
+        employeesMap[user.id] = { name: user.name, role: user.role };
+        setEmployees(employeesMap);
         return;
       }
       
@@ -369,10 +372,6 @@ export default function SalesPage() {
         employeesData.forEach(emp => {
           employeesMap[emp.id] = { name: emp.name, role: emp.role };
         });
-        // إضافة المستخدم الحالي إذا لم يكن موجوداً
-        if (!employeesMap[user.id]) {
-          employeesMap[user.id] = { name: user.name, role: user.role };
-        }
         setEmployees(employeesMap);
       } else {
         // على الأقل إضافة المستخدم الحالي
@@ -631,7 +630,6 @@ export default function SalesPage() {
     } else if (currentUser?.role === 'sales_manager') {
       // مدير المبيعات يرى جميع الموظفين في المشاريع المسموحة له
       return Object.entries(employees)
-        .filter(([id, emp]) => emp.role === 'sales' || emp.role === 'sales_manager')
         .map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
     } else if (currentUser?.role === 'admin') {
       // الإدمن يرى جميع الموظفين

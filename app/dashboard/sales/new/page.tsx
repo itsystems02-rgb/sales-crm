@@ -725,13 +725,23 @@ export default function NewSalePage() {
             🔄 تحديث البيانات
           </Button>
           {employee && (employee.role === 'sales' || employee.role === 'sales_manager') && projects.length === 0 && (
-            <Button 
+            <button 
               onClick={handleAssignToProject}
-              variant="warning"
-              style={{ backgroundColor: '#ff9800', color: 'white' }}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#ff9800',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
             >
               📋 تسجيل بمشروع
-            </Button>
+            </button>
           )}
         </div>
       </div>
@@ -822,32 +832,18 @@ export default function NewSalePage() {
             >
               📋 تسجيل بمشروع جديد
             </button>
-            <button 
+            <Button 
               onClick={() => router.push('/dashboard/projects')}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#2196f3',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              variant="secondary"
             >
               👀 عرض جميع المشاريع
-            </button>
-            <button 
+            </Button>
+            <Button 
               onClick={() => router.push('/dashboard/profile')}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#4caf50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              variant="secondary"
             >
               👤 تحديث بياناتي
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -910,9 +906,218 @@ export default function NewSalePage() {
               )}
             </div>
 
-            {/* باقي الحقول */}
-            {/* ... */}
-            
+            {/* الحجز */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                الحجز *
+              </label>
+              <select
+                value={reservationId}
+                disabled={!clientId || reservations.length === 0 || loading || (employee?.role !== 'admin' && projects.length === 0)}
+                onChange={handleReservationChange}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: !clientId || reservations.length === 0 ? '#f9f9f9' : '#fff',
+                  cursor: !clientId || reservations.length === 0 || (employee?.role !== 'admin' && projects.length === 0) ? 'not-allowed' : 'pointer',
+                  opacity: !clientId || reservations.length === 0 || (employee?.role !== 'admin' && projects.length === 0) ? 0.7 : 1
+                }}
+              >
+                <option value="">
+                  {!clientId ? '👥 اختر العميل أولاً' : 
+                   loading ? '🔄 جاري التحميل...' :
+                   reservations.length === 0 ? '📭 لا توجد حجوزات نشطة' : 
+                   '📅 اختر الحجز'}
+                </option>
+                {reservations.map(r => {
+                  return (
+                    <option key={r.id} value={r.id}>
+                      {r.unit_code ? `🏠 ${r.unit_code}` : '📅 حجز'} بتاريخ {new Date(r.reservation_date).toLocaleDateString('ar-SA')}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* الوحدة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                الوحدة
+              </label>
+              <input 
+                value={unit ? `${unit.unit_code} ${unit.status ? `(${getUnitStatusText(unit.status)})` : ''}` : ''} 
+                disabled
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#f9f9f9',
+                  color: unit?.status === 'sold' ? '#c00' : '#666'
+                }}
+              />
+            </div>
+
+            {/* رقم عقد الدعم */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد الدعم
+              </label>
+              <input
+                type="text"
+                value={form.contract_support_no}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_support_no', e.target.value)}
+                placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* رقم عقد تلاد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد تلاد
+              </label>
+              <input
+                type="text"
+                value={form.contract_talad_no}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_talad_no', e.target.value)}
+                placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* نوع العقد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع العقد
+              </label>
+              <select
+                value={form.contract_type}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('contract_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                {CONTRACT_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* نوع التمويل */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع التمويل
+              </label>
+              <select
+                value={form.finance_type}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('finance_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                {FINANCE_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* اسم الجهة التمويلية */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                اسم الجهة التمويلية
+              </label>
+              <input
+                type="text"
+                value={form.finance_entity}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('finance_entity', e.target.value)}
+                placeholder="مثال: البنك الأهلي"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* تاريخ بيع الوحدة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                تاريخ بيع الوحدة *
+              </label>
+              <input
+                type="date"
+                value={form.sale_date}
+                onChange={handleSaleDateChange}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* سعر بيع الوحدة قبل الضريبة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                سعر بيع الوحدة قبل الضريبة *
+              </label>
+              <input
+                type="number"
+                value={form.price_before_tax}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('price_before_tax', e.target.value)}
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
           </div>
         </Card>
       </div>

@@ -56,6 +56,7 @@ type ReservationStatus = 'active' | 'cancelled' | 'converted';
 type Employee = {
   id: string;
   role: 'admin' | 'sales' | 'sales_manager';
+  name?: string;
 };
 
 type UnitStats = {
@@ -78,6 +79,7 @@ export default function ReservationPage() {
   const [lastFollowUp, setLastFollowUp] = useState<FollowUp | null>(null);
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState<{id: string, name: string, code: string}[]>([]);
   
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -152,6 +154,9 @@ export default function ReservationPage() {
 
       await fetchBanksAndFollowUp();
       
+      // جلب المشاريع المتاحة
+      await fetchProjects(emp);
+      
       // Load initial data based on role
       switch (emp.role) {
         case 'admin':
@@ -170,6 +175,46 @@ export default function ReservationPage() {
     } catch (err) {
       console.error('Error in init():', err);
       setLoading(false);
+    }
+  }
+
+  /* =====================
+     دالة لجلب المشاريع
+  ===================== */
+  async function fetchProjects(emp: Employee) {
+    try {
+      let query = supabase
+        .from('projects')
+        .select('id, name, code')
+        .eq('status', 'active')
+        .order('name');
+
+      // إذا كان موظف عادي، جلب المشاريع المسموحة له فقط
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
+        // جلب المشاريع المسموحة من جدول employee_projects
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        if (allowedProjectIds.length > 0) {
+          query = query.in('id', allowedProjectIds);
+        } else {
+          setProjects([]);
+          return;
+        }
+      }
+
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      
+      setProjects(data || []);
+    } catch (err) {
+      console.error('Error fetching projects:', err);
+      setProjects([]);
     }
   }
 
@@ -582,6 +627,7 @@ export default function ReservationPage() {
   ===================== */
   async function loadAvailableUnits(emp: Employee, page: number = currentPage) {
     try {
+      setLoading(true);
       const from = (page - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
 
@@ -605,8 +651,7 @@ export default function ReservationPage() {
           )
         `, { count: 'exact' })
         .eq('status', 'available')
-        .order('unit_code')
-        .range(from, to);
+        .order('unit_code');
 
       // للـ Sales، نطبق فلتر المشاريع المسموحة
       if (emp.role === 'sales') {
@@ -639,14 +684,23 @@ export default function ReservationPage() {
       }
       if (searchTerm.trim()) {
         const searchTermLower = searchTerm.trim().toLowerCase();
-        query = query.or(
-          `unit_code.ilike.%${searchTermLower}%,` +
-          `projects.name.ilike.%${searchTermLower}%,` +
-          `project_models.name.ilike.%${searchTermLower}%`
-        );
+        // استخدام ILIKE للبحث بدلاً من or()
+        query = query.or(`unit_code.ilike.%${searchTermLower}%,project_id.in.(${selectedProject || ''})`);
       }
 
-      const { data, error, count } = await query;
+      // First, get the count without pagination
+      const { count, error: countError } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'available')
+        .eq('project_id', selectedProject || 'project_id');
+
+      if (countError) {
+        console.error('Error counting units:', countError);
+      }
+
+      // Now get the paginated data
+      const { data, error } = await query.range(from, to);
       
       if (error) throw error;
 
@@ -669,11 +723,137 @@ export default function ReservationPage() {
       if (count !== null) {
         setTotalUnits(count);
         setTotalPages(Math.ceil(count / itemsPerPage));
+      } else {
+        setTotalUnits(normalized.length);
+        setTotalPages(Math.ceil(normalized.length / itemsPerPage));
       }
+
+      // تحديث الإحصائيات
+      setUnitStats(prev => ({
+        ...prev,
+        total: count || 0,
+        filtered: normalized.length
+      }));
 
     } catch (err) {
       console.error('Error loading available units:', err);
       setUnits([]);
+      setTotalUnits(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* =====================
+     دالة بسيطة للبحث في الوحدات المتاحة (بدون فلتر معقد)
+  ===================== */
+  async function searchAvailableUnits(emp: Employee) {
+    try {
+      setLoading(true);
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+
+      let query = supabase
+        .from('units')
+        .select(`
+          id,
+          unit_code,
+          project_id,
+          unit_type,
+          status,
+          supported_price,
+          land_area,
+          build_area,
+          projects!inner (
+            name,
+            code
+          ),
+          project_models!inner (
+            name
+          )
+        `, { count: 'exact' })
+        .eq('status', 'available')
+        .order('unit_code');
+
+      // للـ Sales، نطبق فلتر المشاريع المسموحة
+      if (emp.role === 'sales') {
+        const { data: employeeProjects } = await supabase
+          .from('employee_projects')
+          .select('project_id')
+          .eq('employee_id', emp.id);
+
+        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
+        
+        if (allowedProjectIds.length > 0) {
+          query = query.in('project_id', allowedProjectIds);
+        } else {
+          query = query.eq('project_id', 'no-projects');
+        }
+      }
+
+      // تطبيق الفلاتر الأساسية
+      if (selectedProject) {
+        query = query.eq('project_id', selectedProject);
+      }
+      if (selectedType) {
+        query = query.eq('unit_type', selectedType);
+      }
+      if (minPrice) {
+        query = query.gte('supported_price', Number(minPrice));
+      }
+      if (maxPrice) {
+        query = query.lte('supported_price', Number(maxPrice));
+      }
+
+      // البحث البسيط - فقط في unit_code
+      if (searchTerm.trim()) {
+        const searchTermLower = searchTerm.trim().toLowerCase();
+        query = query.ilike('unit_code', `%${searchTermLower}%`);
+      }
+
+      const { data, error, count } = await query.range(from, to);
+      
+      if (error) throw error;
+
+      const normalized = (data || []).map((item: any) => ({
+        id: item.id,
+        unit_code: item.unit_code,
+        project_id: item.project_id,
+        project_name: Array.isArray(item.projects) ? item.projects[0]?.name : item.projects?.name || '',
+        project_code: Array.isArray(item.projects) ? item.projects[0]?.code : item.projects?.code || '',
+        model_name: Array.isArray(item.project_models) ? item.project_models[0]?.name : item.project_models?.name || '',
+        unit_type: item.unit_type,
+        supported_price: Number(item.supported_price || 0),
+        land_area: item.land_area ? Number(item.land_area) : null,
+        build_area: item.build_area ? Number(item.build_area) : null,
+        status: item.status
+      }));
+
+      setUnits(normalized);
+      
+      if (count !== null) {
+        setTotalUnits(count);
+        setTotalPages(Math.ceil(count / itemsPerPage));
+      } else {
+        setTotalUnits(normalized.length);
+        setTotalPages(Math.ceil(normalized.length / itemsPerPage));
+      }
+
+      // تحديث الإحصائيات
+      setUnitStats(prev => ({
+        ...prev,
+        total: count || 0,
+        filtered: normalized.length
+      }));
+
+    } catch (err) {
+      console.error('Error searching available units:', err);
+      setUnits([]);
+      setTotalUnits(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -723,9 +903,9 @@ export default function ReservationPage() {
     const timeout = setTimeout(() => {
       setCurrentPage(1);
       if (employee && viewMode === 'available-units') {
-        loadAvailableUnits(employee, 1);
+        searchAvailableUnits(employee);
       }
-    }, 300);
+    }, 500);
     
     setSearchTimeout(timeout);
   }, [employee, searchTimeout, viewMode]);
@@ -736,7 +916,7 @@ export default function ReservationPage() {
     }
     setCurrentPage(1);
     if (employee && viewMode === 'available-units') {
-      loadAvailableUnits(employee, 1);
+      searchAvailableUnits(employee);
     }
   };
 
@@ -748,7 +928,7 @@ export default function ReservationPage() {
     if (employee && viewMode === 'available-units') {
       loadAvailableUnits(employee, currentPage);
     }
-  }, [currentPage, itemsPerPage, selectedProject, selectedType, minPrice, maxPrice, employee, viewMode]);
+  }, [currentPage, itemsPerPage, employee, viewMode]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -775,6 +955,7 @@ export default function ReservationPage() {
     }
     
     if (employee && viewMode === 'available-units') {
+      // إعادة تحميل جميع الوحدات بدون فلاتر
       loadAvailableUnits(employee, 1);
     }
   };
@@ -1116,7 +1297,7 @@ export default function ReservationPage() {
               )}
               {' '}
               {viewMode === 'available-units' 
-                ? `${unitStats.total.toLocaleString()} وحدة`
+                ? `${totalUnits.toLocaleString()} وحدة`
                 : `${unitStats.filtered.toLocaleString()} حجز`}
               {employee.role !== 'sales' && unitStats.my_reservations > 0 && viewMode === 'reservations' && (
                 <span style={{ marginRight: '15px' }}>
@@ -1139,7 +1320,7 @@ export default function ReservationPage() {
                 <div style={{ position: 'relative' }}>
                   <input
                     type="text"
-                    placeholder="ابحث بكود الوحدة، المشروع، النموذج..."
+                    placeholder="ابحث بكود الوحدة..."
                     value={searchTerm}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => {
                       handleSearchChange(e.target.value);
@@ -1189,15 +1370,50 @@ export default function ReservationPage() {
                 )}
               </div>
 
+              {/* فلترة بالمشروع */}
+              <div>
+                <label>المشروع</label>
+                <select 
+                  value={selectedProject} 
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    setSelectedProject(e.target.value);
+                    setCurrentPage(1);
+                    if (employee) {
+                      setTimeout(() => {
+                        loadAvailableUnits(employee, 1);
+                      }, 100);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    backgroundColor: '#fff'
+                  }}
+                >
+                  <option value="">كل المشاريع</option>
+                  {projects.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.name} {project.code ? `(${project.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label>النوع</label>
                 <select 
                   value={selectedType} 
                   onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                     setSelectedType(e.target.value);
-                    setTimeout(() => {
-                      if (employee) handleSearch();
-                    }, 100);
+                    setCurrentPage(1);
+                    if (employee) {
+                      setTimeout(() => {
+                        loadAvailableUnits(employee, 1);
+                      }, 100);
+                    }
                   }}
                   style={{
                     width: '100%',
@@ -1224,9 +1440,14 @@ export default function ReservationPage() {
                   value={minPrice}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                     setMinPrice(e.target.value);
-                    setTimeout(() => {
-                      if (employee) handleSearch();
-                    }, 100);
+                  }}
+                  onBlur={() => {
+                    setCurrentPage(1);
+                    if (employee) {
+                      setTimeout(() => {
+                        loadAvailableUnits(employee, 1);
+                      }, 100);
+                    }
                   }}
                   style={{
                     width: '100%',
@@ -1246,9 +1467,14 @@ export default function ReservationPage() {
                   value={maxPrice}
                   onChange={(e: ChangeEvent<HTMLInputElement>) => {
                     setMaxPrice(e.target.value);
-                    setTimeout(() => {
-                      if (employee) handleSearch();
-                    }, 100);
+                  }}
+                  onBlur={() => {
+                    setCurrentPage(1);
+                    if (employee) {
+                      setTimeout(() => {
+                        loadAvailableUnits(employee, 1);
+                      }, 100);
+                    }
                   }}
                   style={{
                     width: '100%',
@@ -1270,20 +1496,22 @@ export default function ReservationPage() {
               borderTop: '1px solid #eee'
             }}>
               <div style={{ fontSize: '14px', color: '#666' }}>
-                {totalUnits > 0 ? `عرض ${totalUnits} وحدة متاحة` : 'لا توجد وحدات متاحة'}
+                {totalUnits > 0 ? `عرض ${units.length} من ${totalUnits} وحدة متاحة` : 'لا توجد وحدات متاحة'}
               </div>
               
               <div style={{ display: 'flex', gap: '10px' }}>
                 <Button 
                   onClick={handleSearch}
                   variant="primary"
+                  disabled={loading}
                 >
-                  🔍 تطبيق البحث
+                  {loading ? '🔄 جاري البحث...' : '🔍 تطبيق البحث'}
                 </Button>
                 
                 <Button 
                   variant="secondary" 
                   onClick={handleResetFilters}
+                  disabled={loading}
                 >
                   🔄 إعادة تعيين
                 </Button>
@@ -1294,13 +1522,27 @@ export default function ReservationPage() {
 
         {/* الوحدات أو الحجوزات Card */}
         <Card title={getCardTitleBasedOnRole()}>
-          {units.length === 0 ? (
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#666' }}>
+              <div>🔄 جاري تحميل البيانات...</div>
+            </div>
+          ) : units.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: '#666' }}>
               {viewMode === 'available-units' ? (
                 <>
                   <div style={{ fontSize: '48px', marginBottom: '20px' }}>🏠</div>
                   <h3>لا توجد وحدات متاحة حالياً</h3>
                   <p>جميع الوحدات محجوزة أو مباعة</p>
+                  {searchTerm || selectedProject || selectedType || minPrice || maxPrice ? (
+                    <div style={{ marginTop: '20px' }}>
+                      <Button 
+                        variant="secondary"
+                        onClick={handleResetFilters}
+                      >
+                        🔄 إعادة تعيين الفلاتر
+                      </Button>
+                    </div>
+                  ) : null}
                 </>
               ) : employee?.role === 'sales_manager' ? (
                 'لا توجد حجوزات في المشاريع التابعة لك'
@@ -1730,12 +1972,12 @@ export default function ReservationPage() {
             <Button 
               variant="primary" 
               onClick={submit} 
-              disabled={saving || !unitId || !reservationDate}
+              disabled={saving || !unitId || !reservationDate || loading}
             >
               {saving ? 'جاري الحفظ...' : 'حفظ الحجز'}
             </Button>
             
-            {unitStats.total > 0 && employee?.role === 'sales' && (
+            {totalUnits > 0 && employee?.role === 'sales' && (
               <div style={{ 
                 padding: '12px 20px',
                 backgroundColor: '#f3f4f6',
@@ -1748,7 +1990,7 @@ export default function ReservationPage() {
                 gap: '8px'
               }}>
                 <span>📊</span>
-                <span>عرض {units.length} من {unitStats.total.toLocaleString()} وحدة متاحة</span>
+                <span>عرض {units.length} من {totalUnits.toLocaleString()} وحدة متاحة</span>
               </div>
             )}
           </>

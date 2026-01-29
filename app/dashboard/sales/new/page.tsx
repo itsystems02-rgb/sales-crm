@@ -37,6 +37,16 @@ type Project = {
   name: string;
 };
 
+// أنواع جديدة لنتيجة الاستعلام
+type ReservationWithClient = {
+  id: string;
+  client_id: string;
+  client: Client;
+  unit: {
+    project_id: string;
+  };
+};
+
 /* =====================
    Constants
 ===================== */
@@ -164,7 +174,7 @@ export default function NewSalePage() {
         `)
         .in('unit.project_id', projectIds)
         .eq('status', 'active')
-        .eq('client.status', 'active');
+        .eq('clients.status', 'active');
 
       if (error) {
         console.error(error);
@@ -173,9 +183,17 @@ export default function NewSalePage() {
         return;
       }
 
+      // معالجة البيانات مع التحقق من وجودها
+      const reservationData = data as unknown as ReservationWithClient[];
+      
+      if (!reservationData || reservationData.length === 0) {
+        setClients([]);
+        return;
+      }
+
       // استخراج العملاء الفريدين
       const uniqueClients = [...new Map(
-        data?.map(item => [item.client.id, item.client]) || []
+        reservationData.map(item => [item.client.id, item.client])
       ).values()];
 
       setClients(uniqueClients);
@@ -219,7 +237,7 @@ export default function NewSalePage() {
         setError('حدث خطأ في تحميل الحجوزات');
       } else {
         // تحويل البيانات لتتوافق مع النوع
-        const formattedData = (data || []).map(item => ({
+        const formattedData = (data || []).map((item: any) => ({
           id: item.id,
           unit_id: item.unit_id,
           reservation_date: item.reservation_date,
@@ -613,7 +631,7 @@ export default function NewSalePage() {
                 {reservations.map(r => (
                   <option key={r.id} value={r.id}>
                     حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString('ar-SA')}
-                    {r.project_id && ` (مشروع ID: ${r.project_id})`}
+                    {r.project_id && ` (مشروع: ${projects.find(p => p.id === r.project_id)?.name || r.project_id})`}
                   </option>
                 ))}
               </select>

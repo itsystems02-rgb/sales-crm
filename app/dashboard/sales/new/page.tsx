@@ -114,17 +114,17 @@ export default function NewSalePage() {
       setEmployee(emp);
       addDebugInfo(`تم جلب بيانات الموظف: ${emp.role}`);
       
-      // 2. جلب جميع العملاء الذين لديهم حجوزات (مؤقتاً للتجربة)
+      // 2. جلب جميع العملاء الذين لديهم حجوزات
       addDebugInfo('جاري جلب العملاء...');
       await fetchAllClientsWithReservations();
       
-      // 3. محاولة جلب المشاريع (للاستخدام في المستقبل)
+      // 3. محاولة جلب المشاريع
       try {
         const { data: projectsData, error: projectsError } = await supabase
           .from('projects')
           .select('id, name')
           .eq('status', 'active')
-          .limit(10); // تحديد فقط 10 مشاريع للاختبار
+          .limit(10);
 
         if (projectsError) {
           addDebugInfo(`تحذير: حدث خطأ في جلب المشاريع: ${projectsError.message}`);
@@ -158,7 +158,7 @@ export default function NewSalePage() {
         .select('id, name')
         .eq('status', 'active')
         .order('name')
-        .limit(100); // تحديد 100 عميل كحد أقصى للاختبار
+        .limit(100);
 
       if (clientsError) {
         console.error('Error fetching clients:', clientsError);
@@ -183,7 +183,7 @@ export default function NewSalePage() {
         .select('client_id')
         .in('client_id', clientIds)
         .eq('status', 'active')
-        .limit(1000); // تحديد عدد الحجوزات
+        .limit(1000);
 
       if (reservationsError) {
         console.error('Error checking reservations:', reservationsError);
@@ -548,18 +548,19 @@ export default function NewSalePage() {
   return (
     <div className="page">
       {/* ===== TABS ===== */}
-      <div className="tabs" style={{ display: 'flex', gap: 10, marginBottom: '20px' }}>
+      <div className="tabs" style={{ display: 'flex', gap: 10, marginBottom: '20px', alignItems: 'center' }}>
         <Button onClick={() => router.push('/dashboard/sales')}>
           التنفيذات
         </Button>
         <Button variant="primary">تنفيذ جديد</Button>
-        <Button 
-          onClick={handleRefresh}
-          variant="secondary"
-          style={{ marginLeft: 'auto' }}
-        >
-          تحديث البيانات
-        </Button>
+        <div style={{ marginLeft: 'auto' }}>
+          <Button 
+            onClick={handleRefresh}
+            variant="secondary"
+          >
+            تحديث البيانات
+          </Button>
+        </div>
       </div>
 
       {/* ===== ERROR MESSAGE ===== */}

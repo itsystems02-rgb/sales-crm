@@ -19,28 +19,30 @@ type Client = {
   status?: string;
 };
 
+type Unit = {
+  id: string;
+  unit_code: string;
+  project_id: string;
+  status: string;
+  unit_type?: string;
+  project_name?: string;
+};
+
 type Reservation = {
   id: string;
   client_id: string;
   unit_id: string;
   reservation_date: string;
   status: string;
-  project_id?: string;
-  unit_code?: string;
-  units?: {
-    id: string;
-    unit_code: string;
-    project_id: string;
-    status: string;
+  created_at?: string;
+  bank_name?: string | null;
+  employee_id?: string | null;
+  clients?: Client;
+  units?: Unit;
+  employees?: {
+    name: string;
+    role: string;
   };
-};
-
-type Unit = {
-  id: string;
-  unit_code: string;
-  project_id: string;
-  status: string;
-  project_name?: string;
 };
 
 type Project = {
@@ -216,9 +218,9 @@ export default function NewSalePage() {
       }
 
       // جلب التفاصيل لكل حجز
-      const reservationsWithDetails = await Promise.all(
-        reservationsData.map(async (reservation) => {
-          const reservationWithDetails: any = { ...reservation };
+      const reservationsWithDetails: Reservation[] = await Promise.all(
+        reservationsData.map(async (reservation: any) => {
+          const reservationWithDetails: Reservation = { ...reservation };
           
           // جلب بيانات العميل
           if (reservation.client_id) {
@@ -242,7 +244,7 @@ export default function NewSalePage() {
               .single();
             
             if (unitData) {
-              reservationWithDetails.units = {
+              const unitInfo: Unit = {
                 id: unitData.id,
                 unit_code: unitData.unit_code,
                 unit_type: unitData.unit_type,
@@ -259,9 +261,11 @@ export default function NewSalePage() {
                   .single();
                 
                 if (projectData) {
-                  reservationWithDetails.units.project_name = projectData.name;
+                  unitInfo.project_name = projectData.name;
                 }
               }
+              
+              reservationWithDetails.units = unitInfo;
             }
           }
           
@@ -269,7 +273,7 @@ export default function NewSalePage() {
         })
       );
 
-      return reservationsWithDetails as Reservation[];
+      return reservationsWithDetails;
       
     } catch (error) {
       console.error('Error in fetchReservationsForSale:', error);
@@ -427,41 +431,6 @@ export default function NewSalePage() {
       console.error('Error in fetchReservationsForClient:', error);
       addDebugInfo(`❌ خطأ في جلب حجوزات العميل: ${error}`);
       return [];
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // دالة جلب بيانات الوحدة
-  async function fetchUnit(unitId: string) {
-    try {
-      setLoading(true);
-      addDebugInfo(`🔍 جاري جلب بيانات الوحدة ${unitId}...`);
-      
-      const { data, error } = await supabase
-        .from('units')
-        .select('id, unit_code, project_id, status')
-        .eq('id', unitId)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error fetching unit:', error);
-        setUnit(null);
-        setError('حدث خطأ في تحميل بيانات الوحدة');
-        addDebugInfo(`❌ خطأ في جلب الوحدة: ${error.message}`);
-        return;
-      }
-
-      setUnit(data || null);
-      if (data) {
-        addDebugInfo(`✅ تم جلب الوحدة: ${data.unit_code} (${data.status}) - مشروع: ${data.project_id}`);
-      }
-      
-    } catch (error) {
-      console.error('Error in fetchUnit:', error);
-      setUnit(null);
-      setError('حدث خطأ في تحميل بيانات الوحدة');
-      addDebugInfo(`❌ خطأ في جلب الوحدة: ${error}`);
     } finally {
       setLoading(false);
     }
@@ -702,6 +671,7 @@ export default function NewSalePage() {
         unit_code: selectedReservation.units.unit_code,
         project_id: selectedReservation.units.project_id,
         status: selectedReservation.units.status,
+        unit_type: selectedReservation.units.unit_type,
         project_name: selectedReservation.units.project_name
       });
       

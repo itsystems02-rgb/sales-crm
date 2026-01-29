@@ -1276,15 +1276,7 @@ export default function ReservationPage() {
               <div style={{ display: 'flex', gap: '10px' }}>
                 <Button 
                   onClick={handleSearch}
-                  style={{
-                    padding: '10px 20px',
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: '500'
-                  }}
+                  variant="primary"
                 >
                   🔍 تطبيق البحث
                 </Button>

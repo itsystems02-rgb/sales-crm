@@ -38,6 +38,11 @@ type Project = {
   name: string;
 };
 
+type Employee = {
+  id: string;
+  role: 'admin' | 'sales' | 'sales_manager';
+};
+
 /* =====================
    Constants
 ===================== */
@@ -66,7 +71,7 @@ export default function NewSalePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [unit, setUnit] = useState<Unit | null>(null);
-  const [employee, setEmployee] = useState<{ id: string; role: string; project_id?: string } | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
 
   const [clientId, setClientId] = useState('');
@@ -142,7 +147,7 @@ export default function NewSalePage() {
   }
 
   // دالة جلب المشاريع المسموحة
-  async function loadAllowedProjects(emp: any): Promise<Project[]> {
+  async function loadAllowedProjects(emp: Employee): Promise<Project[]> {
     try {
       let query = supabase
         .from('projects')
@@ -151,7 +156,7 @@ export default function NewSalePage() {
         .order('name');
 
       // تطبيق الفلترة حسب الدور
-      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
         addDebugInfo(`🔍 جاري جلب مشاريع الموظف ${emp.id}...`);
         const { data: employeeProjects, error: empError } = await supabase
           .from('employee_projects')
@@ -195,7 +200,7 @@ export default function NewSalePage() {
   }
 
   // طريقة بديلة لجلب العملاء - مشابهة لكود الحجوزات
-  async function fetchClientsWithReservationsAlt(emp: any, allowedProjects: Project[]) {
+  async function fetchClientsWithReservationsAlt(emp: Employee, allowedProjects: Project[]) {
     try {
       addDebugInfo('🔍 بدء جلب العملاء (الطريقة البديلة)...');
       
@@ -217,7 +222,7 @@ export default function NewSalePage() {
         .eq('status', 'active');
 
       // تطبيق فلترة المشاريع للموظفين
-      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
+      if (emp.role === 'sales' || emp.role === 'sales_manager') {
         const allowedProjectIds = allowedProjects.map(p => p.id);
         if (allowedProjectIds.length > 0) {
           reservationsQuery = reservationsQuery.in('units.project_id', allowedProjectIds);
@@ -300,6 +305,8 @@ export default function NewSalePage() {
 
   // دالة جلب الحجوزات لعميل معين
   async function fetchReservations(cid: string) {
+    if (!employee) return;
+    
     try {
       setLoading(true);
       addDebugInfo(`🔍 جاري جلب حجوزات العميل ${cid}...`);
@@ -322,7 +329,7 @@ export default function NewSalePage() {
         .eq('status', 'active');
 
       // فلترة الحجوزات بالمشاريع المسموحة للموظفين
-      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
+      if (employee.role === 'sales' || employee.role === 'sales_manager') {
         const allowedProjectIds = projects.map(p => p.id);
         if (allowedProjectIds.length > 0) {
           query = query.in('units.project_id', allowedProjectIds);
@@ -703,7 +710,7 @@ export default function NewSalePage() {
               المشاريع المسموحة لك: {projects.map(p => p.name).join(', ')}
             </div>
           )}
-          {projects.length === 0 && employee.role !== 'admin' && (
+          {projects.length === 0 && (
             <div style={{ marginTop: '5px', fontSize: '12px', color: '#d32f2f' }}>
               ⚠️ لم يتم تعيين أي مشاريع لك. يرجى التواصل مع المسؤول.
             </div>
@@ -836,9 +843,164 @@ export default function NewSalePage() {
               />
             </div>
 
-            {/* باقي الحقول كما هي */}
-            {/* ... */}
-            
+            {/* رقم عقد الدعم */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد الدعم
+              </label>
+              <input
+                type="text"
+                value={form.contract_support_no}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_support_no', e.target.value)}
+                placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* رقم عقد تلاد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                رقم عقد تلاد
+              </label>
+              <input
+                type="text"
+                value={form.contract_talad_no}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('contract_talad_no', e.target.value)}
+                placeholder="اختياري"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* نوع العقد */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع العقد
+              </label>
+              <select
+                value={form.contract_type}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('contract_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                {CONTRACT_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* نوع التمويل */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                نوع التمويل
+              </label>
+              <select
+                value={form.finance_type}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => handleFormChange('finance_type', e.target.value)}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                {FINANCE_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* اسم الجهة التمويلية */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                اسم الجهة التمويلية
+              </label>
+              <input
+                type="text"
+                value={form.finance_entity}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('finance_entity', e.target.value)}
+                placeholder="مثال: البنك الأهلي"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* تاريخ بيع الوحدة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                تاريخ بيع الوحدة *
+              </label>
+              <input
+                type="date"
+                value={form.sale_date}
+                onChange={handleSaleDateChange}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
+            {/* سعر بيع الوحدة قبل الضريبة */}
+            <div className="form-field" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontWeight: '500', color: '#333', marginBottom: '4px' }}>
+                سعر بيع الوحدة قبل الضريبة *
+              </label>
+              <input
+                type="number"
+                value={form.price_before_tax}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => handleFormChange('price_before_tax', e.target.value)}
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #ddd',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  width: '100%'
+                }}
+              />
+            </div>
+
           </div>
         </Card>
       </div>

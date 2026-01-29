@@ -84,261 +84,166 @@ export default function NewSalePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string[]>([]);
+
+  const addDebugInfo = (info: string) => {
+    setDebugInfo(prev => [...prev.slice(-5), info]); // حفظ آخر 5 رسائل فقط
+  };
 
   /* =====================
      Initial Load
   ===================== */
 
   useEffect(() => {
-    fetchCurrentEmployee();
+    initializePage();
   }, []);
 
-  async function fetchCurrentEmployee() {
-    try {
-      const emp = await getCurrentEmployee();
-      setEmployee(emp);
-      
-      // بعد جلب بيانات الموظف، جلب المشاريع والعملاء
-      if (emp) {
-        await fetchProjectsForEmployee(emp);
-      }
-    } catch (error) {
-      console.error('Error fetching employee:', error);
-      setError('حدث خطأ في جلب بيانات الموظف');
-    }
-  }
-
-  async function fetchProjectsForEmployee(emp: { id: string; role: string; project_id?: string }) {
+  async function initializePage() {
     try {
       setLoading(true);
+      addDebugInfo('بدء تهيئة الصفحة...');
       
-      let query = supabase
-        .from('projects')
-        .select('id, name')
-        .eq('status', 'active');
-      
-      // إذا كان الموظف مرتبط بمشروع معين (مثال: مسؤول مشروع)
-      if (emp.role === 'project_manager' && emp.project_id) {
-        query = query.eq('id', emp.project_id);
-      }
-      // إذا كان مدير أو دور يمكنه رؤية كل المشاريع
-      else if (emp.role === 'admin' || emp.role === 'sales_manager') {
-        // يمكن رؤية كل المشاريع - لا حاجة للتصفية
-      }
-      
-      const { data, error } = await query.order('name');
-      
-      if (error) {
-        console.error('Error fetching projects:', error);
-        setError('حدث خطأ في تحميل المشاريع');
-        setProjects([]);
+      // 1. جلب بيانات الموظف
+      addDebugInfo('جاري جلب بيانات الموظف...');
+      const emp = await getCurrentEmployee();
+      if (!emp) {
+        setError('لم يتم العثور على بيانات الموظف');
+        addDebugInfo('خطأ: لم يتم العثور على بيانات الموظف');
         return;
       }
+      setEmployee(emp);
+      addDebugInfo(`تم جلب بيانات الموظف: ${emp.role}`);
       
-      console.log('Projects loaded:', data?.length || 0);
-      setProjects(data || []);
+      // 2. جلب جميع العملاء الذين لديهم حجوزات (مؤقتاً للتجربة)
+      addDebugInfo('جاري جلب العملاء...');
+      await fetchAllClientsWithReservations();
       
-      // الآن جلب العملاء الذين لديهم حجوزات في هذه المشاريع
-      if (data && data.length > 0) {
-        await fetchClientsForProjects(data);
-      } else if (emp.role === 'admin' || emp.role === 'sales_manager') {
-        // إذا كان مدير وليس له مشاريع محددة، جلب كل العملاء الذين لديهم حجوزات
-        await fetchAllClientsWithReservations();
+      // 3. محاولة جلب المشاريع (للاستخدام في المستقبل)
+      try {
+        const { data: projectsData, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .eq('status', 'active')
+          .limit(10); // تحديد فقط 10 مشاريع للاختبار
+
+        if (projectsError) {
+          addDebugInfo(`تحذير: حدث خطأ في جلب المشاريع: ${projectsError.message}`);
+          console.warn('Error fetching projects:', projectsError);
+        } else {
+          setProjects(projectsData || []);
+          addDebugInfo(`تم جلب ${projectsData?.length || 0} مشروع`);
+        }
+      } catch (projectsErr) {
+        addDebugInfo(`تحذير: استثناء في جلب المشاريع: ${projectsErr}`);
+        console.warn('Exception fetching projects:', projectsErr);
       }
       
     } catch (error) {
-      console.error('Error in fetchProjectsForEmployee:', error);
-      setError('حدث خطأ في تحميل المشاريع');
-      setProjects([]);
+      console.error('Error in initializePage:', error);
+      setError(`حدث خطأ في تهيئة الصفحة: ${error}`);
+      addDebugInfo(`خطأ في التهيئة: ${error}`);
     } finally {
       setLoading(false);
+      addDebugInfo('اكتمل التحميل');
     }
   }
 
   async function fetchAllClientsWithReservations() {
     try {
-      setLoading(true);
+      addDebugInfo('بدء جلب العملاء...');
       
-      // جلب كل الحجوزات النشطة مع وحداتها
-      const { data: reservationsData, error: reservationsError } = await supabase
-        .from('reservations')
-        .select(`
-          id,
-          client_id,
-          unit_id,
-          unit:units(project_id)
-        `)
-        .eq('status', 'active');
-
-      if (reservationsError) {
-        console.error('Error fetching reservations:', reservationsError);
-        setError('حدث خطأ في تحميل الحجوزات');
-        return;
-      }
-
-      // استخراج معرفات العملاء الفريدة
-      const clientIds = [...new Set(
-        reservationsData?.map(r => r.client_id) || []
-      )];
-
-      if (clientIds.length === 0) {
-        setClients([]);
-        return;
-      }
-
-      // جلب بيانات هؤلاء العملاء
-      const { data: clientsData, error: clientsError } = await supabase
+      // طريقة بديلة أبسط: جلب كل العملاء النشطين أولاً
+      const { data: allClients, error: clientsError } = await supabase
         .from('clients')
         .select('id, name')
-        .in('id', clientIds)
         .eq('status', 'active')
-        .order('name');
+        .order('name')
+        .limit(100); // تحديد 100 عميل كحد أقصى للاختبار
 
       if (clientsError) {
         console.error('Error fetching clients:', clientsError);
         setError('حدث خطأ في تحميل العملاء');
-        setClients([]);
-      } else {
-        console.log('Clients loaded:', clientsData?.length || 0);
-        setClients(clientsData || []);
+        addDebugInfo(`خطأ في جلب العملاء: ${clientsError.message}`);
+        return;
       }
+
+      if (!allClients || allClients.length === 0) {
+        setClients([]);
+        addDebugInfo('لم يتم العثور على عملاء');
+        return;
+      }
+
+      addDebugInfo(`تم العثور على ${allClients.length} عميل`);
+
+      // الآن نتحقق من أي من هؤلاء العملاء لديه حجوزات
+      const clientIds = allClients.map(c => c.id);
+      
+      const { data: reservationsData, error: reservationsError } = await supabase
+        .from('reservations')
+        .select('client_id')
+        .in('client_id', clientIds)
+        .eq('status', 'active')
+        .limit(1000); // تحديد عدد الحجوزات
+
+      if (reservationsError) {
+        console.error('Error checking reservations:', reservationsError);
+        // إذا حدث خطأ في الحجوزات، نعرض كل العملاء مؤقتاً
+        setClients(allClients);
+        addDebugInfo(`عرض كل العملاء (${allClients.length}) بسبب خطأ في الحجوزات`);
+        return;
+      }
+
+      // استخراج العملاء الذين لديهم حجوزات
+      const clientsWithReservations = allClients.filter(client => 
+        reservationsData?.some(r => r.client_id === client.id)
+      );
+
+      setClients(clientsWithReservations);
+      addDebugInfo(`العملاء الذين لديهم حجوزات: ${clientsWithReservations.length}`);
       
     } catch (error) {
       console.error('Error in fetchAllClientsWithReservations:', error);
       setError('حدث خطأ في تحميل العملاء');
-      setClients([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function fetchClientsForProjects(projectList: Project[]) {
-    try {
-      setLoading(true);
-      
-      const projectIds = projectList.map(p => p.id);
-      
-      // 1. أولاً: جلب الوحدات في هذه المشاريع
-      const { data: unitsData, error: unitsError } = await supabase
-        .from('units')
-        .select('id')
-        .in('project_id', projectIds);
-
-      if (unitsError) {
-        console.error('Error fetching units:', unitsError);
-        setError('حدث خطأ في تحميل الوحدات');
-        return;
-      }
-
-      if (!unitsData || unitsData.length === 0) {
-        setClients([]);
-        return;
-      }
-
-      const unitIds = unitsData.map(u => u.id);
-      
-      // 2. ثانياً: جلب الحجوزات النشطة لهذه الوحدات
-      const { data: reservationsData, error: reservationsError } = await supabase
-        .from('reservations')
-        .select('client_id')
-        .in('unit_id', unitIds)
-        .eq('status', 'active');
-
-      if (reservationsError) {
-        console.error('Error fetching reservations:', reservationsError);
-        setError('حدث خطأ في تحميل الحجوزات');
-        return;
-      }
-
-      // استخراج معرفات العملاء الفريدة
-      const clientIds = [...new Set(
-        reservationsData?.map(r => r.client_id) || []
-      )];
-
-      if (clientIds.length === 0) {
-        setClients([]);
-        return;
-      }
-
-      // 3. أخيراً: جلب بيانات هؤلاء العملاء
-      const { data: clientsData, error: clientsError } = await supabase
-        .from('clients')
-        .select('id, name')
-        .in('id', clientIds)
-        .eq('status', 'active')
-        .order('name');
-
-      if (clientsError) {
-        console.error('Error fetching clients:', clientsError);
-        setError('حدث خطأ في تحميل العملاء');
-        setClients([]);
-      } else {
-        console.log('Clients loaded:', clientsData?.length || 0);
-        setClients(clientsData || []);
-      }
-      
-    } catch (error) {
-      console.error('Error in fetchClientsForProjects:', error);
-      setError('حدث خطأ في تحميل العملاء');
-      setClients([]);
-    } finally {
-      setLoading(false);
+      addDebugInfo(`خطأ: ${error}`);
     }
   }
 
   async function fetchReservations(cid: string) {
     try {
       setLoading(true);
+      addDebugInfo(`جاري جلب حجوزات العميل ${cid}...`);
       
-      const projectIds = projects.map(p => p.id);
-      
-      // إذا كان هناك مشاريع محددة، نستخدمها للتصفية
-      let query = supabase
+      const { data, error } = await supabase
         .from('reservations')
         .select(`
           id, 
           unit_id, 
           reservation_date, 
           status,
-          unit:units(project_id)
+          unit:units(project_id, unit_code)
         `)
         .eq('client_id', cid)
-        .eq('status', 'active');
-      
-      // إذا كانت هناك مشاريع محددة للموظف، نضيف شرط التصفية
-      if (projectIds.length > 0) {
-        // لسوء الحظ، Supabase لا يدعم تصفية مباشرة بـ in مع join
-        // سنقوم بالتصفية بعد جلب البيانات
-      }
-      
-      const { data, error } = await query.order('created_at', { ascending: false });
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching reservations:', error);
         setReservations([]);
         setError('حدث خطأ في تحميل الحجوزات');
+        addDebugInfo(`خطأ في جلب الحجوزات: ${error.message}`);
       } else {
-        // تصفية الحجوزات حسب المشاريع المسموح بها
-        let filteredData = data || [];
-        
-        if (projectIds.length > 0) {
-          filteredData = filteredData.filter((item: any) => {
-            const unitProjectId = item.unit?.[0]?.project_id || item.unit?.project_id;
-            return projectIds.includes(unitProjectId);
-          });
-        }
-        
         // تحويل البيانات
-        const formattedData = filteredData.map((item: any) => ({
+        const formattedData = (data || []).map((item: any) => ({
           id: item.id,
           unit_id: item.unit_id,
           reservation_date: item.reservation_date,
           status: item.status,
-          project_id: item.unit?.[0]?.project_id || item.unit?.project_id
+          project_id: item.unit?.[0]?.project_id || item.unit?.project_id,
+          unit_code: item.unit?.[0]?.unit_code || ''
         }));
         
-        console.log('Reservations loaded for client:', formattedData.length);
         setReservations(formattedData);
+        addDebugInfo(`تم جلب ${formattedData.length} حجز للعميل`);
       }
 
       // reset
@@ -349,6 +254,7 @@ export default function NewSalePage() {
       console.error('Error in fetchReservations:', error);
       setReservations([]);
       setError('حدث خطأ في تحميل الحجوزات');
+      addDebugInfo(`خطأ في جلب الحجوزات: ${error}`);
     } finally {
       setLoading(false);
     }
@@ -357,6 +263,8 @@ export default function NewSalePage() {
   async function fetchUnit(unitId: string) {
     try {
       setLoading(true);
+      addDebugInfo(`جاري جلب بيانات الوحدة ${unitId}...`);
+      
       const { data, error } = await supabase
         .from('units')
         .select('id, unit_code, project_id, status')
@@ -367,14 +275,20 @@ export default function NewSalePage() {
         console.error('Error fetching unit:', error);
         setUnit(null);
         setError('حدث خطأ في تحميل بيانات الوحدة');
+        addDebugInfo(`خطأ في جلب الوحدة: ${error.message}`);
         return;
       }
 
       setUnit(data || null);
+      if (data) {
+        addDebugInfo(`تم جلب الوحدة: ${data.unit_code} (${data.status})`);
+      }
+      
     } catch (error) {
       console.error('Error in fetchUnit:', error);
       setUnit(null);
       setError('حدث خطأ في تحميل بيانات الوحدة');
+      addDebugInfo(`خطأ في جلب الوحدة: ${error}`);
     } finally {
       setLoading(false);
     }
@@ -454,12 +368,14 @@ export default function NewSalePage() {
 
     setSubmitting(true);
     setError(null);
+    addDebugInfo('بدء عملية البيع...');
 
     try {
       // التحقق من أن الوحدة محجوزة
       if (unit.status !== 'reserved') {
         setError('الوحدة ليست محجوزة. لا يمكن بيع وحدة غير محجوزة');
         setSubmitting(false);
+        addDebugInfo('فشل: الوحدة ليست محجوزة');
         return;
       }
 
@@ -473,6 +389,7 @@ export default function NewSalePage() {
       if (existingSale) {
         setError('هذه الوحدة تم بيعها مسبقاً');
         setSubmitting(false);
+        addDebugInfo('فشل: الوحدة مباعة مسبقاً');
         return;
       }
 
@@ -501,6 +418,7 @@ export default function NewSalePage() {
           setError(`حدث خطأ في حفظ عملية البيع: ${saleError.message}`);
         }
         setSubmitting(false);
+        addDebugInfo(`فشل في إدراج البيع: ${saleError.message}`);
         return;
       }
 
@@ -516,6 +434,7 @@ export default function NewSalePage() {
       if (resErr) {
         console.error('Reservation update error:', resErr);
         updates.push('الحجز');
+        addDebugInfo(`تحذير: فشل تحديث الحجز: ${resErr.message}`);
       }
 
       // تحديث حالة الوحدة
@@ -527,6 +446,7 @@ export default function NewSalePage() {
       if (unitErr) {
         console.error('Unit update error:', unitErr);
         updates.push('الوحدة');
+        addDebugInfo(`تحذير: فشل تحديث الوحدة: ${unitErr.message}`);
       }
 
       // تحديث حالة العميل
@@ -538,6 +458,7 @@ export default function NewSalePage() {
       if (clientErr) {
         console.error('Client update error:', clientErr);
         updates.push('العميل');
+        addDebugInfo(`تحذير: فشل تحديث العميل: ${clientErr.message}`);
       }
 
       // إذا كانت هناك أخطاء في التحديثات
@@ -545,12 +466,14 @@ export default function NewSalePage() {
         console.warn(`Failed to update: ${updates.join(', ')}`);
       }
 
+      addDebugInfo('تم تنفيذ عملية البيع بنجاح!');
       alert('تم تنفيذ عملية البيع بنجاح!');
       router.push('/dashboard/sales');
 
     } catch (error: any) {
       console.error('Error in handleSubmit:', error);
       setError(error.message || 'حدث خطأ غير متوقع');
+      addDebugInfo(`خطأ في التنفيذ: ${error}`);
     } finally {
       setSubmitting(false);
     }
@@ -564,6 +487,7 @@ export default function NewSalePage() {
     const cid = e.target.value;
     setClientId(cid);
     setError(null);
+    addDebugInfo(`تم اختيار العميل: ${cid}`);
     if (cid) {
       fetchReservations(cid);
     } else {
@@ -577,6 +501,7 @@ export default function NewSalePage() {
     const rid = e.target.value;
     setReservationId(rid);
     setError(null);
+    addDebugInfo(`تم اختيار الحجز: ${rid}`);
     const r = reservations.find(x => x.id === rid);
     if (r) {
       fetchUnit(r.unit_id);
@@ -610,6 +535,12 @@ export default function NewSalePage() {
     }
   }
 
+  function handleRefresh() {
+    if (window.confirm('هل تريد تحديث البيانات؟')) {
+      initializePage();
+    }
+  }
+
   /* =====================
      UI
   ===================== */
@@ -622,6 +553,13 @@ export default function NewSalePage() {
           التنفيذات
         </Button>
         <Button variant="primary">تنفيذ جديد</Button>
+        <Button 
+          onClick={handleRefresh}
+          variant="secondary"
+          style={{ marginLeft: 'auto' }}
+        >
+          تحديث البيانات
+        </Button>
       </div>
 
       {/* ===== ERROR MESSAGE ===== */}
@@ -679,7 +617,7 @@ export default function NewSalePage() {
 
               {!loading && clients.length === 0 && (
                 <small style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>
-                  لا توجد عملاء لديهم حجوزات نشطة في المشاريع المتاحة
+                  لم يتم العثور على عملاء لديهم حجوزات نشطة
                 </small>
               )}
 
@@ -716,12 +654,10 @@ export default function NewSalePage() {
                    'اختر الحجز'}
                 </option>
                 {reservations.map(r => {
-                  // البحث عن اسم المشروع
-                  const projectName = projects.find(p => p.id === r.project_id)?.name || r.project_id || 'غير معروف';
                   return (
                     <option key={r.id} value={r.id}>
                       حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString('ar-SA')} 
-                      {r.project_id && ` (مشروع: ${projectName})`}
+                      {r.project_id && ` (مشروع ID: ${r.project_id})`}
                     </option>
                   );
                 })}
@@ -956,7 +892,7 @@ export default function NewSalePage() {
           <li>لا يمكن اختيار تاريخ بيع مستقبلي</li>
           <li>تأكد من أن الوحدة محجوزة قبل عملية البيع</li>
           <li>تأكد من عدم وجود عملية بيع سابقة للوحدة</li>
-          <li>يتم عرض العملاء الذين لديهم حجوزات في المشاريع المسموح لك فقط</li>
+          <li>يتم عرض العملاء الذين لديهم حجوزات نشطة فقط</li>
         </ul>
       </div>
 
@@ -967,16 +903,29 @@ export default function NewSalePage() {
         backgroundColor: '#f5f5f5', 
         borderRadius: '4px',
         fontSize: '12px',
-        color: '#666'
+        color: '#666',
+        maxHeight: '200px',
+        overflowY: 'auto'
       }}>
-        <div><strong>حالة التحميل:</strong> {loading ? 'جاري التحميل...' : 'مكتمل'}</div>
-        <div><strong>المشاريع المتاحة:</strong> {projects.length} مشروع ({projects.map(p => p.name).join(', ') || 'لا يوجد'})</div>
-        <div><strong>العملاء المتاحين:</strong> {clients.length} عميل</div>
-        <div><strong>الحجوزات المتاحة للعميل المختار:</strong> {reservations.length} حجز</div>
-        <div><strong>دور الموظف:</strong> {employee?.role || 'غير محدد'}</div>
-        {employee?.project_id && (
-          <div><strong>المشروع المرتبط:</strong> {employee.project_id}</div>
-        )}
+        <h5 style={{ margin: '0 0 5px 0', color: '#333' }}>معلومات التصحيح:</h5>
+        <div style={{ fontFamily: 'monospace' }}>
+          {debugInfo.length === 0 ? (
+            <div>جاري التحميل...</div>
+          ) : (
+            debugInfo.map((info, index) => (
+              <div key={index} style={{ marginBottom: '2px' }}>
+                [{new Date().toLocaleTimeString()}] {info}
+              </div>
+            ))
+          )}
+        </div>
+        <div style={{ marginTop: '5px', paddingTop: '5px', borderTop: '1px solid #ddd' }}>
+          <div><strong>حالة التحميل:</strong> {loading ? 'جاري التحميل...' : 'مكتمل'}</div>
+          <div><strong>العملاء المتاحين:</strong> {clients.length} عميل</div>
+          <div><strong>الحجوزات المتاحة:</strong> {reservations.length} حجز</div>
+          <div><strong>الوحدة المختارة:</strong> {unit ? unit.unit_code : 'لا يوجد'}</div>
+          <div><strong>دور الموظف:</strong> {employee?.role || 'غير محدد'}</div>
+        </div>
       </div>
 
     </div>

@@ -22,6 +22,7 @@ type Reservation = {
   unit_id: string;
   reservation_date: string;
   status: string;
+  project_id?: string;
 };
 
 type Unit = {
@@ -29,6 +30,11 @@ type Unit = {
   unit_code: string;
   project_id: string;
   status: string;
+};
+
+type Project = {
+  id: string;
+  name: string;
 };
 
 /* =====================
@@ -59,7 +65,8 @@ export default function NewSalePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [unit, setUnit] = useState<Unit | null>(null);
-  const [employee, setEmployee] = useState<{ id: string; role: string } | null>(null);
+  const [employee, setEmployee] = useState<{ id: string; role: string; project_id?: string } | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   const [clientId, setClientId] = useState('');
   const [reservationId, setReservationId] = useState('');
@@ -83,17 +90,81 @@ export default function NewSalePage() {
   ===================== */
 
   useEffect(() => {
-    fetchClients();
     fetchCurrentEmployee();
   }, []);
 
-  async function fetchClients() {
+  async function fetchCurrentEmployee() {
+    try {
+      const emp = await getCurrentEmployee();
+      setEmployee(emp);
+      
+      // بعد جلب بيانات الموظف، جلب المشاريع والعملاء
+      if (emp) {
+        await fetchProjectsForEmployee(emp);
+      }
+    } catch (error) {
+      console.error('Error fetching employee:', error);
+      setError('حدث خطأ في جلب بيانات الموظف');
+    }
+  }
+
+  async function fetchProjectsForEmployee(emp: { id: string; role: string; project_id?: string }) {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('clients')
+      
+      let query = supabase
+        .from('projects')
         .select('id, name')
-        .order('name');
+        .eq('status', 'active');
+      
+      // إذا كان الموظف مرتبط بمشروع معين (مثال: مسؤول مشروع)
+      if (emp.role === 'project_manager' && emp.project_id) {
+        query = query.eq('id', emp.project_id);
+      }
+      // إذا كان مدير مبيعات أو دور مشابه، يمكنه رؤية كل المشاريع
+      // يمكنك تعديل هذه الشروط حسب نظام الأدوار لديك
+      
+      const { data, error } = await query.order('name');
+      
+      if (error) {
+        console.error(error);
+        setError('حدث خطأ في تحميل المشاريع');
+        setProjects([]);
+        return;
+      }
+      
+      setProjects(data || []);
+      
+      // الآن جلب العملاء الذين لديهم حجوزات في هذه المشاريع
+      if (data && data.length > 0) {
+        await fetchClientsForProjects(data.map(p => p.id));
+      }
+      
+    } catch (error) {
+      console.error(error);
+      setError('حدث خطأ في تحميل المشاريع');
+      setProjects([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchClientsForProjects(projectIds: string[]) {
+    try {
+      setLoading(true);
+      
+      // استخدام JOIN لتحسين الأداء وجلب البيانات مرة واحدة
+      const { data, error } = await supabase
+        .from('reservations')
+        .select(`
+          id,
+          client_id,
+          client:clients!inner(id, name),
+          unit:units!inner(project_id)
+        `)
+        .in('unit.project_id', projectIds)
+        .eq('status', 'active')
+        .eq('client.status', 'active');
 
       if (error) {
         console.error(error);
@@ -102,7 +173,13 @@ export default function NewSalePage() {
         return;
       }
 
-      setClients(data || []);
+      // استخراج العملاء الفريدين
+      const uniqueClients = [...new Map(
+        data?.map(item => [item.client.id, item.client]) || []
+      ).values()];
+
+      setClients(uniqueClients);
+      
     } catch (error) {
       console.error(error);
       setError('حدث خطأ في تحميل العملاء');
@@ -112,24 +189,28 @@ export default function NewSalePage() {
     }
   }
 
-  async function fetchCurrentEmployee() {
-    try {
-      const emp = await getCurrentEmployee();
-      setEmployee(emp);
-    } catch (error) {
-      console.error('Error fetching employee:', error);
-      setError('حدث خطأ في جلب بيانات الموظف');
-    }
-  }
-
   async function fetchReservations(cid: string) {
     try {
       setLoading(true);
+      
+      const projectIds = projects.map(p => p.id);
+      if (projectIds.length === 0) {
+        setReservations([]);
+        return;
+      }
+      
       const { data, error } = await supabase
         .from('reservations')
-        .select('id, unit_id, reservation_date, status')
+        .select(`
+          id, 
+          unit_id, 
+          reservation_date, 
+          status,
+          unit:units!inner(project_id)
+        `)
         .eq('client_id', cid)
         .eq('status', 'active')
+        .in('unit.project_id', projectIds) // تصفية الحجوزات بالمشاريع المسموح بها
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -137,12 +218,21 @@ export default function NewSalePage() {
         setReservations([]);
         setError('حدث خطأ في تحميل الحجوزات');
       } else {
-        setReservations(data || []);
+        // تحويل البيانات لتتوافق مع النوع
+        const formattedData = (data || []).map(item => ({
+          id: item.id,
+          unit_id: item.unit_id,
+          reservation_date: item.reservation_date,
+          status: item.status,
+          project_id: item.unit?.project_id
+        }));
+        setReservations(formattedData);
       }
 
       // reset
       setReservationId('');
       setUnit(null);
+      
     } catch (error) {
       console.error(error);
       setReservations([]);
@@ -454,24 +544,40 @@ export default function NewSalePage() {
               <select
                 value={clientId}
                 onChange={handleClientChange}
+                disabled={loading || projects.length === 0}
                 style={{
                   padding: '10px 12px',
                   borderRadius: '4px',
                   border: '1px solid #ddd',
                   fontSize: '14px',
                   backgroundColor: clientId ? '#fff' : '#f9f9f9',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.7 : 1
+                  cursor: loading || projects.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: loading || projects.length === 0 ? 0.7 : 1
                 }}
-                disabled={loading}
               >
-                <option value="">اختر العميل</option>
+                <option value="">
+                  {loading ? 'جاري التحميل...' : 
+                   projects.length === 0 ? 'لا توجد مشاريع متاحة' : 
+                   'اختر العميل'}
+                </option>
                 {clients.map(c => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
               </select>
+
+              {projects.length === 0 && (
+                <small style={{ color: '#c00', fontSize: '12px', marginTop: '4px' }}>
+                  لا توجد مشاريع متاحة لعرض العملاء
+                </small>
+              )}
+              
+              {projects.length > 0 && clients.length === 0 && !loading && (
+                <small style={{ color: '#666', fontSize: '12px', marginTop: '4px' }}>
+                  لا توجد عملاء لديهم حجوزات نشطة في المشاريع المتاحة
+                </small>
+              )}
 
               {clientId && !clientHasActiveReservations && (
                 <small style={{ color: '#c00', fontSize: '12px', marginTop: '4px' }}>
@@ -499,10 +605,15 @@ export default function NewSalePage() {
                   opacity: !clientId || reservations.length === 0 ? 0.7 : 1
                 }}
               >
-                <option value="">اختر الحجز</option>
+                <option value="">
+                  {!clientId ? 'اختر العميل أولاً' : 
+                   reservations.length === 0 ? 'لا توجد حجوزات نشطة' : 
+                   'اختر الحجز'}
+                </option>
                 {reservations.map(r => (
                   <option key={r.id} value={r.id}>
                     حجز بتاريخ {new Date(r.reservation_date).toLocaleDateString('ar-SA')}
+                    {r.project_id && ` (مشروع ID: ${r.project_id})`}
                   </option>
                 ))}
               </select>
@@ -736,27 +847,26 @@ export default function NewSalePage() {
           <li>لا يمكن اختيار تاريخ بيع مستقبلي</li>
           <li>تأكد من أن الوحدة محجوزة قبل عملية البيع</li>
           <li>تأكد من عدم وجود عملية بيع سابقة للوحدة</li>
+          <li>يتم عرض العملاء الذين لديهم حجوزات في المشاريع المسموح لك فقط</li>
         </ul>
       </div>
 
-      {/* ===== DEBUG INFO (إزالة في الإنتاج) ===== */}
+      {/* ===== DEBUG INFO (للأغراض التنفيذية فقط) ===== */}
       <div style={{ 
-        marginTop: '20px', 
-        padding: '15px', 
-        backgroundColor: '#f9f9f9', 
+        marginTop: '10px', 
+        padding: '10px 15px', 
+        backgroundColor: '#f5f5f5', 
         borderRadius: '4px',
-        border: '1px solid #eee',
         fontSize: '12px',
-        color: '#666',
-        display: 'none' /* إخفاء في الإنتاج */
+        color: '#666'
       }}>
-        <div><strong>حالة النموذج:</strong></div>
-        <div>يمكن الإرسال: {canSubmit ? 'نعم' : 'لا'}</div>
-        <div>العميل: {clientId ? 'مختار' : 'غير مختار'}</div>
-        <div>الحجز: {reservationId ? 'مختار' : 'غير مختار'}</div>
-        <div>الوحدة: {unit ? `مختارة (${unit.unit_code})` : 'غير مختارة'}</div>
-        <div>التاريخ: {form.sale_date ? 'مملوء' : 'غير مملوء'}</div>
-        <div>السعر: {form.price_before_tax ? 'مملوء' : 'غير مملوء'}</div>
+        <div><strong>المشاريع المتاحة:</strong> {projects.length} مشروع</div>
+        <div><strong>العملاء المتاحين:</strong> {clients.length} عميل</div>
+        <div><strong>الحجوزات المتاحة للعميل المختار:</strong> {reservations.length} حجز</div>
+        <div><strong>دور الموظف:</strong> {employee?.role}</div>
+        {employee?.project_id && (
+          <div><strong>المشروع المرتبط:</strong> {employee.project_id}</div>
+        )}
       </div>
 
     </div>

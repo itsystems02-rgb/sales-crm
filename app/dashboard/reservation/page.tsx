@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -58,7 +59,7 @@ function StatusBadge({
   children,
   status = 'default',
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   status?: 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'default';
 }) {
   const colors = {
@@ -104,6 +105,18 @@ function uniq(arr: (string | null | undefined)[]) {
   return Array.from(new Set(arr.filter(Boolean) as string[]));
 }
 
+function normalizeIds(ids: any[]) {
+  return (ids || [])
+    .map((x) => (x ?? '').toString().trim())
+    .filter((x) => x.length > 0);
+}
+
+function dedupeById<T extends { id: string }>(rows: T[]) {
+  const m = new Map<string, T>();
+  (rows || []).forEach((r) => m.set(r.id, r));
+  return Array.from(m.values());
+}
+
 // جلب المشاريع المسموحة للموظف
 async function fetchAllowedProjects(employee: any) {
   try {
@@ -121,18 +134,25 @@ async function fetchAllowedProjects(employee: any) {
 
       if (empError) throw empError;
 
-      const allowedProjectIds = (employeeProjects || []).map((p: any) => p.project_id);
-
+      const allowedProjectIds = normalizeIds((employeeProjects || []).map((p: any) => p.project_id));
       if (allowedProjectIds.length === 0) return [];
 
-      const { data: projectsData, error: projectsError } = await supabase
-        .from('projects')
-        .select('id, name, code')
-        .in('id', allowedProjectIds)
-        .order('name');
+      // ✅ chunking لتفادي طول URL
+      const chunks = chunkArray(allowedProjectIds, 200);
+      const all: any[] = [];
 
-      if (projectsError) throw projectsError;
-      return projectsData || [];
+      for (const ch of chunks) {
+        const { data, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name, code')
+          .in('id', ch)
+          .order('name');
+
+        if (projectsError) throw projectsError;
+        if (data?.length) all.push(...data);
+      }
+
+      return dedupeById(all);
     }
 
     return [];
@@ -236,6 +256,7 @@ export default function ReservationsPage() {
    * - admin: كل الموظفين
    * - sales: نفسه
    * - sales_manager: موظفين المشاريع المسموحة + نفسه
+   * ✅ FIX: chunking لتفادي URL طويل
    */
   async function fetchEmployees(user: any, userProjects: { id: string; name: string }[]) {
     try {
@@ -252,31 +273,46 @@ export default function ReservationsPage() {
       }
 
       if (user?.role === 'sales_manager') {
-        const allowedProjectIds = (userProjects || []).map((p) => p.id);
+        const allowedProjectIds = normalizeIds((userProjects || []).map((p) => p.id));
 
         if (allowedProjectIds.length === 0) {
           setEmployees([{ id: user.id, name: user.name, role: user.role }]);
           return;
         }
 
-        const { data: empProjects, error: epErr } = await supabase
-          .from('employee_projects')
-          .select('employee_id')
-          .in('project_id', allowedProjectIds);
+        // ✅ chunking على project_id
+        const epAll: any[] = [];
+        const projChunks = chunkArray(allowedProjectIds, 150);
 
-        if (epErr) throw epErr;
+        for (const ch of projChunks) {
+          const { data: empProjects, error: epErr } = await supabase
+            .from('employee_projects')
+            .select('employee_id')
+            .in('project_id', ch);
 
-        const employeeIds = uniq([...(empProjects || []).map((x: any) => x.employee_id), user.id]);
+          if (epErr) throw epErr;
+          if (empProjects?.length) epAll.push(...empProjects);
+        }
 
-        const { data: employeesData, error: empErr } = await supabase
-          .from('employees')
-          .select('id, name, role')
-          .in('id', employeeIds)
-          .order('name');
+        const employeeIds = normalizeIds(uniq([...(epAll || []).map((x: any) => x.employee_id), user.id]));
 
-        if (empErr) throw empErr;
+        // ✅ chunking على employees ids
+        const employeesAll: any[] = [];
+        const empChunks = chunkArray(employeeIds, 200);
 
-        setEmployees(employeesData || []);
+        for (const ch of empChunks) {
+          const { data: employeesData, error: empErr } = await supabase
+            .from('employees')
+            .select('id, name, role')
+            .in('id', ch)
+            .order('name');
+
+          if (empErr) throw empErr;
+          if (employeesData?.length) employeesAll.push(...employeesData);
+        }
+
+        const final = dedupeById(employeesAll).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setEmployees(final);
         return;
       }
 
@@ -289,86 +325,154 @@ export default function ReservationsPage() {
 
   /**
    * ✅ fetchReservations (FIX FINAL)
-   * - ممنوع embeds (employees/clients/units) لتفادي Ambiguous Relationships
-   * - مدير المبيعات: chunking على unit_ids لتفادي Bad Request
-   * - بعد جلب reservations: بنجيب clients/units/projects/employees بــ batch ونركّبهم
+   * - مدير المبيعات: (A) units داخل المشاريع بـ Pagination + chunking
+   * - ثم (B) reservations بـ chunking على unit_id + Pagination لكل chunk
+   * - وبعدها clients/units/projects/employees بـ chunking
    */
   async function fetchReservations(user: any, userProjects: { id: string; name: string }[]) {
     setDebugInfo('جاري تحميل الحجوزات...');
     try {
-      // 1) هنجمع reservations الأساسية
       let reservationsBase: any[] = [];
 
-      // sales: حجوزاته
+      // =============================
+      // 1) جلب الحجوزات الأساسية حسب الدور (مع Pagination احتياطي)
+      // =============================
+
       if (user?.role === 'sales') {
-        const { data, error } = await supabase
-          .from('reservations')
-          .select('*')
-          .eq('employee_id', user.id)
-          .order('created_at', { ascending: false });
+        let page = 0;
+        const pageSize = 1000;
+        const all: any[] = [];
 
-        if (error) throw error;
-        reservationsBase = data || [];
-      }
+        while (true) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
 
-      // admin: كل الحجوزات
-      else if (user?.role === 'admin') {
-        const { data, error } = await supabase.from('reservations').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        reservationsBase = data || [];
-      }
+          const { data, error } = await supabase
+            .from('reservations')
+            .select('*')
+            .eq('employee_id', user.id)
+            .order('created_at', { ascending: false })
+            .range(from, to);
 
-      // sales_manager: حجوزات المشاريع المسموحة
-      else if (user?.role === 'sales_manager') {
-        const allowedProjectIds = (userProjects || []).map((p) => p.id);
+          if (error) throw error;
 
-        if (allowedProjectIds.length === 0) {
+          const rows = data || [];
+          all.push(...rows);
+
+          if (rows.length < pageSize) break;
+          page++;
+        }
+
+        reservationsBase = all;
+      } else if (user?.role === 'admin') {
+        let page = 0;
+        const pageSize = 1000;
+        const all: any[] = [];
+
+        while (true) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data, error } = await supabase
+            .from('reservations')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+          if (error) throw error;
+
+          const rows = data || [];
+          all.push(...rows);
+
+          if (rows.length < pageSize) break;
+          page++;
+        }
+
+        reservationsBase = all;
+      } else if (user?.role === 'sales_manager') {
+        const allowedProjectIds = normalizeIds((userProjects || []).map((p) => p.id));
+
+        if (!allowedProjectIds.length) {
           setReservations([]);
           calculateStats([]);
           setDebugInfo('لا توجد مشاريع مسموحة لمدير المبيعات.');
           return;
         }
 
-        // (A) نجيب units اللي جوه المشاريع
-        const { data: unitsData, error: unitsErr } = await supabase
-          .from('units')
-          .select('id, unit_code, unit_type, project_id')
-          .in('project_id', allowedProjectIds);
+        // =============================
+        // (A) جلب الوحدات داخل المشاريع المسموحة ✅ Pagination + Chunking
+        // =============================
+        const projChunks = chunkArray(allowedProjectIds, 120);
+        const unitsAll: any[] = [];
 
-        if (unitsErr) throw unitsErr;
+        for (const ch of projChunks) {
+          let page = 0;
+          const pageSize = 1000;
 
-        const unitIds = (unitsData || []).map((u: any) => u.id);
+          while (true) {
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
 
-        if (unitIds.length === 0) {
+            const { data, error } = await supabase
+              .from('units')
+              .select('id, unit_code, unit_type, project_id')
+              .in('project_id', ch)
+              .range(from, to);
+
+            if (error) throw error;
+
+            const rows = data || [];
+            unitsAll.push(...rows);
+
+            if (rows.length < pageSize) break;
+            page++;
+          }
+        }
+
+        const unitIds = normalizeIds(unitsAll.map((u: any) => u.id));
+
+        if (!unitIds.length) {
           setReservations([]);
           calculateStats([]);
           setDebugInfo('لا توجد وحدات داخل المشاريع المسموحة.');
           return;
         }
 
-        // (B) chunking لتفادي Bad Request لو unitIds كتير
-        const chunks = chunkArray(unitIds, 200);
-        const all: any[] = [];
+        // =============================
+        // (B) جلب reservations بالـ unit_ids ✅ Chunking + Pagination
+        // =============================
+        const unitChunks = chunkArray(unitIds, 200);
+        const allRes: any[] = [];
+        const pageSize = 1000;
 
-        for (const ch of chunks) {
-          const { data, error } = await supabase
-            .from('reservations')
-            .select('*')
-            .in('unit_id', ch)
-            .order('created_at', { ascending: false });
+        for (const ch of unitChunks) {
+          let page = 0;
 
-          if (error) throw error;
-          if (data?.length) all.push(...data);
+          while (true) {
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
+
+            const { data, error } = await supabase
+              .from('reservations')
+              .select('*')
+              .in('unit_id', ch)
+              .order('created_at', { ascending: false })
+              .range(from, to);
+
+            if (error) throw error;
+
+            const rows = data || [];
+            allRes.push(...rows);
+
+            if (rows.length < pageSize) break;
+            page++;
+          }
         }
 
-        // إزالة تكرارات + ترتيب
-        const mapById = new Map<string, any>();
-        for (const r of all) mapById.set(r.id, r);
-        reservationsBase = Array.from(mapById.values()).sort(
+        reservationsBase = dedupeById(allRes).sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
       } else {
-        // fallback
         reservationsBase = [];
       }
 
@@ -380,48 +484,68 @@ export default function ReservationsPage() {
         return;
       }
 
-      // 2) نجمع IDs ونجيب التفاصيل batch
-      const clientIds = uniq(reservationsBase.map((r) => r.client_id));
-      const unitIds = uniq(reservationsBase.map((r) => r.unit_id));
-      const employeeIds = uniq(reservationsBase.map((r) => r.employee_id));
+      // =============================
+      // 2) IDs + related data (Chunking)
+      // =============================
+
+      const clientIds = normalizeIds(uniq(reservationsBase.map((r) => r.client_id)));
+      const unitIds = normalizeIds(uniq(reservationsBase.map((r) => r.unit_id)));
+      const employeeIds = normalizeIds(uniq(reservationsBase.map((r) => r.employee_id)));
 
       // clients
       const clientsMap = new Map<string, any>();
       if (clientIds.length) {
-        const { data, error } = await supabase.from('clients').select('id, name, mobile, status').in('id', clientIds);
-        if (error) throw error;
-        (data || []).forEach((c: any) => clientsMap.set(c.id, c));
+        const clientChunks = chunkArray(clientIds, 200);
+        for (const ch of clientChunks) {
+          const { data, error } = await supabase.from('clients').select('id, name, mobile, status').in('id', ch);
+          if (error) throw error;
+          (data || []).forEach((c: any) => clientsMap.set(c.id, c));
+        }
       }
 
       // units
       const unitsMap = new Map<string, any>();
       let projectIds: string[] = [];
+
       if (unitIds.length) {
-        const { data, error } = await supabase.from('units').select('id, unit_code, unit_type, project_id').in('id', unitIds);
-        if (error) throw error;
-        (data || []).forEach((u: any) => {
-          unitsMap.set(u.id, u);
-        });
-        projectIds = uniq((data || []).map((u: any) => u.project_id));
+        const unitChunks = chunkArray(unitIds, 200);
+        const tmpUnits: any[] = [];
+
+        for (const ch of unitChunks) {
+          const { data, error } = await supabase.from('units').select('id, unit_code, unit_type, project_id').in('id', ch);
+          if (error) throw error;
+          if (data?.length) tmpUnits.push(...data);
+        }
+
+        tmpUnits.forEach((u: any) => unitsMap.set(u.id, u));
+        projectIds = normalizeIds(uniq(tmpUnits.map((u: any) => u.project_id)));
       }
 
       // projects
       const projectsMap = new Map<string, any>();
       if (projectIds.length) {
-        const { data, error } = await supabase.from('projects').select('id, name').in('id', projectIds);
-        if (error) throw error;
-        (data || []).forEach((p: any) => projectsMap.set(p.id, p));
+        const projChunks = chunkArray(projectIds, 200);
+        for (const ch of projChunks) {
+          const { data, error } = await supabase.from('projects').select('id, name').in('id', ch);
+          if (error) throw error;
+          (data || []).forEach((p: any) => projectsMap.set(p.id, p));
+        }
       }
 
-      // employees (بدون embed نهائيًا)
+      // employees
       const employeesMap = new Map<string, any>();
       if (employeeIds.length) {
-        const { data, error } = await supabase.from('employees').select('id, name, role').in('id', employeeIds);
-        if (error) throw error;
-        (data || []).forEach((e: any) => employeesMap.set(e.id, e));
+        const empChunks = chunkArray(employeeIds, 200);
+        for (const ch of empChunks) {
+          const { data, error } = await supabase.from('employees').select('id, name, role').in('id', ch);
+          if (error) throw error;
+          (data || []).forEach((e: any) => employeesMap.set(e.id, e));
+        }
       }
 
+      // =============================
       // 3) تركيب الشكل النهائي
+      // =============================
       const finalData: Reservation[] = reservationsBase.map((r: any) => {
         const c = r.client_id ? clientsMap.get(r.client_id) : null;
         const u = r.unit_id ? unitsMap.get(r.unit_id) : null;
@@ -635,7 +759,16 @@ export default function ReservationsPage() {
           <div style={{ color: '#666', marginBottom: '10px' }}>جاري تحميل الحجوزات...</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{debugInfo}</div>
           {currentUser && (
-            <div style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: '#e3f2fd', borderRadius: '4px', fontSize: '12px', color: '#1565c0' }}>
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '8px 16px',
+                backgroundColor: '#e3f2fd',
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: '#1565c0',
+              }}
+            >
               ⚙️ {getUserPermissionInfo()}
             </div>
           )}
@@ -643,8 +776,12 @@ export default function ReservationsPage() {
 
         <style jsx>{`
           @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+              transform: rotate(0deg);
+            }
+            100% {
+              transform: rotate(360deg);
+            }
           }
         `}</style>
       </div>
@@ -654,7 +791,16 @@ export default function ReservationsPage() {
   return (
     <div className="page">
       {/* ===== HEADER ===== */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '20px', marginBottom: '30px' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          gap: '20px',
+          marginBottom: '30px',
+        }}
+      >
         <div>
           <h1 style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '28px' }}>📋 إدارة الحجوزات</h1>
           <p style={{ color: '#666', margin: 0 }}>
@@ -662,13 +808,33 @@ export default function ReservationsPage() {
           </p>
 
           {currentUser && (
-            <div style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: '#e3f2fd', borderRadius: '4px', fontSize: '13px', color: '#1565c0', display: 'inline-block' }}>
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '8px 16px',
+                backgroundColor: '#e3f2fd',
+                borderRadius: '4px',
+                fontSize: '13px',
+                color: '#1565c0',
+                display: 'inline-block',
+              }}
+            >
               ⚙️ {getUserPermissionInfo()}
             </div>
           )}
 
           {debugInfo && (
-            <div style={{ marginTop: '5px', fontSize: '12px', color: '#666', backgroundColor: '#f8f9fa', padding: '5px 10px', borderRadius: '4px', display: 'inline-block' }}>
+            <div
+              style={{
+                marginTop: '5px',
+                fontSize: '12px',
+                color: '#666',
+                backgroundColor: '#f8f9fa',
+                padding: '5px 10px',
+                borderRadius: '4px',
+                display: 'inline-block',
+              }}
+            >
               {debugInfo}
             </div>
           )}
@@ -692,7 +858,14 @@ export default function ReservationsPage() {
       </div>
 
       {/* ===== STATISTICS CARDS ===== */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '20px',
+          marginBottom: '30px',
+        }}
+      >
         <StatCard title="إجمالي الحجوزات" value={stats.total} color="#3498db" icon="📋" />
         <StatCard title="نشطة" value={stats.active} color="#2ecc71" icon="✅" />
         <StatCard title="قيد الانتظار" value={stats.pending} color="#f39c12" icon="⏳" />
@@ -704,24 +877,48 @@ export default function ReservationsPage() {
       {showFilters && (
         <div style={{ marginBottom: '30px' }}>
           <Card title="🔍 فلاتر البحث">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', padding: '20px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '20px',
+                padding: '20px',
+              }}
+            >
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>بحث سريع</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  بحث سريع
+                </label>
                 <input
                   type="text"
                   value={filters.search}
                   onChange={(e) => handleFilterChange('search', e.target.value)}
                   placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
-                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                  }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>حالة الحجز</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  حالة الحجز
+                </label>
                 <select
                   value={filters.status}
                   onChange={(e) => handleFilterChange('status', e.target.value)}
-                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white',
+                  }}
                 >
                   <option value="all">جميع الحالات</option>
                   <option value="active">نشطة</option>
@@ -732,11 +929,20 @@ export default function ReservationsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>الموظف</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  الموظف
+                </label>
                 <select
                   value={filters.employee}
                   onChange={(e) => handleFilterChange('employee', e.target.value)}
-                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white',
+                  }}
                 >
                   <option value="all">جميع الموظفين</option>
                   {displayEmployees.map((emp) => (
@@ -748,11 +954,20 @@ export default function ReservationsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>المشروع</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  المشروع
+                </label>
                 <select
                   value={filters.project}
                   onChange={(e) => handleFilterChange('project', e.target.value)}
-                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white',
+                  }}
                 >
                   <option value="all">جميع المشاريع</option>
                   {displayProjects.map((p) => (
@@ -764,21 +979,56 @@ export default function ReservationsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>من تاريخ</label>
-                <input type="date" value={filters.dateFrom} onChange={(e) => handleFilterChange('dateFrom', e.target.value)} style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }} />
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  من تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                  }}
+                />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>إلى تاريخ</label>
-                <input type="date" value={filters.dateTo} onChange={(e) => handleFilterChange('dateTo', e.target.value)} style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }} />
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  إلى تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                  }}
+                />
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>نوع الوحدة</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  نوع الوحدة
+                </label>
                 <select
                   value={filters.unitType}
                   onChange={(e) => handleFilterChange('unitType', e.target.value)}
-                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 15px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    backgroundColor: 'white',
+                  }}
                 >
                   <option value="all">جميع الأنواع</option>
                   <option value="شقة">شقة</option>
@@ -789,12 +1039,21 @@ export default function ReservationsPage() {
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>ترتيب حسب</label>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
+                  ترتيب حسب
+                </label>
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <select
                     value={filters.sortBy}
-                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                    style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                    onChange={(e) => handleFilterChange('sortBy', e.target.value as any)}
+                    style={{
+                      flex: 1,
+                      padding: '10px 15px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      backgroundColor: 'white',
+                    }}
                   >
                     <option value="created_at">تاريخ الإنشاء</option>
                     <option value="reservation_date">تاريخ الحجز</option>
@@ -803,8 +1062,14 @@ export default function ReservationsPage() {
 
                   <select
                     value={filters.sortOrder}
-                    onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-                    style={{ padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
+                    onChange={(e) => handleFilterChange('sortOrder', e.target.value as any)}
+                    style={{
+                      padding: '10px 15px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      backgroundColor: 'white',
+                    }}
                   >
                     <option value="desc">تنازلي</option>
                     <option value="asc">تصاعدي</option>
@@ -813,7 +1078,15 @@ export default function ReservationsPage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '20px', borderTop: '1px solid #eee' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                padding: '20px',
+                borderTop: '1px solid #eee',
+              }}
+            >
               <Button variant="secondary" onClick={resetFilters}>
                 🔄 إعادة الضبط
               </Button>
@@ -824,14 +1097,33 @@ export default function ReservationsPage() {
       )}
 
       {/* ===== RESULTS SUMMARY ===== */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px',
+          padding: '15px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '8px',
+          border: '1px solid #e9ecef',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ color: '#495057', fontWeight: '500' }}>نتائج البحث:</span>
           <span style={{ color: '#2c3e50', fontWeight: '600' }}>{filteredReservations.length} حجز</span>
         </div>
 
         {filters.search && (
-          <div style={{ backgroundColor: '#e3f2fd', padding: '5px 15px', borderRadius: '20px', fontSize: '14px', color: '#1565c0' }}>
+          <div
+            style={{
+              backgroundColor: '#e3f2fd',
+              padding: '5px 15px',
+              borderRadius: '20px',
+              fontSize: '14px',
+              color: '#1565c0',
+            }}
+          >
             🔍 البحث: "{filters.search}"
           </div>
         )}
@@ -846,7 +1138,9 @@ export default function ReservationsPage() {
               {reservations.length === 0 ? 'لا توجد حجوزات' : 'لا توجد حجوزات تطابق معايير البحث'}
             </h3>
             <p style={{ marginBottom: '20px' }}>
-              {reservations.length === 0 ? 'لم يتم إضافة أي حجوزات بعد. يمكنك إضافة حجوزات جديدة من الزر أعلاه.' : 'لم يتم العثور على حجوزات تطابق معايير البحث. حاول تغيير الفلاتر.'}
+              {reservations.length === 0
+                ? 'لم يتم إضافة أي حجوزات بعد. يمكنك إضافة حجوزات جديدة من الزر أعلاه.'
+                : 'لم يتم العثور على حجوزات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
 
             {reservations.length === 0 ? (
@@ -863,7 +1157,16 @@ export default function ReservationsPage() {
               <thead>
                 <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
                   {['رقم الحجز', 'العميل', 'الوحدة', 'المشروع', 'تاريخ الحجز', 'الحالة', 'الموظف', 'الإجراءات'].map((h) => (
-                    <th key={h} style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>
+                    <th
+                      key={h}
+                      style={{
+                        padding: '15px',
+                        textAlign: 'right',
+                        fontWeight: '600',
+                        color: '#495057',
+                        fontSize: '14px',
+                      }}
+                    >
                       {h}
                     </th>
                   ))}
@@ -881,21 +1184,40 @@ export default function ReservationsPage() {
                       cursor: 'pointer',
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e9ecef')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa')}
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa')
+                    }
                     onClick={() => router.push(`/dashboard/clients/${reservation.client_id}/reservation/${reservation.id}`)}
                   >
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50', fontFamily: 'monospace', fontSize: '13px' }}>#{reservation.id.substring(0, 8)}</div>
+                      <div
+                        style={{
+                          fontWeight: '600',
+                          color: '#2c3e50',
+                          fontFamily: 'monospace',
+                          fontSize: '13px',
+                        }}
+                      >
+                        #{reservation.id.substring(0, 8)}
+                      </div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{reservation.clients?.name || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>📱 {reservation.clients?.mobile || 'غير متوفر'}</div>
+                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>
+                        {reservation.clients?.name || 'غير محدد'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                        📱 {reservation.clients?.mobile || 'غير متوفر'}
+                      </div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{reservation.units?.unit_code || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{reservation.units?.unit_type || 'غير محدد'}</div>
+                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>
+                        {reservation.units?.unit_code || 'غير محدد'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                        {reservation.units?.unit_type || 'غير محدد'}
+                      </div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
@@ -905,7 +1227,10 @@ export default function ReservationsPage() {
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>{formatDate(reservation.reservation_date)}</div>
                       <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>
-                        {new Date(reservation.created_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(reservation.created_at).toLocaleTimeString('ar-SA', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </div>
                     </td>
 
@@ -916,7 +1241,11 @@ export default function ReservationsPage() {
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>{reservation.employees?.name || 'غير محدد'}</div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {reservation.employees?.role === 'admin' ? 'مدير' : reservation.employees?.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'}
+                        {reservation.employees?.role === 'admin'
+                          ? 'مدير'
+                          : reservation.employees?.role === 'sales_manager'
+                          ? 'مدير مبيعات'
+                          : 'مندوب'}
                       </div>
                     </td>
 
@@ -976,10 +1305,23 @@ export default function ReservationsPage() {
       </Card>
 
       {/* ===== FOOTER INFO ===== */}
-      <div style={{ marginTop: '30px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', fontSize: '12px', color: '#6c757d', textAlign: 'center', border: '1px dashed #dee2e6' }}>
+      <div
+        style={{
+          marginTop: '30px',
+          padding: '15px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '8px',
+          fontSize: '12px',
+          color: '#6c757d',
+          textAlign: 'center',
+          border: '1px dashed #dee2e6',
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للحجوزات: {new Date().toLocaleString('ar-SA')}</span>
-          <span>إجمالي النتائج: {filteredReservations.length} من {reservations.length}</span>
+          <span>
+            إجمالي النتائج: {filteredReservations.length} من {reservations.length}
+          </span>
           <span>عدد الموظفين: {displayEmployees.length}</span>
           <span>عدد المشاريع: {displayProjects.length}</span>
         </div>

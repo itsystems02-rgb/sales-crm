@@ -51,7 +51,7 @@ type FilterState = {
 };
 
 /* =====================
-   Custom StatusBadge Component (Temporary)
+   StatusBadge
 ===================== */
 
 function StatusBadge({
@@ -97,15 +97,14 @@ function StatusBadge({
 // جلب المشاريع المسموحة للموظف
 async function fetchAllowedProjects(employee: any) {
   try {
-    // إذا كان ادمن، اجلب جميع المشاريع
+    // admin: كل المشاريع
     if (employee?.role === 'admin') {
       const { data, error } = await supabase.from('projects').select('id, name, code').order('name');
-
       if (error) throw error;
       return data || [];
     }
 
-    // إذا كان sales أو sales_manager، اجلب المشاريع المخصصة له فقط
+    // sales / sales_manager: المشاريع المخصصة له
     if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
       const { data: employeeProjects, error: empError } = await supabase
         .from('employee_projects')
@@ -141,7 +140,6 @@ async function fetchAllowedProjects(employee: any) {
 async function fetchAllProjects() {
   try {
     const { data, error } = await supabase.from('projects').select('id, name, code').order('name');
-
     if (error) throw error;
     return data || [];
   } catch (err) {
@@ -208,7 +206,7 @@ export default function ReservationsPage() {
       const user = await getCurrentEmployee();
       setCurrentUser(user);
 
-      // 2) مشاريع المستخدم (نخزنها في متغير محلي + state)
+      // 2) مشاريع المستخدم (local + state)
       const userProjects = await fetchAllowedProjects(user);
       setAllowedProjects(userProjects);
 
@@ -220,10 +218,10 @@ export default function ReservationsPage() {
         setProjects(userProjects);
       }
 
-      // ✅ 4) جلب الحجوزات باستخدام userProjects (مش من state)
+      // ✅ 4) جلب الحجوزات (استعلام واحد + joins)
       await fetchReservations(user, userProjects);
 
-      // ✅ 5) جلب الموظفين (مدير المبيعات يشوف موظفين مشاريعه)
+      // 5) الموظفين
       await fetchEmployees(user, userProjects);
     } catch (error) {
       console.error('Error initializing page:', error);
@@ -235,30 +233,25 @@ export default function ReservationsPage() {
 
   async function fetchEmployees(user: any, userProjects: { id: string; name: string }[]) {
     try {
-      // admin: كل الموظفين
       if (user?.role === 'admin') {
         const { data: employeesData } = await supabase.from('employees').select('id, name, role').order('name');
         setEmployees(employeesData || []);
         return;
       }
 
-      // sales: نفسه فقط
       if (user?.role === 'sales') {
         setEmployees([{ id: user.id, name: user.name, role: user.role }]);
         return;
       }
 
-      // sales_manager: الموظفين المرتبطين بمشاريعه + نفسه
       if (user?.role === 'sales_manager') {
         const allowedProjectIds = (userProjects || []).map((p) => p.id);
 
-        // لو مفيش مشاريع مسموحة: على الأقل نفسه
         if (allowedProjectIds.length === 0) {
           setEmployees([{ id: user.id, name: user.name, role: user.role }]);
           return;
         }
 
-        // نجيب employee_ids اللي ليهم علاقة بالمشاريع دي
         const { data: empProjects, error: epErr } = await supabase
           .from('employee_projects')
           .select('employee_id')
@@ -290,7 +283,6 @@ export default function ReservationsPage() {
         return;
       }
 
-      // fallback
       setEmployees([{ id: user.id, name: user.name, role: user.role }]);
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -298,16 +290,38 @@ export default function ReservationsPage() {
     }
   }
 
+  /**
+   * ✅ fetchReservations (FIXED)
+   * - لا يوجد unitIds ولا .in('unit_id', [...])
+   * - فلترة مدير المبيعات على units.project_id مباشرة عبر join
+   */
   async function fetchReservations(user: any, userProjects: { id: string; name: string }[]) {
     try {
-      let query = supabase.from('reservations').select('*').order('created_at', { ascending: false });
+      let query = supabase
+        .from('reservations')
+        .select(
+          `
+          id,
+          reservation_date,
+          status,
+          bank_name,
+          client_id,
+          unit_id,
+          employee_id,
+          created_at,
+          clients:clients ( name, mobile, status ),
+          units:units!inner ( unit_code, unit_type, project_id, projects:projects ( name ) ),
+          employees:employees ( name, role )
+        `
+        )
+        .order('created_at', { ascending: false });
 
       // sales: حجوزاته فقط
       if (user?.role === 'sales') {
         query = query.eq('employee_id', user.id);
       }
 
-      // ✅ sales_manager: حجوزات مشاريع userProjects (مش state)
+      // sales_manager: فلترة على مشاريع مسموحة
       else if (user?.role === 'sales_manager') {
         const allowedProjectIds = (userProjects || []).map((p) => p.id);
 
@@ -318,113 +332,37 @@ export default function ReservationsPage() {
           return;
         }
 
-        // units داخل المشاريع المسموحة
-        const { data: unitsData, error: unitsErr } = await supabase
-          .from('units')
-          .select('id')
-          .in('project_id', allowedProjectIds);
-
-        if (unitsErr) {
-          console.error('Error fetching units for allowed projects:', unitsErr);
-          setReservations([]);
-          calculateStats([]);
-          setDebugInfo(`خطأ في جلب وحدات المشاريع: ${unitsErr.message}`);
-          return;
-        }
-
-        const unitIds = (unitsData || []).map((u: any) => u.id);
-
-        if (unitIds.length === 0) {
-          setReservations([]);
-          calculateStats([]);
-          setDebugInfo('لا توجد وحدات داخل المشاريع المسموحة.');
-          return;
-        }
-
-        query = query.in('unit_id', unitIds);
+        // ✅ الفلترة هنا مباشرة (بدون تجميع unitIds)
+        query = query.in('units.project_id', allowedProjectIds);
       }
 
-      // admin: كل الحجوزات (بدون فلتر)
+      // admin: بدون فلتر
 
-      const { data: reservationsData, error: reservationsError } = await query;
+      const { data, error } = await query;
 
-      if (reservationsError) {
-        console.error('Error fetching reservations:', reservationsError);
-        setDebugInfo(`خطأ في جلب الحجوزات: ${reservationsError.message}`);
-        throw reservationsError;
-      }
-
-      setDebugInfo(`تم جلب ${reservationsData?.length || 0} حجز`);
-
-      if (!reservationsData || reservationsData.length === 0) {
+      if (error) {
+        console.error('Error fetching reservations:', error);
+        setDebugInfo(`خطأ في جلب الحجوزات: ${error.message}`);
         setReservations([]);
         calculateStats([]);
         return;
       }
 
-      // جلب التفاصيل لكل حجز
-      const reservationsWithDetails = await Promise.all(
-        reservationsData.map(async (reservation: any) => {
-          const reservationWithDetails: any = { ...reservation };
-
-          // العميل
-          if (reservation.client_id) {
-            const { data: clientData } = await supabase
-              .from('clients')
-              .select('name, mobile, status')
-              .eq('id', reservation.client_id)
-              .single();
-
-            reservationWithDetails.clients = clientData || null;
-          }
-
-          // الوحدة
-          if (reservation.unit_id) {
-            const { data: unitData } = await supabase
-              .from('units')
-              .select('unit_code, unit_type, project_id')
-              .eq('id', reservation.unit_id)
-              .single();
-
-            if (unitData) {
-              reservationWithDetails.units = {
-                unit_code: unitData.unit_code,
-                unit_type: unitData.unit_type,
-                project_id: unitData.project_id,
-              };
-
-              // اسم المشروع
-              if (unitData.project_id) {
-                const { data: projectData } = await supabase
-                  .from('projects')
-                  .select('name')
-                  .eq('id', unitData.project_id)
-                  .single();
-
-                if (projectData) {
-                  reservationWithDetails.units.project_name = projectData.name;
-                }
-              }
+      const normalized: Reservation[] = (data || []).map((r: any) => ({
+        ...r,
+        units: r.units
+          ? {
+              unit_code: r.units.unit_code,
+              unit_type: r.units.unit_type,
+              project_id: r.units.project_id,
+              project_name: r.units.projects?.name || undefined,
             }
-          }
+          : null,
+      }));
 
-          // الموظف
-          if (reservation.employee_id) {
-            const { data: employeeData } = await supabase
-              .from('employees')
-              .select('name, role')
-              .eq('id', reservation.employee_id)
-              .single();
-
-            reservationWithDetails.employees = employeeData || null;
-          }
-
-          return reservationWithDetails;
-        })
-      );
-
-      setReservations(reservationsWithDetails as Reservation[]);
-      calculateStats(reservationsWithDetails as Reservation[]);
+      setReservations(normalized);
+      calculateStats(normalized);
+      setDebugInfo(`تم جلب ${normalized.length} حجز`);
     } catch (error) {
       console.error('Error in fetchReservations:', error);
       setDebugInfo(`خطأ: ${error instanceof Error ? error.message : 'حدث خطأ غير معروف'}`);
@@ -441,13 +379,7 @@ export default function ReservationsPage() {
   // تحديد الموظفين المعروضين في الفلاتر بناءً على الدور
   const getDisplayEmployees = () => {
     if (currentUser?.role === 'admin') return employees;
-
-    if (currentUser?.role === 'sales_manager') {
-      // بعد التعديل employees أصلاً فيها فريقه + نفسه
-      return employees;
-    }
-
-    // sales
+    if (currentUser?.role === 'sales_manager') return employees;
     return employees.filter((emp) => emp.id === currentUser?.id);
   };
 
@@ -465,22 +397,18 @@ export default function ReservationsPage() {
   function applyFilters() {
     let filtered = [...reservations];
 
-    // الحالة
     if (filters.status !== 'all') {
       filtered = filtered.filter((r) => r.status?.toLowerCase() === filters.status.toLowerCase());
     }
 
-    // الموظف
     if (filters.employee !== 'all') {
       filtered = filtered.filter((r) => r.employee_id === filters.employee);
     }
 
-    // المشروع
     if (filters.project !== 'all') {
       filtered = filtered.filter((r) => r.units?.project_id === filters.project);
     }
 
-    // التاريخ
     if (filters.dateFrom) {
       const fromDate = new Date(filters.dateFrom);
       filtered = filtered.filter((r) => new Date(r.reservation_date) >= fromDate);
@@ -492,12 +420,10 @@ export default function ReservationsPage() {
       filtered = filtered.filter((r) => new Date(r.reservation_date) <= toDate);
     }
 
-    // نوع الوحدة
     if (filters.unitType !== 'all') {
       filtered = filtered.filter((r) => r.units?.unit_type === filters.unitType);
     }
 
-    // البحث
     if (filters.search) {
       const searchTerm = filters.search.toLowerCase();
       filtered = filtered.filter(
@@ -509,7 +435,6 @@ export default function ReservationsPage() {
       );
     }
 
-    // الترتيب
     filtered.sort((a, b) => {
       let aValue: any, bValue: any;
 
@@ -630,7 +555,7 @@ export default function ReservationsPage() {
               animation: 'spin 1s linear infinite',
               margin: '0 auto 20px',
             }}
-          ></div>
+          />
           <div style={{ color: '#666', marginBottom: '10px' }}>جاري تحميل الحجوزات...</div>
           <div style={{ fontSize: '12px', color: '#999' }}>{debugInfo}</div>
           {currentUser && (
@@ -676,18 +601,11 @@ export default function ReservationsPage() {
         }}
       >
         <div>
-          <h1
-            style={{
-              margin: '0 0 10px 0',
-              color: '#2c3e50',
-              fontSize: '28px',
-            }}
-          >
-            📋 إدارة الحجوزات
-          </h1>
+          <h1 style={{ margin: '0 0 10px 0', color: '#2c3e50', fontSize: '28px' }}>📋 إدارة الحجوزات</h1>
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي الحجوزات: <strong>{reservations.length}</strong> حجز
           </p>
+
           {currentUser && (
             <div
               style={{
@@ -703,6 +621,7 @@ export default function ReservationsPage() {
               ⚙️ {getUserPermissionInfo()}
             </div>
           )}
+
           {debugInfo && (
             <div
               style={{
@@ -765,7 +684,6 @@ export default function ReservationsPage() {
                 padding: '20px',
               }}
             >
-              {/* بحث */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   بحث سريع
@@ -786,7 +704,6 @@ export default function ReservationsPage() {
                 />
               </div>
 
-              {/* حالة */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   حالة الحجز
@@ -811,7 +728,6 @@ export default function ReservationsPage() {
                 </select>
               </div>
 
-              {/* موظف */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   الموظف
@@ -831,14 +747,12 @@ export default function ReservationsPage() {
                   <option value="all">جميع الموظفين</option>
                   {getDisplayEmployees().map((emp) => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.name} (
-                      {emp.role === 'admin' ? 'مدير' : emp.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'})
+                      {emp.name} ({emp.role === 'admin' ? 'مدير' : emp.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'})
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* مشروع */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   المشروع
@@ -864,7 +778,6 @@ export default function ReservationsPage() {
                 </select>
               </div>
 
-              {/* من تاريخ */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   من تاريخ
@@ -873,17 +786,10 @@ export default function ReservationsPage() {
                   type="date"
                   value={filters.dateFrom}
                   onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                  }}
+                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
                 />
               </div>
 
-              {/* إلى تاريخ */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   إلى تاريخ
@@ -892,17 +798,10 @@ export default function ReservationsPage() {
                   type="date"
                   value={filters.dateTo}
                   onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                  }}
+                  style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
                 />
               </div>
 
-              {/* نوع الوحدة */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   نوع الوحدة
@@ -927,7 +826,6 @@ export default function ReservationsPage() {
                 </select>
               </div>
 
-              {/* ترتيب */}
               <div>
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                   ترتيب حسب
@@ -936,14 +834,7 @@ export default function ReservationsPage() {
                   <select
                     value={filters.sortBy}
                     onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: '10px 15px',
-                      borderRadius: '8px',
-                      border: '1px solid #ddd',
-                      fontSize: '14px',
-                      backgroundColor: 'white',
-                    }}
+                    style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                   >
                     <option value="created_at">تاريخ الإنشاء</option>
                     <option value="reservation_date">تاريخ الحجز</option>
@@ -953,13 +844,7 @@ export default function ReservationsPage() {
                   <select
                     value={filters.sortOrder}
                     onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-                    style={{
-                      padding: '10px 15px',
-                      borderRadius: '8px',
-                      border: '1px solid #ddd',
-                      fontSize: '14px',
-                      backgroundColor: 'white',
-                    }}
+                    style={{ padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                   >
                     <option value="desc">تنازلي</option>
                     <option value="asc">تصاعدي</option>
@@ -968,16 +853,7 @@ export default function ReservationsPage() {
               </div>
             </div>
 
-            {/* أزرار */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: '10px',
-                padding: '20px',
-                borderTop: '1px solid #eee',
-              }}
-            >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '20px', borderTop: '1px solid #eee' }}>
               <Button variant="secondary" onClick={resetFilters}>
                 🔄 إعادة الضبط
               </Button>
@@ -1006,15 +882,7 @@ export default function ReservationsPage() {
         </div>
 
         {filters.search && (
-          <div
-            style={{
-              backgroundColor: '#e3f2fd',
-              padding: '5px 15px',
-              borderRadius: '20px',
-              fontSize: '14px',
-              color: '#1565c0',
-            }}
-          >
+          <div style={{ backgroundColor: '#e3f2fd', padding: '5px 15px', borderRadius: '20px', fontSize: '14px', color: '#1565c0' }}>
             🔍 البحث: "{filters.search}"
           </div>
         )}
@@ -1033,6 +901,7 @@ export default function ReservationsPage() {
                 ? 'لم يتم إضافة أي حجوزات بعد. يمكنك إضافة حجوزات جديدة من الزر أعلاه.'
                 : 'لم يتم العثور على حجوزات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
+
             {reservations.length === 0 ? (
               <Button onClick={() => router.push('/dashboard/reservations/new')}>➕ إضافة حجز جديد</Button>
             ) : (
@@ -1040,55 +909,14 @@ export default function ReservationsPage() {
                 🔄 عرض جميع الحجوزات
               </Button>
             )}
-
-            <div style={{ marginTop: '20px', fontSize: '12px', color: '#999' }}>
-              <button
-                onClick={() => {
-                  console.log('Reservations data:', reservations);
-                  console.log('Current user:', currentUser);
-                  console.log('Allowed projects:', allowedProjects);
-                  alert(
-                    `تم فحص البيانات:\nعدد الحجوزات: ${reservations.length}\nصلاحية المستخدم: ${currentUser?.role}\nافتح وحدة تحكم المطورين (F12) لعرض التفاصيل.`
-                  );
-                }}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#f8f9fa',
-                  border: '1px solid #dee2e6',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  color: '#495057',
-                }}
-              >
-                🔍 فحص بيانات الحجوزات
-              </button>
-            </div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1000px' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
-                  {[
-                    'رقم الحجز',
-                    'العميل',
-                    'الوحدة',
-                    'المشروع',
-                    'تاريخ الحجز',
-                    'الحالة',
-                    'الموظف',
-                    'الإجراءات',
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        padding: '15px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#495057',
-                        fontSize: '14px',
-                      }}
-                    >
+                  {['رقم الحجز', 'العميل', 'الوحدة', 'المشروع', 'تاريخ الحجز', 'الحالة', 'الموظف', 'الإجراءات'].map((h) => (
+                    <th key={h} style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>
                       {h}
                     </th>
                   ))}
@@ -1106,12 +934,8 @@ export default function ReservationsPage() {
                       cursor: 'pointer',
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#e9ecef')}
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa')
-                    }
-                    onClick={() =>
-                      router.push(`/dashboard/clients/${reservation.client_id}/reservation/${reservation.id}`)
-                    }
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa')}
+                    onClick={() => router.push(`/dashboard/clients/${reservation.client_id}/reservation/${reservation.id}`)}
                   >
                     <td style={{ padding: '15px' }}>
                       <div style={{ fontWeight: '600', color: '#2c3e50', fontFamily: 'monospace', fontSize: '13px' }}>
@@ -1121,16 +945,12 @@ export default function ReservationsPage() {
 
                     <td style={{ padding: '15px' }}>
                       <div style={{ fontWeight: '600', color: '#2c3e50' }}>{reservation.clients?.name || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        📱 {reservation.clients?.mobile || 'غير متوفر'}
-                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>📱 {reservation.clients?.mobile || 'غير متوفر'}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
                       <div style={{ fontWeight: '600', color: '#2c3e50' }}>{reservation.units?.unit_code || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {reservation.units?.unit_type || 'غير محدد'}
-                      </div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{reservation.units?.unit_type || 'غير محدد'}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
@@ -1151,11 +971,7 @@ export default function ReservationsPage() {
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>{reservation.employees?.name || 'غير محدد'}</div>
                       <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {reservation.employees?.role === 'admin'
-                          ? 'مدير'
-                          : reservation.employees?.role === 'sales_manager'
-                          ? 'مدير مبيعات'
-                          : 'مندوب'}
+                        {reservation.employees?.role === 'admin' ? 'مدير' : reservation.employees?.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب'}
                       </div>
                     </td>
 
@@ -1220,63 +1036,8 @@ export default function ReservationsPage() {
         )}
       </Card>
 
-      {/* ===== PAGINATION (Static) ===== */}
-      {filteredReservations.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: '30px',
-            padding: '20px',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '8px',
-            border: '1px solid #e9ecef',
-          }}
-        >
-          <div style={{ color: '#666', fontSize: '14px' }}>
-            عرض <strong>1-{filteredReservations.length}</strong> من <strong>{filteredReservations.length}</strong> حجز
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="secondary" disabled>
-              السابق
-            </Button>
-
-            <div
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#3498db',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'default',
-                fontWeight: '500',
-              }}
-            >
-              1
-            </div>
-
-            <Button variant="secondary" disabled>
-              التالي
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* ===== FOOTER INFO ===== */}
-      <div
-        style={{
-          marginTop: '30px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          fontSize: '12px',
-          color: '#6c757d',
-          textAlign: 'center',
-          border: '1px dashed #dee2e6',
-        }}
-      >
+      <div style={{ marginTop: '30px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', fontSize: '12px', color: '#6c757d', textAlign: 'center', border: '1px dashed #dee2e6' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للحجوزات: {new Date().toLocaleString('ar-SA')}</span>
           <span>
@@ -1294,17 +1055,7 @@ export default function ReservationsPage() {
    Stat Card Component
 ===================== */
 
-function StatCard({
-  title,
-  value,
-  color,
-  icon,
-}: {
-  title: string;
-  value: number;
-  color: string;
-  icon: string;
-}) {
+function StatCard({ title, value, color, icon }: { title: string; value: number; color: string; icon: string }) {
   return (
     <div
       style={{

@@ -10,6 +10,30 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 
 /* =====================
+   Note Options (Dropdown)
+===================== */
+
+const NOTE_OPTIONS = [
+  'حجز قائم - المستفيد يرغب في الإلغاء',
+  'جاري رفع الطلب',
+  'لم يتم الرد',
+  'تحويل راتب - تغيير الجهة التمويلية',
+  'جديد - جاري المتابعة',
+  'توفير دفعة أولى',
+  'انتظار موافقة البنك',
+  'البحث عن نسبة',
+  'البحث عن جهة تمويلية',
+  'تم التنفيذ',
+  'تأخير من قبل الجهة التمويلية',
+  'سداد التزامات',
+  'العميل غير جاد',
+  'فترة انتظار البنك',
+  'في انتظار نزول الراتب',
+  'تم الرفض من الجهة التمويلية',
+  'لا يمكن تمويل العميل',
+] as const;
+
+/* =====================
    Types
 ===================== */
 
@@ -210,6 +234,7 @@ export default function ReservationsPage() {
   });
 
   const [showFilters, setShowFilters] = useState(false);
+
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -219,10 +244,11 @@ export default function ReservationsPage() {
 
   const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // ===== Followup (Reservation Notes) =====
-  const [followupOpen, setFollowupOpen] = useState(false);
-  const [followupReservation, setFollowupReservation] = useState<Reservation | null>(null);
-  const [noteText, setNoteText] = useState('');
+  // ===== Notes Modal =====
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesReservation, setNotesReservation] = useState<Reservation | null>(null);
+
+  const [selectedNote, setSelectedNote] = useState<string>('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteError, setNoteError] = useState<string>('');
 
@@ -238,6 +264,15 @@ export default function ReservationsPage() {
     applyFilters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reservations, filters]);
+
+  function canManageNotes(user: any) {
+    const role = (user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'sales_manager';
+  }
+
+  function isActiveReservation(r: Reservation | null) {
+    return !!r && (r.status || '').toLowerCase() === 'active';
+  }
 
   async function initPage() {
     setLoading(true);
@@ -267,15 +302,6 @@ export default function ReservationsPage() {
     }
   }
 
-  function canFollowup(user: any) {
-    const role = (user?.role || '').toLowerCase();
-    return role === 'admin' || role === 'sales_manager';
-  }
-
-  function isActiveReservation(r: Reservation) {
-    return (r.status || '').toLowerCase() === 'active';
-  }
-
   async function fetchReservationNotes(reservationId: string) {
     setNotesLoading(true);
     try {
@@ -283,50 +309,54 @@ export default function ReservationsPage() {
         .from('reservation_notes')
         .select('id, note_text, created_at, employees:created_by(id, name)')
         .eq('reservation_id', reservationId)
-        .order('created_at', { ascending: false })
-        .limit(30);
+        // ✅ بالترتيب: الأقدم -> الأحدث (لو عايز الأحدث فوق خلّي ascending: false)
+        .order('created_at', { ascending: true })
+        .limit(200);
 
       if (error) throw error;
+
       setNotes((data || []) as any);
     } catch (err: any) {
       console.error('Error fetching reservation notes:', err);
-      // نعرضها كرسالة بسيطة داخل المودال
       setNotes([]);
-      setNoteError(err?.message || 'حدث خطأ أثناء جلب المتابعات.');
+      setNoteError(err?.message || 'حدث خطأ أثناء جلب الملاحظات.');
     } finally {
       setNotesLoading(false);
     }
   }
 
-  function openFollowupModal(r: Reservation) {
-    if (!currentUser) return;
-    if (!canFollowup(currentUser)) return;
-    if (!isActiveReservation(r)) return;
+  function openNotesModal(r: Reservation) {
+    if (!currentUser || !canManageNotes(currentUser)) return;
 
-    setFollowupReservation(r);
-    setNoteText('');
+    setNotesReservation(r);
+    setSelectedNote('');
     setNoteError('');
     setNotes([]);
-    setFollowupOpen(true);
+    setNotesOpen(true);
     fetchReservationNotes(r.id);
   }
 
-  async function saveFollowupNote() {
-    if (!followupReservation || !currentUser) return;
-
-    if (!canFollowup(currentUser)) {
-      setNoteError('غير مسموح لك بإضافة متابعة.');
+  async function addNote() {
+    if (!currentUser || !canManageNotes(currentUser)) {
+      setNoteError('غير مسموح لك.');
       return;
     }
 
-    if (!isActiveReservation(followupReservation)) {
-      setNoteError('لا يمكن إضافة متابعة إلا للحجز النشط (Active).');
+    if (!notesReservation) return;
+
+    if (!isActiveReservation(notesReservation)) {
+      setNoteError('لا يمكن إضافة ملاحظة إلا للحجز النشط (Active).');
       return;
     }
 
-    const text = noteText.trim();
+    const text = (selectedNote || '').trim();
     if (!text) {
-      setNoteError('اكتب الملاحظة الأول.');
+      setNoteError('اختار الملاحظة الأول.');
+      return;
+    }
+
+    if (!NOTE_OPTIONS.includes(text as any)) {
+      setNoteError('الملاحظة المختارة غير صحيحة.');
       return;
     }
 
@@ -334,30 +364,33 @@ export default function ReservationsPage() {
     setNoteError('');
 
     const { error } = await supabase.from('reservation_notes').insert({
-      reservation_id: followupReservation.id,
+      reservation_id: notesReservation.id,
       note_text: text,
       created_by: currentUser.id,
     });
 
     if (error) {
-      setNoteError(error.message || 'حدث خطأ أثناء حفظ الملاحظة.');
       setNoteSaving(false);
+      setNoteError(error.message || 'حدث خطأ أثناء حفظ الملاحظة.');
       return;
     }
 
-    // تحديث القائمة بعد الحفظ
-    await fetchReservationNotes(followupReservation.id);
-
     setNoteSaving(false);
-    setNoteText('');
+    setSelectedNote('');
+    await fetchReservationNotes(notesReservation.id);
+  }
+
+  function closeNotesModal() {
+    if (noteSaving) return;
+    setNotesOpen(false);
+    setNotesReservation(null);
+    setSelectedNote('');
+    setNoteError('');
+    setNotes([]);
   }
 
   /**
    * ✅ fetchEmployees (للفلاتر فقط)
-   * - admin: كل الموظفين
-   * - sales: نفسه
-   * - sales_manager: موظفين المشاريع المسموحة + نفسه
-   * ✅ FIX: chunking لتفادي URL طويل
    */
   async function fetchEmployees(user: any, userProjects: { id: string; name: string }[]) {
     try {
@@ -381,7 +414,6 @@ export default function ReservationsPage() {
           return;
         }
 
-        // ✅ chunking على project_id
         const epAll: any[] = [];
         const projChunks = chunkArray(allowedProjectIds, 150);
 
@@ -397,7 +429,6 @@ export default function ReservationsPage() {
 
         const employeeIds = normalizeIds(uniq([...(epAll || []).map((x: any) => x.employee_id), user.id]));
 
-        // ✅ chunking على employees ids
         const employeesAll: any[] = [];
         const empChunks = chunkArray(employeeIds, 200);
 
@@ -425,19 +456,12 @@ export default function ReservationsPage() {
   }
 
   /**
-   * ✅ fetchReservations (FIX FINAL)
-   * - مدير المبيعات: (A) units داخل المشاريع بـ Pagination + chunking
-   * - ثم (B) reservations بـ chunking على unit_id + Pagination لكل chunk
-   * - وبعدها clients/units/projects/employees بـ chunking
+   * ✅ fetchReservations
    */
   async function fetchReservations(user: any, userProjects: { id: string; name: string }[]) {
     setDebugInfo('جاري تحميل الحجوزات...');
     try {
       let reservationsBase: any[] = [];
-
-      // =============================
-      // 1) جلب الحجوزات الأساسية حسب الدور (مع Pagination احتياطي)
-      // =============================
 
       if (user?.role === 'sales') {
         let page = 0;
@@ -500,9 +524,6 @@ export default function ReservationsPage() {
           return;
         }
 
-        // =============================
-        // (A) جلب الوحدات داخل المشاريع المسموحة ✅ Pagination + Chunking
-        // =============================
         const projChunks = chunkArray(allowedProjectIds, 120);
         const unitsAll: any[] = [];
 
@@ -539,9 +560,6 @@ export default function ReservationsPage() {
           return;
         }
 
-        // =============================
-        // (B) جلب reservations بالـ unit_ids ✅ Chunking + Pagination
-        // =============================
         const unitChunks = chunkArray(unitIds, 200);
         const allRes: any[] = [];
         const pageSize = 1000;
@@ -585,15 +603,10 @@ export default function ReservationsPage() {
         return;
       }
 
-      // =============================
-      // 2) IDs + related data (Chunking)
-      // =============================
-
       const clientIds = normalizeIds(uniq(reservationsBase.map((r) => r.client_id)));
       const unitIds = normalizeIds(uniq(reservationsBase.map((r) => r.unit_id)));
       const employeeIds = normalizeIds(uniq(reservationsBase.map((r) => r.employee_id)));
 
-      // clients
       const clientsMap = new Map<string, any>();
       if (clientIds.length) {
         const clientChunks = chunkArray(clientIds, 200);
@@ -604,7 +617,6 @@ export default function ReservationsPage() {
         }
       }
 
-      // units
       const unitsMap = new Map<string, any>();
       let projectIds: string[] = [];
 
@@ -622,7 +634,6 @@ export default function ReservationsPage() {
         projectIds = normalizeIds(uniq(tmpUnits.map((u: any) => u.project_id)));
       }
 
-      // projects
       const projectsMap = new Map<string, any>();
       if (projectIds.length) {
         const projChunks = chunkArray(projectIds, 200);
@@ -633,7 +644,6 @@ export default function ReservationsPage() {
         }
       }
 
-      // employees
       const employeesMap = new Map<string, any>();
       if (employeeIds.length) {
         const empChunks = chunkArray(employeeIds, 200);
@@ -644,9 +654,6 @@ export default function ReservationsPage() {
         }
       }
 
-      // =============================
-      // 3) تركيب الشكل النهائي
-      // =============================
       const finalData: Reservation[] = reservationsBase.map((r: any) => {
         const c = r.client_id ? clientsMap.get(r.client_id) : null;
         const u = r.unit_id ? unitsMap.get(r.unit_id) : null;
@@ -806,6 +813,20 @@ export default function ReservationsPage() {
     }
   }
 
+  function formatDateTime(dt: string) {
+    try {
+      return new Date(dt).toLocaleString('ar-SA', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dt;
+    }
+  }
+
   function getProjectName(unit: any) {
     if (unit?.project_name) return unit.project_name;
     if (unit?.project_id) {
@@ -826,20 +847,6 @@ export default function ReservationsPage() {
         return 'مندوب مبيعات - مشاهدة حجوزاتك فقط';
       default:
         return 'صلاحية غير معروفة';
-    }
-  }
-
-  function formatDateTime(dt: string) {
-    try {
-      return new Date(dt).toLocaleString('ar-SA', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dt;
     }
   }
 
@@ -1383,12 +1390,37 @@ export default function ReservationsPage() {
                           👁️ عرض
                         </button>
 
-                        {/* ✅ زر المتابعة يظهر فقط للحجز Active + للـ admin & sales_manager */}
-                        {currentUser && canFollowup(currentUser) && isActiveReservation(reservation) && (
+                        {/* 👁️ ملاحظات: عرض السجل للـ admin & sales_manager */}
+                        {currentUser && canManageNotes(currentUser) && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              openFollowupModal(reservation);
+                              openNotesModal(reservation);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#f3e5f5',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#6a1b9a',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            👁️ ملاحظات
+                          </button>
+                        )}
+
+                        {/* 📝 متابعة: إضافة ملاحظة (Active فقط) للـ admin & sales_manager */}
+                        {currentUser && canManageNotes(currentUser) && isActiveReservation(reservation) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openNotesModal(reservation);
                             }}
                             style={{
                               padding: '8px 12px',
@@ -1441,18 +1473,10 @@ export default function ReservationsPage() {
         )}
       </Card>
 
-      {/* ===== Followup Modal ===== */}
-      {followupOpen && followupReservation && (
+      {/* ===== Notes Modal ===== */}
+      {notesOpen && notesReservation && (
         <div
-          onClick={() => {
-            if (!noteSaving) {
-              setFollowupOpen(false);
-              setFollowupReservation(null);
-              setNoteText('');
-              setNoteError('');
-              setNotes([]);
-            }
-          }}
+          onClick={closeNotesModal}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1468,7 +1492,7 @@ export default function ReservationsPage() {
             onClick={(e) => e.stopPropagation()}
             style={{
               width: '100%',
-              maxWidth: '720px',
+              maxWidth: '820px',
               background: '#fff',
               borderRadius: '12px',
               border: '1px solid #eee',
@@ -1477,26 +1501,26 @@ export default function ReservationsPage() {
             }}
           >
             <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee' }}>
-              <div style={{ fontWeight: 700, color: '#2c3e50', fontSize: '16px' }}>
-                📝 متابعة الحجز #{followupReservation.id.substring(0, 8)}
+              <div style={{ fontWeight: 800, color: '#2c3e50', fontSize: '16px' }}>
+                🗂️ ملاحظات الحجز #{notesReservation.id.substring(0, 8)}
               </div>
               <div style={{ marginTop: '6px', fontSize: '13px', color: '#666' }}>
-                العميل: {followupReservation.clients?.name || 'غير محدد'} — الوحدة:{' '}
-                {followupReservation.units?.unit_code || 'غير محدد'}
+                العميل: {notesReservation.clients?.name || 'غير محدد'} — الوحدة: {notesReservation.units?.unit_code || 'غير محدد'}
               </div>
             </div>
 
             <div style={{ padding: '16px 18px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-              {/* إدخال الملاحظة */}
+              {/* إضافة ملاحظة (Active فقط) */}
               <div>
+                <div style={{ fontWeight: 800, marginBottom: '8px', color: '#2c3e50' }}>➕ إضافة ملاحظة</div>
+
                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#2c3e50' }}>
-                  الملاحظة الجديدة
+                  اختر الملاحظة
                 </label>
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="اكتب ملاحظة المتابعة..."
-                  rows={8}
+
+                <select
+                  value={selectedNote}
+                  onChange={(e) => setSelectedNote(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '12px',
@@ -1504,9 +1528,23 @@ export default function ReservationsPage() {
                     border: '1px solid #ddd',
                     fontSize: '14px',
                     outline: 'none',
-                    resize: 'vertical',
+                    backgroundColor: 'white',
                   }}
-                />
+                  disabled={!isActiveReservation(notesReservation) || noteSaving}
+                >
+                  <option value="">— اختر ملاحظة —</option>
+                  {NOTE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+
+                {!isActiveReservation(notesReservation) && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>
+                    لا يمكن إضافة ملاحظة لأن حالة الحجز ليست Active.
+                  </div>
+                )}
 
                 {noteError && (
                   <div
@@ -1523,14 +1561,23 @@ export default function ReservationsPage() {
                     ⚠️ {noteError}
                   </div>
                 )}
+
+                <div style={{ marginTop: '12px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                  {isActiveReservation(notesReservation) && currentUser && canManageNotes(currentUser) && (
+                    <Button onClick={addNote} disabled={noteSaving}>
+                      {noteSaving ? 'جاري الحفظ...' : 'حفظ'}
+                    </Button>
+                  )}
+                </div>
               </div>
 
-              {/* عرض آخر المتابعات */}
+              {/* عرض السجل */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <div style={{ fontWeight: 700, color: '#2c3e50' }}>🗂️ سجل المتابعات</div>
+                  <div style={{ fontWeight: 800, color: '#2c3e50' }}>📌 سجل الملاحظات (بالترتيب)</div>
+
                   <button
-                    onClick={() => fetchReservationNotes(followupReservation.id)}
+                    onClick={() => fetchReservationNotes(notesReservation.id)}
                     style={{
                       padding: '6px 10px',
                       borderRadius: '8px',
@@ -1551,15 +1598,15 @@ export default function ReservationsPage() {
                     border: '1px solid #eee',
                     borderRadius: '10px',
                     padding: '10px',
-                    maxHeight: '260px',
+                    maxHeight: '320px',
                     overflowY: 'auto',
                     background: '#fafafa',
                   }}
                 >
                   {notesLoading ? (
-                    <div style={{ color: '#666', fontSize: '13px' }}>جاري تحميل المتابعات...</div>
+                    <div style={{ color: '#666', fontSize: '13px' }}>جاري تحميل الملاحظات...</div>
                   ) : notes.length === 0 ? (
-                    <div style={{ color: '#666', fontSize: '13px' }}>لا توجد متابعات مسجلة لهذا الحجز.</div>
+                    <div style={{ color: '#666', fontSize: '13px' }}>لا توجد ملاحظات مسجلة لهذا الحجز.</div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {notes.map((n) => (
@@ -1593,22 +1640,8 @@ export default function ReservationsPage() {
                 gap: '10px',
               }}
             >
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setFollowupOpen(false);
-                  setFollowupReservation(null);
-                  setNoteText('');
-                  setNoteError('');
-                  setNotes([]);
-                }}
-                disabled={noteSaving}
-              >
+              <Button variant="secondary" onClick={closeNotesModal} disabled={noteSaving}>
                 إغلاق
-              </Button>
-
-              <Button onClick={saveFollowupNote} disabled={noteSaving}>
-                {noteSaving ? 'جاري الحفظ...' : 'حفظ الملاحظة'}
               </Button>
             </div>
           </div>

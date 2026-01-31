@@ -51,6 +51,13 @@ type FilterState = {
   sortOrder: 'asc' | 'desc';
 };
 
+type ReservationNote = {
+  id: string;
+  note_text: string;
+  created_at: string;
+  employees: { id: string; name: string } | null;
+};
+
 /* =====================
    StatusBadge
 ===================== */
@@ -206,12 +213,21 @@ export default function ReservationsPage() {
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
-    pending: 0,
     cancelled: 0,
-    completed: 0,
+    converted: 0,
   });
 
   const [debugInfo, setDebugInfo] = useState<string>('');
+
+  // ===== Followup (Reservation Notes) =====
+  const [followupOpen, setFollowupOpen] = useState(false);
+  const [followupReservation, setFollowupReservation] = useState<Reservation | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError] = useState<string>('');
+
+  const [notes, setNotes] = useState<ReservationNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
 
   useEffect(() => {
     initPage();
@@ -249,6 +265,91 @@ export default function ReservationsPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function canFollowup(user: any) {
+    const role = (user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'sales_manager';
+  }
+
+  function isActiveReservation(r: Reservation) {
+    return (r.status || '').toLowerCase() === 'active';
+  }
+
+  async function fetchReservationNotes(reservationId: string) {
+    setNotesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('reservation_notes')
+        .select('id, note_text, created_at, employees:created_by(id, name)')
+        .eq('reservation_id', reservationId)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) throw error;
+      setNotes((data || []) as any);
+    } catch (err: any) {
+      console.error('Error fetching reservation notes:', err);
+      // نعرضها كرسالة بسيطة داخل المودال
+      setNotes([]);
+      setNoteError(err?.message || 'حدث خطأ أثناء جلب المتابعات.');
+    } finally {
+      setNotesLoading(false);
+    }
+  }
+
+  function openFollowupModal(r: Reservation) {
+    if (!currentUser) return;
+    if (!canFollowup(currentUser)) return;
+    if (!isActiveReservation(r)) return;
+
+    setFollowupReservation(r);
+    setNoteText('');
+    setNoteError('');
+    setNotes([]);
+    setFollowupOpen(true);
+    fetchReservationNotes(r.id);
+  }
+
+  async function saveFollowupNote() {
+    if (!followupReservation || !currentUser) return;
+
+    if (!canFollowup(currentUser)) {
+      setNoteError('غير مسموح لك بإضافة متابعة.');
+      return;
+    }
+
+    if (!isActiveReservation(followupReservation)) {
+      setNoteError('لا يمكن إضافة متابعة إلا للحجز النشط (Active).');
+      return;
+    }
+
+    const text = noteText.trim();
+    if (!text) {
+      setNoteError('اكتب الملاحظة الأول.');
+      return;
+    }
+
+    setNoteSaving(true);
+    setNoteError('');
+
+    const { error } = await supabase.from('reservation_notes').insert({
+      reservation_id: followupReservation.id,
+      note_text: text,
+      created_by: currentUser.id,
+    });
+
+    if (error) {
+      setNoteError(error.message || 'حدث خطأ أثناء حفظ الملاحظة.');
+      setNoteSaving(false);
+      return;
+    }
+
+    // تحديث القائمة بعد الحفظ
+    await fetchReservationNotes(followupReservation.id);
+
+    setNoteSaving(false);
+    setNoteText('');
   }
 
   /**
@@ -592,9 +693,8 @@ export default function ReservationsPage() {
     const s = {
       total: data.length,
       active: data.filter((r) => (r.status || '').toLowerCase() === 'active').length,
-      pending: data.filter((r) => (r.status || '').toLowerCase() === 'pending').length,
       cancelled: data.filter((r) => (r.status || '').toLowerCase() === 'cancelled').length,
-      completed: data.filter((r) => (r.status || '').toLowerCase() === 'completed').length,
+      converted: data.filter((r) => (r.status || '').toLowerCase() === 'converted').length,
     };
     setStats(s);
   }
@@ -685,11 +785,9 @@ export default function ReservationsPage() {
     switch ((status || '').toLowerCase()) {
       case 'active':
         return 'success';
-      case 'pending':
-        return 'warning';
       case 'cancelled':
         return 'danger';
-      case 'completed':
+      case 'converted':
         return 'primary';
       default:
         return 'default';
@@ -728,6 +826,20 @@ export default function ReservationsPage() {
         return 'مندوب مبيعات - مشاهدة حجوزاتك فقط';
       default:
         return 'صلاحية غير معروفة';
+    }
+  }
+
+  function formatDateTime(dt: string) {
+    try {
+      return new Date(dt).toLocaleString('ar-SA', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dt;
     }
   }
 
@@ -868,9 +980,8 @@ export default function ReservationsPage() {
       >
         <StatCard title="إجمالي الحجوزات" value={stats.total} color="#3498db" icon="📋" />
         <StatCard title="نشطة" value={stats.active} color="#2ecc71" icon="✅" />
-        <StatCard title="قيد الانتظار" value={stats.pending} color="#f39c12" icon="⏳" />
         <StatCard title="ملغاة" value={stats.cancelled} color="#e74c3c" icon="❌" />
-        <StatCard title="مكتملة" value={stats.completed} color="#9b59b6" icon="🎉" />
+        <StatCard title="محوّلة (Converted)" value={stats.converted} color="#9b59b6" icon="🎉" />
       </div>
 
       {/* ===== FILTERS PANEL ===== */}
@@ -922,9 +1033,8 @@ export default function ReservationsPage() {
                 >
                   <option value="all">جميع الحالات</option>
                   <option value="active">نشطة</option>
-                  <option value="pending">قيد الانتظار</option>
                   <option value="cancelled">ملغاة</option>
-                  <option value="completed">مكتملة</option>
+                  <option value="converted">محوّلة (Converted)</option>
                 </select>
               </div>
 
@@ -1250,7 +1360,7 @@ export default function ReservationsPage() {
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1267,10 +1377,36 @@ export default function ReservationsPage() {
                             display: 'flex',
                             alignItems: 'center',
                             gap: '5px',
+                            whiteSpace: 'nowrap',
                           }}
                         >
                           👁️ عرض
                         </button>
+
+                        {/* ✅ زر المتابعة يظهر فقط للحجز Active + للـ admin & sales_manager */}
+                        {currentUser && canFollowup(currentUser) && isActiveReservation(reservation) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openFollowupModal(reservation);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#e8f5e9',
+                              border: 'none',
+                              borderRadius: '6px',
+                              color: '#2e7d32',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            📝 متابعة
+                          </button>
+                        )}
 
                         {currentUser?.role === 'admin' && (
                           <button
@@ -1289,6 +1425,7 @@ export default function ReservationsPage() {
                               display: 'flex',
                               alignItems: 'center',
                               gap: '5px',
+                              whiteSpace: 'nowrap',
                             }}
                           >
                             ✏️ تعديل
@@ -1303,6 +1440,180 @@ export default function ReservationsPage() {
           </div>
         )}
       </Card>
+
+      {/* ===== Followup Modal ===== */}
+      {followupOpen && followupReservation && (
+        <div
+          onClick={() => {
+            if (!noteSaving) {
+              setFollowupOpen(false);
+              setFollowupReservation(null);
+              setNoteText('');
+              setNoteError('');
+              setNotes([]);
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            zIndex: 9999,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '720px',
+              background: '#fff',
+              borderRadius: '12px',
+              border: '1px solid #eee',
+              boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #eee' }}>
+              <div style={{ fontWeight: 700, color: '#2c3e50', fontSize: '16px' }}>
+                📝 متابعة الحجز #{followupReservation.id.substring(0, 8)}
+              </div>
+              <div style={{ marginTop: '6px', fontSize: '13px', color: '#666' }}>
+                العميل: {followupReservation.clients?.name || 'غير محدد'} — الوحدة:{' '}
+                {followupReservation.units?.unit_code || 'غير محدد'}
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 18px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              {/* إدخال الملاحظة */}
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#2c3e50' }}>
+                  الملاحظة الجديدة
+                </label>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="اكتب ملاحظة المتابعة..."
+                  rows={8}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: '1px solid #ddd',
+                    fontSize: '14px',
+                    outline: 'none',
+                    resize: 'vertical',
+                  }}
+                />
+
+                {noteError && (
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      background: '#fdecea',
+                      border: '1px solid #f5c6cb',
+                      color: '#721c24',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                    }}
+                  >
+                    ⚠️ {noteError}
+                  </div>
+                )}
+              </div>
+
+              {/* عرض آخر المتابعات */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ fontWeight: 700, color: '#2c3e50' }}>🗂️ سجل المتابعات</div>
+                  <button
+                    onClick={() => fetchReservationNotes(followupReservation.id)}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid #ddd',
+                      background: '#fff',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      color: '#333',
+                    }}
+                    disabled={notesLoading}
+                  >
+                    🔄 تحديث
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    border: '1px solid #eee',
+                    borderRadius: '10px',
+                    padding: '10px',
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                    background: '#fafafa',
+                  }}
+                >
+                  {notesLoading ? (
+                    <div style={{ color: '#666', fontSize: '13px' }}>جاري تحميل المتابعات...</div>
+                  ) : notes.length === 0 ? (
+                    <div style={{ color: '#666', fontSize: '13px' }}>لا توجد متابعات مسجلة لهذا الحجز.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {notes.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            background: '#fff',
+                            border: '1px solid #eee',
+                            borderRadius: '10px',
+                            padding: '10px',
+                          }}
+                        >
+                          <div style={{ fontSize: '13px', color: '#2c3e50', whiteSpace: 'pre-wrap' }}>{n.note_text}</div>
+                          <div style={{ marginTop: '8px', fontSize: '12px', color: '#777' }}>
+                            👤 {n.employees?.name || 'غير محدد'} — 🕒 {formatDateTime(n.created_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '16px 18px',
+                borderTop: '1px solid #eee',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '10px',
+              }}
+            >
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setFollowupOpen(false);
+                  setFollowupReservation(null);
+                  setNoteText('');
+                  setNoteError('');
+                  setNotes([]);
+                }}
+                disabled={noteSaving}
+              >
+                إغلاق
+              </Button>
+
+              <Button onClick={saveFollowupNote} disabled={noteSaving}>
+                {noteSaving ? 'جاري الحفظ...' : 'حفظ الملاحظة'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== FOOTER INFO ===== */}
       <div

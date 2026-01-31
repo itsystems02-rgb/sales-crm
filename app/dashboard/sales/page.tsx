@@ -68,7 +68,7 @@ function StatusBadge({
 }
 
 /* =====================
-   Helpers (Fix Bad Request)
+   Helpers (Fix Bad Request / Pagination)
 ===================== */
 
 // تقسيم Array كبيرة لChunks لتجنب Bad Request بسبب طول URL في .in()
@@ -83,6 +83,13 @@ function normalizeIds(ids: any[]) {
   return (ids || [])
     .map((x) => (x ?? '').toString().trim())
     .filter((x) => x.length > 0);
+}
+
+// إزالة تكرار حسب id (احتياطي)
+function dedupeById<T extends { id: string }>(rows: T[]) {
+  const map = new Map<string, T>();
+  for (const r of rows) map.set(r.id, r);
+  return Array.from(map.values());
 }
 
 /* =====================
@@ -129,21 +136,48 @@ async function fetchAllowedProjects(employee: any): Promise<ProjectLite[]> {
   }
 }
 
-// جلب الوحدات في المشاريع المسموحة (هنا برضو ممكن تكون كبيرة — هنسيبها زي ما هي لأن دي غالبًا مش ضخمة زي sales)
+/**
+ * ✅ FIXED:
+ * جلب الوحدات في المشاريع المسموحة مع Pagination + Chunking
+ * لأن units ممكن تكون أكتر من limit الافتراضي (مثلاً 1000) وبالتالي كانت بترجع ناقصة.
+ */
 async function fetchAllowedUnits(employee: any, allowedProjects: ProjectLite[]): Promise<UnitLite[]> {
   try {
     const allowedProjectIds = normalizeIds(allowedProjects.map((p) => p.id));
-
     if (allowedProjectIds.length === 0) return [];
 
-    const { data, error } = await supabase.from('units').select('id, project_id').in('project_id', allowedProjectIds);
+    const pageSize = 1000;
+    const projectChunks = chunkArray(allowedProjectIds, 120);
 
-    if (error) {
-      console.error('❌ خطأ في جلب الوحدات المسموحة:', error);
-      return [];
+    let all: UnitLite[] = [];
+
+    for (const projChunk of projectChunks) {
+      let page = 0;
+
+      while (true) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, error } = await supabase
+          .from('units')
+          .select('id, project_id')
+          .in('project_id', projChunk)
+          .range(from, to);
+
+        if (error) {
+          console.error('❌ خطأ في جلب الوحدات المسموحة (paged):', error);
+          break;
+        }
+
+        const rows = (data || []) as UnitLite[];
+        all = all.concat(rows);
+
+        if (rows.length < pageSize) break; // خلص chunk ده
+        page++;
+      }
     }
 
-    return (data || []) as UnitLite[];
+    return dedupeById(all);
   } catch (err) {
     console.error('❌ خطأ في جلب الوحدات المسموحة:', err);
     return [];
@@ -217,12 +251,12 @@ export default function SalesPage() {
       console.log(`📋 عدد المشاريع المسموحة: ${userProjects.length}`);
       setAllowedProjects(userProjects);
 
-      // 3) allowed units
+      // 3) allowed units (✅ FIXED with pagination)
       const userUnits = await fetchAllowedUnits(user, userProjects);
       console.log(`🏢 عدد الوحدات المسموحة: ${userUnits.length}`);
       setAllowedUnits(userUnits);
 
-      // 4) fetch sales (FIXED: chunking)
+      // 4) fetch sales (✅ also paginated for safety)
       await fetchSales(user, userUnits);
 
       // 5) projects map (for names)
@@ -243,6 +277,11 @@ export default function SalesPage() {
     }
   }
 
+  /**
+   * ✅ FIXED:
+   * - sales_manager: chunking + pagination داخل كل chunk
+   * لأن sales نفسها ممكن تتجاوز limit الافتراضي وتطلع ناقصة.
+   */
   async function fetchSales(user: any, allowedUnitsList: UnitLite[]) {
     try {
       setError(null);
@@ -259,52 +298,84 @@ export default function SalesPage() {
       // ===== Query logic =====
       if (user?.role === 'sales') {
         console.log('👤 الموظف العادي - جلب تنفيذاته فقط');
-        const { data, error } = await supabase
-          .from('sales')
-          .select('*')
-          .eq('sales_employee_id', user.id)
-          .order('created_at', { ascending: false });
 
-        if (error) {
-          console.error('❌ sales fetch error (sales):', error);
-          setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
-          setSales([]);
-          calculateStats([]);
-          await fetchRelatedData([]);
-          return;
+        // Pagination (احتياطًا)
+        const pageSize = 1000;
+        let page = 0;
+        let all: Sale[] = [];
+
+        while (true) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data, error } = await supabase
+            .from('sales')
+            .select('*')
+            .eq('sales_employee_id', user.id)
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+          if (error) {
+            console.error('❌ sales fetch error (sales):', error);
+            setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+            setSales([]);
+            calculateStats([]);
+            await fetchRelatedData([]);
+            return;
+          }
+
+          const rows = (data || []) as Sale[];
+          all = all.concat(rows);
+
+          if (rows.length < pageSize) break;
+          page++;
         }
 
-        const rows = (data || []) as Sale[];
-        console.log(`✅ تم جلب ${rows.length} تنفيذ (sales)`);
-        setSales(rows);
-        calculateStats(rows);
-        await fetchRelatedData(rows);
+        console.log(`✅ تم جلب ${all.length} تنفيذ (sales)`);
+        setSales(all);
+        calculateStats(all);
+        await fetchRelatedData(all);
         return;
       }
 
       if (user?.role === 'admin') {
         console.log('👑 الإدمن - جلب جميع التنفيذات');
-        const { data, error } = await supabase.from('sales').select('*').order('created_at', { ascending: false });
 
-        if (error) {
-          console.error('❌ sales fetch error (admin):', error);
-          setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
-          setSales([]);
-          calculateStats([]);
-          await fetchRelatedData([]);
-          return;
+        // Pagination (احتياطًا)
+        const pageSize = 1000;
+        let page = 0;
+        let all: Sale[] = [];
+
+        while (true) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data, error } = await supabase.from('sales').select('*').order('created_at', { ascending: false }).range(from, to);
+
+          if (error) {
+            console.error('❌ sales fetch error (admin):', error);
+            setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+            setSales([]);
+            calculateStats([]);
+            await fetchRelatedData([]);
+            return;
+          }
+
+          const rows = (data || []) as Sale[];
+          all = all.concat(rows);
+
+          if (rows.length < pageSize) break;
+          page++;
         }
 
-        const rows = (data || []) as Sale[];
-        console.log(`✅ تم جلب ${rows.length} تنفيذ (admin)`);
-        setSales(rows);
-        calculateStats(rows);
-        await fetchRelatedData(rows);
+        console.log(`✅ تم جلب ${all.length} تنفيذ (admin)`);
+        setSales(all);
+        calculateStats(all);
+        await fetchRelatedData(all);
         return;
       }
 
       if (user?.role === 'sales_manager') {
-        // ✅ FIX: chunk the .in() to avoid 400 Bad Request
         const allowedUnitIds = normalizeIds((allowedUnitsList || []).map((u) => u.id));
         console.log(`👨‍💼 مدير المبيعات - units allowed: ${allowedUnitIds.length}`);
 
@@ -316,26 +387,43 @@ export default function SalesPage() {
         }
 
         const chunks = chunkArray(allowedUnitIds, 120); // رقم آمن لتقليل طول URL
+        const pageSize = 1000;
+
         let all: Sale[] = [];
 
         for (const idsChunk of chunks) {
-          const { data, error } = await supabase
-            .from('sales')
-            .select('*')
-            .in('unit_id', idsChunk)
-            .order('created_at', { ascending: false });
+          let page = 0;
 
-          if (error) {
-            console.error('❌ sales fetch error (sales_manager chunk):', error, { chunkSize: idsChunk.length });
-            setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
-            setSales([]);
-            calculateStats([]);
-            await fetchRelatedData([]);
-            return;
+          while (true) {
+            const from = page * pageSize;
+            const to = from + pageSize - 1;
+
+            const { data, error } = await supabase
+              .from('sales')
+              .select('*')
+              .in('unit_id', idsChunk)
+              .order('created_at', { ascending: false })
+              .range(from, to);
+
+            if (error) {
+              console.error('❌ sales fetch error (sales_manager chunk):', error, { chunkSize: idsChunk.length, page });
+              setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+              setSales([]);
+              calculateStats([]);
+              await fetchRelatedData([]);
+              return;
+            }
+
+            const rows = (data || []) as Sale[];
+            all = all.concat(rows);
+
+            if (rows.length < pageSize) break;
+            page++;
           }
-
-          all = all.concat((data || []) as Sale[]);
         }
+
+        // إزالة تكرار (احتياطًا بسبب تداخل/إعادة)
+        all = dedupeById(all);
 
         // ترتيب نهائي بعد الدمج
         all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -536,6 +624,7 @@ export default function SalesPage() {
           break;
         default:
           aValue = new Date(a.created_at);
+          bValue = new Date(a.created_at);
           bValue = new Date(b.created_at);
       }
 
@@ -1181,7 +1270,9 @@ export default function SalesPage() {
       <div style={{ marginTop: '30px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', fontSize: '12px', color: '#6c757d', textAlign: 'center', border: '1px dashed #dee2e6' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للتنفيذات: {new Date().toLocaleString('ar-SA')}</span>
-          <span>إجمالي النتائج: {filteredSales.length} من {sales.length}</span>
+          <span>
+            إجمالي النتائج: {filteredSales.length} من {sales.length}
+          </span>
           <span>الإيرادات الإجمالية: {formatCurrency(stats.totalRevenue)}</span>
           <span>عدد المشاريع: {getDisplayProjects().length}</span>
           <span>عدد الموظفين: {getDisplayEmployees().length}</span>

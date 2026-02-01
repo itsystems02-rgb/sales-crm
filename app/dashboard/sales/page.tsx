@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -21,19 +21,14 @@ type Sale = {
   created_at: string;
   client_id: string;
   unit_id: string;
-  project_id: string | null;
   sales_employee_id: string | null;
-
-  clients: { id: string; name: string; mobile: string } | null;
-  units: { id: string; unit_code: string; unit_type: string | null; project_id: string } | null;
-  projects: { id: string; name: string } | null;
-  sales_employee: { id: string; name: string; role: string } | null;
 };
 
 type ProjectLite = { id: string; name: string };
+type UnitLite = { id: string; project_id: string };
 
 /* =====================
-   StatusBadge
+   Custom StatusBadge Component
 ===================== */
 
 function StatusBadge({
@@ -52,14 +47,14 @@ function StatusBadge({
     default: { bg: '#e2e3e5', color: '#383d41', border: '#d6d8db' },
   };
 
-  const c = colors[status];
+  const color = colors[status];
 
   return (
     <span
       style={{
-        backgroundColor: c.bg,
-        color: c.color,
-        border: `1px solid ${c.border}`,
+        backgroundColor: color.bg,
+        color: color.color,
+        border: `1px solid ${color.border}`,
         padding: '4px 10px',
         borderRadius: '20px',
         fontSize: '12px',
@@ -73,68 +68,118 @@ function StatusBadge({
 }
 
 /* =====================
-   Helpers
+   Helpers (Fix Bad Request / Pagination)
 ===================== */
 
+// تقسيم Array كبيرة لChunks لتجنب Bad Request بسبب طول URL في .in()
 function chunkArray<T>(arr: T[], size: number) {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
+// تنظيف IDs (يشيل null/undefined/'' ويحول string)
 function normalizeIds(ids: any[]) {
   return (ids || [])
     .map((x) => (x ?? '').toString().trim())
     .filter((x) => x.length > 0);
 }
 
+// إزالة تكرار حسب id (احتياطي)
 function dedupeById<T extends { id: string }>(rows: T[]) {
   const map = new Map<string, T>();
-  for (const r of rows || []) map.set(r.id, r);
+  for (const r of rows) map.set(r.id, r);
   return Array.from(map.values());
 }
 
 /* =====================
-   Permissions helpers
+   Helper Functions (Your Logic)
 ===================== */
 
 // جلب المشاريع المسموحة للموظف
 async function fetchAllowedProjects(employee: any): Promise<ProjectLite[]> {
   try {
     if (employee?.role === 'admin') {
-      // للإدمن: ممكن نعرض كل المشاريع في الفلاتر
       const { data, error } = await supabase.from('projects').select('id, name').order('name');
       if (error) throw error;
       return (data || []) as ProjectLite[];
     }
 
     if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
-      const { data: ep, error: epErr } = await supabase
+      const { data: employeeProjects, error: empError } = await supabase
         .from('employee_projects')
         .select('project_id')
         .eq('employee_id', employee.id);
 
-      if (epErr) throw epErr;
+      if (empError) throw empError;
 
-      const ids = normalizeIds((ep || []).map((x: any) => x.project_id));
-      if (!ids.length) return [];
+      const allowedProjectIds = normalizeIds((employeeProjects || []).map((p: any) => p.project_id));
 
-      // chunking لتجنب Bad Request
-      const chunks = chunkArray(ids, 200);
-      const all: ProjectLite[] = [];
+      if (allowedProjectIds.length > 0) {
+        const { data: projectsData, error: projectsError } = await supabase
+          .from('projects')
+          .select('id, name')
+          .in('id', allowedProjectIds)
+          .order('name');
 
-      for (const ch of chunks) {
-        const { data, error } = await supabase.from('projects').select('id, name').in('id', ch).order('name');
-        if (error) throw error;
-        if (data?.length) all.push(...(data as any));
+        if (projectsError) throw projectsError;
+        return (projectsData || []) as ProjectLite[];
       }
 
-      return dedupeById(all);
+      return [];
     }
 
     return [];
   } catch (err) {
     console.error('Error fetching allowed projects:', err);
+    return [];
+  }
+}
+
+/**
+ * ✅ FIXED:
+ * جلب الوحدات في المشاريع المسموحة مع Pagination + Chunking
+ * لأن units ممكن تكون أكتر من limit الافتراضي (مثلاً 1000) وبالتالي كانت بترجع ناقصة.
+ */
+async function fetchAllowedUnits(employee: any, allowedProjects: ProjectLite[]): Promise<UnitLite[]> {
+  try {
+    const allowedProjectIds = normalizeIds(allowedProjects.map((p) => p.id));
+    if (allowedProjectIds.length === 0) return [];
+
+    const pageSize = 1000;
+    const projectChunks = chunkArray(allowedProjectIds, 120);
+
+    let all: UnitLite[] = [];
+
+    for (const projChunk of projectChunks) {
+      let page = 0;
+
+      while (true) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, error } = await supabase
+          .from('units')
+          .select('id, project_id')
+          .in('project_id', projChunk)
+          .range(from, to);
+
+        if (error) {
+          console.error('❌ خطأ في جلب الوحدات المسموحة (paged):', error);
+          break;
+        }
+
+        const rows = (data || []) as UnitLite[];
+        all = all.concat(rows);
+
+        if (rows.length < pageSize) break; // خلص chunk ده
+        page++;
+      }
+    }
+
+    return dedupeById(all);
+  } catch (err) {
+    console.error('❌ خطأ في جلب الوحدات المسموحة:', err);
     return [];
   }
 }
@@ -151,11 +196,16 @@ export default function SalesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [clients, setClients] = useState<Record<string, { name: string; mobile: string }>>({});
+  const [units, setUnits] = useState<Record<string, { unit_code: string; unit_type: string | null; project_id: string }>>(
+    {}
+  );
+  const [employees, setEmployees] = useState<Record<string, { name: string; role: string }>>({});
+  const [projects, setProjects] = useState<Record<string, { name: string }>>({});
+
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [allowedProjects, setAllowedProjects] = useState<ProjectLite[]>([]);
-  const [allProjectsForAdmin, setAllProjectsForAdmin] = useState<ProjectLite[]>([]);
-
-  const [employeesForFilter, setEmployeesForFilter] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [allowedUnits, setAllowedUnits] = useState<UnitLite[]>([]);
 
   const [filters, setFilters] = useState({
     status: 'all',
@@ -167,7 +217,6 @@ export default function SalesPage() {
   });
 
   const [showFilters, setShowFilters] = useState(false);
-
   const [stats, setStats] = useState({
     total: 0,
     completed: 0,
@@ -184,281 +233,403 @@ export default function SalesPage() {
   useEffect(() => {
     applyFilters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sales, filters]);
+  }, [sales, filters, clients, units]);
 
   async function initPage() {
     setLoading(true);
     setError(null);
 
     try {
+      // 1) user
       const user = await getCurrentEmployee();
       if (!user) throw new Error('لم يتم العثور على بيانات المستخدم');
       setCurrentUser(user);
+      console.log(`👤 المستخدم الحالي: ${user.name} (${user.role})`);
 
-      // allowed projects
-      const ap = await fetchAllowedProjects(user);
-      setAllowedProjects(ap);
+      // 2) allowed projects
+      const userProjects = await fetchAllowedProjects(user);
+      console.log(`📋 عدد المشاريع المسموحة: ${userProjects.length}`);
+      setAllowedProjects(userProjects);
 
-      // للإدمن: هنجيب كل المشاريع مرة واحدة للفلاتر
-      if (user?.role === 'admin') {
-        setAllProjectsForAdmin(ap);
-      } else {
-        setAllProjectsForAdmin([]);
-      }
+      // 3) allowed units (✅ FIXED with pagination)
+      const userUnits = await fetchAllowedUnits(user, userProjects);
+      console.log(`🏢 عدد الوحدات المسموحة: ${userUnits.length}`);
+      setAllowedUnits(userUnits);
 
-      // fetch sales سريع (JOIN) + فلترة بالصلاحيات
-      await fetchSalesFast(user, ap);
+      // 4) fetch sales (✅ also paginated for safety)
+      await fetchSales(user, userUnits);
 
-      // employees للفلتر
-      await fetchEmployeesForFilter(user, ap);
-    } catch (err: any) {
-      console.error('❌ initPage error:', err);
-      setError(`حدث خطأ: ${err?.message || 'غير معروف'}`);
+      // 5) projects map (for names)
+      await fetchProjectsData();
+
+      // 6) employees map (for names)
+      await fetchEmployeesData(user);
+    } catch (err) {
+      console.error('❌ خطأ في تهيئة الصفحة:', err);
+      setError(`حدث خطأ: ${err instanceof Error ? err.message : 'غير معروف'}`);
+
       setSales([]);
       calculateStats([]);
+      setClients({});
+      setUnits({});
     } finally {
       setLoading(false);
     }
   }
 
   /**
-   * ✅ أسرع طريقة:
-   * - Query واحدة فقط ب JOIN:
-   *   sales + clients + units + projects + employee
-   * - sales_manager فلترة بـ project_id مباشرة (مش unit_id)
-   * - Pagination داخلي علشان ما يحصلش نقص أو بطء شديد
+   * ✅ FIXED:
+   * - sales_manager: chunking + pagination داخل كل chunk
+   * لأن sales نفسها ممكن تتجاوز limit الافتراضي وتطلع ناقصة.
    */
-  async function fetchSalesFast(user: any, allowedProjectsList: ProjectLite[]) {
+  async function fetchSales(user: any, allowedUnitsList: UnitLite[]) {
     try {
       setError(null);
 
-      const pageSize = 800; // رقم متوازن (كبّر/صغّر حسب الداتا)
-      const all: Sale[] = [];
+      // sales_manager بدون وحدات
+      if (user?.role === 'sales_manager' && (allowedUnitsList || []).length === 0) {
+        console.log('⚠️ مدير المبيعات ليس لديه وحدات مسموحة');
+        setSales([]);
+        calculateStats([]);
+        await fetchRelatedData([]);
+        return;
+      }
 
-      // select with joins
-      const selectStr = `
-        id,
-        sale_date,
-        price_before_tax,
-        price_after_tax,
-        finance_type,
-        payment_method,
-        status,
-        notes,
-        created_at,
-        client_id,
-        unit_id,
-        project_id,
-        sales_employee_id,
-        clients:client_id ( id, name, mobile ),
-        units:unit_id ( id, unit_code, unit_type, project_id ),
-        projects:project_id ( id, name ),
-        sales_employee:employees!sales_sales_employee_id_fkey ( id, name, role )
-      `;
-
-      // ===== sales =====
+      // ===== Query logic =====
       if (user?.role === 'sales') {
+        console.log('👤 الموظف العادي - جلب تنفيذاته فقط');
+
+        // Pagination (احتياطًا)
+        const pageSize = 1000;
         let page = 0;
+        let all: Sale[] = [];
+
         while (true) {
           const from = page * pageSize;
           const to = from + pageSize - 1;
 
           const { data, error } = await supabase
             .from('sales')
-            .select(selectStr)
+            .select('*')
             .eq('sales_employee_id', user.id)
             .order('created_at', { ascending: false })
             .range(from, to);
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ sales fetch error (sales):', error);
+            setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+            setSales([]);
+            calculateStats([]);
+            await fetchRelatedData([]);
+            return;
+          }
 
-          const rows = (data || []) as any as Sale[];
-          all.push(...rows);
+          const rows = (data || []) as Sale[];
+          all = all.concat(rows);
 
           if (rows.length < pageSize) break;
           page++;
         }
 
-        const final = dedupeById(all).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setSales(final);
-        calculateStats(final);
+        console.log(`✅ تم جلب ${all.length} تنفيذ (sales)`);
+        setSales(all);
+        calculateStats(all);
+        await fetchRelatedData(all);
         return;
       }
 
-      // ===== admin =====
       if (user?.role === 'admin') {
+        console.log('👑 الإدمن - جلب جميع التنفيذات');
+
+        // Pagination (احتياطًا)
+        const pageSize = 1000;
         let page = 0;
+        let all: Sale[] = [];
+
         while (true) {
           const from = page * pageSize;
           const to = from + pageSize - 1;
 
-          const { data, error } = await supabase
-            .from('sales')
-            .select(selectStr)
-            .order('created_at', { ascending: false })
-            .range(from, to);
+          const { data, error } = await supabase.from('sales').select('*').order('created_at', { ascending: false }).range(from, to);
 
-          if (error) throw error;
+          if (error) {
+            console.error('❌ sales fetch error (admin):', error);
+            setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+            setSales([]);
+            calculateStats([]);
+            await fetchRelatedData([]);
+            return;
+          }
 
-          const rows = (data || []) as any as Sale[];
-          all.push(...rows);
+          const rows = (data || []) as Sale[];
+          all = all.concat(rows);
 
           if (rows.length < pageSize) break;
           page++;
         }
 
-        const final = dedupeById(all).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setSales(final);
-        calculateStats(final);
+        console.log(`✅ تم جلب ${all.length} تنفيذ (admin)`);
+        setSales(all);
+        calculateStats(all);
+        await fetchRelatedData(all);
         return;
       }
 
-      // ===== sales_manager =====
       if (user?.role === 'sales_manager') {
-        const allowedProjectIds = normalizeIds((allowedProjectsList || []).map((p) => p.id));
-        if (!allowedProjectIds.length) {
+        const allowedUnitIds = normalizeIds((allowedUnitsList || []).map((u) => u.id));
+        console.log(`👨‍💼 مدير المبيعات - units allowed: ${allowedUnitIds.length}`);
+
+        if (allowedUnitIds.length === 0) {
           setSales([]);
           calculateStats([]);
+          await fetchRelatedData([]);
           return;
         }
 
-        // chunking لتجنب Bad Request
-        const projChunks = chunkArray(allowedProjectIds, 150);
+        const chunks = chunkArray(allowedUnitIds, 120); // رقم آمن لتقليل طول URL
+        const pageSize = 1000;
 
-        for (const chunk of projChunks) {
+        let all: Sale[] = [];
+
+        for (const idsChunk of chunks) {
           let page = 0;
+
           while (true) {
             const from = page * pageSize;
             const to = from + pageSize - 1;
 
             const { data, error } = await supabase
               .from('sales')
-              .select(selectStr)
-              .in('project_id', chunk)
+              .select('*')
+              .in('unit_id', idsChunk)
               .order('created_at', { ascending: false })
               .range(from, to);
 
-            if (error) throw error;
+            if (error) {
+              console.error('❌ sales fetch error (sales_manager chunk):', error, { chunkSize: idsChunk.length, page });
+              setError(`خطأ في جلب التنفيذات: ${error.message || 'Bad Request'}`);
+              setSales([]);
+              calculateStats([]);
+              await fetchRelatedData([]);
+              return;
+            }
 
-            const rows = (data || []) as any as Sale[];
-            all.push(...rows);
+            const rows = (data || []) as Sale[];
+            all = all.concat(rows);
 
             if (rows.length < pageSize) break;
             page++;
           }
         }
 
-        const final = dedupeById(all).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setSales(final);
-        calculateStats(final);
+        // إزالة تكرار (احتياطًا بسبب تداخل/إعادة)
+        all = dedupeById(all);
+
+        // ترتيب نهائي بعد الدمج
+        all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        console.log(`✅ تم جلب ${all.length} تنفيذ (sales_manager)`);
+        setSales(all);
+        calculateStats(all);
+        await fetchRelatedData(all);
         return;
       }
 
       // fallback
       setSales([]);
       calculateStats([]);
+      await fetchRelatedData([]);
     } catch (err: any) {
-      console.error('❌ fetchSalesFast error:', err);
+      console.error('❌ خطأ غير متوقع في جلب التنفيذات:', err);
       setError(`خطأ في جلب التنفيذات: ${err?.message || 'Bad Request'}`);
       setSales([]);
       calculateStats([]);
+      await fetchRelatedData([]);
     }
   }
 
-  /**
-   * فلتر الموظفين:
-   * - sales: نفسه فقط
-   * - admin/manager: نجيب الموظفين (لو عايزها أسرع: نجيب فقط اللي لهم sales)
-   */
-  async function fetchEmployeesForFilter(user: any, allowedProjectsList: ProjectLite[]) {
+  async function fetchProjectsData() {
     try {
-      if (!user) return;
-
-      // sales => نفسه فقط
-      if (user?.role === 'sales') {
-        setEmployeesForFilter([{ id: user.id, name: user.name, role: user.role }]);
+      const { data, error } = await supabase.from('projects').select('id, name');
+      if (error) {
+        console.error('❌ خطأ في جلب المشاريع:', error);
+        setProjects({});
         return;
       }
 
-      // admin / sales_manager => employees table
-      const { data, error } = await supabase.from('employees').select('id, name, role').order('name');
-      if (error) throw error;
-
-      const list = (data || []) as any as { id: string; name: string; role: string }[];
-
-      // ضمان وجود نفسه
-      if (!list.find((x) => x.id === user.id)) list.push({ id: user.id, name: user.name, role: user.role });
-
-      setEmployeesForFilter(list);
+      const projectsMap: Record<string, { name: string }> = {};
+      (data || []).forEach((project: any) => {
+        projectsMap[project.id] = { name: project.name };
+      });
+      setProjects(projectsMap);
     } catch (err) {
-      console.error('❌ fetchEmployeesForFilter error:', err);
-      setEmployeesForFilter(user?.id ? [{ id: user.id, name: user.name, role: user.role }] : []);
+      console.error('❌ خطأ في جلب المشاريع:', err);
+      setProjects({});
+    }
+  }
+
+  async function fetchEmployeesData(user: any) {
+    try {
+      console.log(`👥 جلب بيانات الموظفين للمستخدم: ${user.name} (${user.role})`);
+
+      let query = supabase.from('employees').select('id, name, role');
+
+      // sales: نفسه فقط
+      if (user?.role === 'sales') {
+        query = query.eq('id', user.id);
+      }
+      // sales_manager/admin: نخليها كلها زي ما عندك (كل الموظفين)
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('❌ خطأ في جلب الموظفين:', error);
+        const fallback: Record<string, { name: string; role: string }> = {};
+        fallback[user.id] = { name: user.name, role: user.role };
+        setEmployees(fallback);
+        return;
+      }
+
+      const employeesMap: Record<string, { name: string; role: string }> = {};
+      (data || []).forEach((emp: any) => {
+        employeesMap[emp.id] = { name: emp.name, role: emp.role };
+      });
+
+      if (!employeesMap[user.id]) employeesMap[user.id] = { name: user.name, role: user.role };
+
+      setEmployees(employeesMap);
+    } catch (err) {
+      console.error('❌ خطأ في جلب الموظفين:', err);
+      const fallback: Record<string, { name: string; role: string }> = {};
+      if (user?.id) fallback[user.id] = { name: user.name, role: user.role };
+      setEmployees(fallback);
+    }
+  }
+
+  async function fetchRelatedData(salesData: Sale[]) {
+    try {
+      // ===== Clients =====
+      const clientIds = normalizeIds([...new Set((salesData || []).map((s) => s.client_id))]);
+
+      if (clientIds.length > 0) {
+        // chunk to avoid Bad Request
+        const chunks = chunkArray(clientIds, 200);
+        const clientsMap: Record<string, { name: string; mobile: string }> = {};
+
+        for (const idsChunk of chunks) {
+          const { data, error } = await supabase.from('clients').select('id, name, mobile').in('id', idsChunk);
+          if (error) {
+            console.error('❌ خطأ في جلب العملاء (chunk):', error);
+            continue;
+          }
+          (data || []).forEach((c: any) => {
+            clientsMap[c.id] = { name: c.name, mobile: c.mobile };
+          });
+        }
+        setClients(clientsMap);
+      } else {
+        setClients({});
+      }
+
+      // ===== Units =====
+      const unitIds = normalizeIds([...new Set((salesData || []).map((s) => s.unit_id))]);
+
+      if (unitIds.length > 0) {
+        const chunks = chunkArray(unitIds, 150);
+        const unitsMap: Record<string, { unit_code: string; unit_type: string | null; project_id: string }> = {};
+
+        for (const idsChunk of chunks) {
+          const { data, error } = await supabase
+            .from('units')
+            .select('id, unit_code, unit_type, project_id')
+            .in('id', idsChunk);
+
+          if (error) {
+            console.error('❌ خطأ في جلب الوحدات (chunk):', error);
+            continue;
+          }
+
+          (data || []).forEach((u: any) => {
+            unitsMap[u.id] = { unit_code: u.unit_code, unit_type: u.unit_type, project_id: u.project_id };
+          });
+        }
+        setUnits(unitsMap);
+      } else {
+        setUnits({});
+      }
+    } catch (err) {
+      console.error('❌ خطأ في جلب البيانات المرتبطة:', err);
+      setClients({});
+      setUnits({});
     }
   }
 
   function calculateStats(data: Sale[]) {
-    const totalRevenue = (data || []).reduce(
-      (sum, s) => sum + (s.price_after_tax ?? s.price_before_tax ?? 0),
-      0
-    );
+    const totalRevenue = (data || []).reduce((sum, sale) => sum + (sale.price_after_tax || sale.price_before_tax || 0), 0);
 
-    const st = {
+    const s = {
       total: (data || []).length,
-      completed: (data || []).filter((x) => (x.status || '').toLowerCase() === 'completed').length,
-      pending: (data || []).filter((x) => (x.status || '').toLowerCase() === 'pending').length,
-      cancelled: (data || []).filter((x) => (x.status || '').toLowerCase() === 'cancelled').length,
+      completed: (data || []).filter((x) => x.status === 'completed' || x.status === 'Completed').length,
+      pending: (data || []).filter((x) => x.status === 'pending' || x.status === 'Pending').length,
+      cancelled: (data || []).filter((x) => x.status === 'cancelled' || x.status === 'Cancelled').length,
       totalRevenue,
     };
-
-    setStats(st);
+    setStats(s);
   }
 
   function applyFilters() {
     let filtered = [...sales];
 
     if (filters.status !== 'all') {
-      filtered = filtered.filter((s) => (s.status || '').toLowerCase() === filters.status.toLowerCase());
+      filtered = filtered.filter((s) => s.status?.toLowerCase() === filters.status.toLowerCase());
     }
 
     if (filters.project !== 'all') {
-      filtered = filtered.filter((s) => (s.project_id || s.units?.project_id || '') === filters.project);
+      filtered = filtered.filter((s) => {
+        const unit = units[s.unit_id];
+        return unit?.project_id === filters.project;
+      });
     }
 
     if (filters.employee !== 'all') {
-      filtered = filtered.filter((s) => (s.sales_employee_id || '') === filters.employee);
+      filtered = filtered.filter((s) => s.sales_employee_id === filters.employee);
     }
 
     if (filters.search) {
-      const t = filters.search.toLowerCase().trim();
+      const searchTerm = filters.search.toLowerCase();
       filtered = filtered.filter((s) => {
-        const clientName = s.clients?.name?.toLowerCase() || '';
-        const clientMobile = s.clients?.mobile || '';
-        const unitCode = s.units?.unit_code?.toLowerCase() || '';
-        const id = (s.id || '').toLowerCase();
+        const client = clients[s.client_id];
+        const unit = units[s.unit_id];
 
-        return clientName.includes(t) || clientMobile.includes(filters.search) || unitCode.includes(t) || id.includes(t);
+        return (
+          client?.name?.toLowerCase().includes(searchTerm) ||
+          client?.mobile?.includes(searchTerm) ||
+          unit?.unit_code?.toLowerCase().includes(searchTerm) ||
+          s.id.toLowerCase().includes(searchTerm)
+        );
       });
     }
 
     filtered.sort((a, b) => {
-      let av: any;
-      let bv: any;
+      let aValue: any, bValue: any;
 
       switch (filters.sortBy) {
         case 'sale_date':
-          av = a.sale_date ? new Date(a.sale_date).getTime() : 0;
-          bv = b.sale_date ? new Date(b.sale_date).getTime() : 0;
+          aValue = a.sale_date ? new Date(a.sale_date) : new Date(0);
+          bValue = b.sale_date ? new Date(b.sale_date) : new Date(0);
           break;
         case 'price':
-          av = a.price_after_tax ?? a.price_before_tax ?? 0;
-          bv = b.price_after_tax ?? b.price_before_tax ?? 0;
+          aValue = a.price_after_tax || a.price_before_tax || 0;
+          bValue = b.price_after_tax || b.price_before_tax || 0;
           break;
         default:
-          av = new Date(a.created_at).getTime();
-          bv = new Date(b.created_at).getTime();
+          aValue = new Date(a.created_at);
+          bValue = new Date(a.created_at);
+          bValue = new Date(b.created_at);
       }
 
-      return filters.sortOrder === 'asc' ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
+      if (filters.sortOrder === 'asc') return aValue > bValue ? 1 : -1;
+      return aValue < bValue ? 1 : -1;
     });
 
     setFilteredSales(filtered);
@@ -480,7 +651,7 @@ export default function SalesPage() {
   }
 
   function getStatusColor(status: string) {
-    switch ((status || '').toLowerCase()) {
+    switch (status?.toLowerCase()) {
       case 'completed':
         return 'success';
       case 'pending':
@@ -497,47 +668,95 @@ export default function SalesPage() {
   function formatDate(dateString: string | null) {
     if (!dateString) return '-';
     try {
-      return new Date(dateString).toLocaleDateString('ar-SA', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
+      return new Date(dateString).toLocaleDateString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric' });
     } catch {
       return 'تاريخ غير صالح';
     }
   }
 
   function formatCurrency(amount: number | null) {
-    if (!amount) return '-';
+    if (amount === null || amount === 0) return '-';
     return amount.toLocaleString('ar-SA') + ' ريال';
   }
 
+  function getClientName(clientId: string) {
+    return clients[clientId]?.name || 'غير محدد';
+  }
+
+  function getClientMobile(clientId: string) {
+    return clients[clientId]?.mobile || 'غير متوفر';
+  }
+
+  function getUnitCode(unitId: string) {
+    return units[unitId]?.unit_code || 'غير محدد';
+  }
+
+  function getUnitType(unitId: string) {
+    return units[unitId]?.unit_type || 'غير محدد';
+  }
+
+  function getEmployeeName(employeeId: string | null) {
+    if (!employeeId) return 'غير محدد';
+    return employees[employeeId]?.name || 'غير محدد';
+  }
+
+  function getEmployeeRole(employeeId: string | null) {
+    if (!employeeId) return '';
+    const role = employees[employeeId]?.role;
+    switch (role) {
+      case 'admin':
+        return 'مدير';
+      case 'sales_manager':
+        return 'مدير مبيعات';
+      case 'sales':
+        return 'مندوب مبيعات';
+      default:
+        return role || '';
+    }
+  }
+
+  function getProjectName(unitId: string) {
+    const unit = units[unitId];
+    if (!unit?.project_id) return 'غير محدد';
+    return projects[unit.project_id]?.name || 'غير محدد';
+  }
+
+  // تحديد المشاريع المعروضة في الفلاتر بناءً على الدور
+  const getDisplayProjects = () => {
+    return currentUser?.role === 'admin'
+      ? Object.entries(projects).map(([id, project]) => ({ id, name: project.name }))
+      : allowedProjects;
+  };
+
+  // تحديد الموظفين المعروضين في الفلاتر بناءً على الدور
+  const getDisplayEmployees = () => {
+    if (currentUser?.role === 'sales') {
+      return Object.entries(employees)
+        .filter(([id]) => id === currentUser.id)
+        .map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    }
+
+    if (currentUser?.role === 'sales_manager' || currentUser?.role === 'admin') {
+      return Object.entries(employees).map(([id, emp]) => ({ id, name: emp.name, role: emp.role }));
+    }
+
+    return [];
+  };
+
   function getUserPermissionInfo() {
     if (!currentUser) return '';
+
     switch (currentUser.role) {
       case 'admin':
         return `مدير النظام - مشاهدة جميع التنفيذات (${sales.length} عملية)`;
       case 'sales_manager':
-        return `مدير مبيعات - مشاهدة تنفيذات مشاريعك فقط (${allowedProjects.length} مشروع، ${sales.length} عملية)`;
+        return `مدير مبيعات - ${allowedProjects.length} مشروع، ${allowedUnits.length} وحدة، ${sales.length} عملية (جميع الموظفين)`;
       case 'sales':
         return `مندوب مبيعات - مشاهدة تنفيذاتك فقط (${sales.length} عملية)`;
       default:
         return 'صلاحية غير معروفة';
     }
   }
-
-  // مشاريع الفلاتر
-  const displayProjects = useMemo(() => {
-    if (currentUser?.role === 'admin') return allProjectsForAdmin;
-    return allowedProjects;
-  }, [currentUser?.role, allowedProjects, allProjectsForAdmin]);
-
-  // موظفين الفلاتر
-  const displayEmployees = useMemo(() => {
-    if (!currentUser) return [];
-    if (currentUser?.role === 'sales') return employeesForFilter.filter((e) => e.id === currentUser.id);
-    return employeesForFilter;
-  }, [currentUser, employeesForFilter]);
 
   if (loading) {
     return (
@@ -562,10 +781,9 @@ export default function SalesPage() {
             animation: 'spin 1s linear infinite',
             marginBottom: '20px',
           }}
-        />
+        ></div>
         <h2 style={{ color: '#2c3e50', marginBottom: '10px' }}>جاري تحميل التنفيذات...</h2>
         <p style={{ color: '#666' }}>يرجى الانتظار أثناء جلب البيانات</p>
-
         {currentUser && (
           <div
             style={{
@@ -580,7 +798,6 @@ export default function SalesPage() {
             ⚙️ {getUserPermissionInfo()}
           </div>
         )}
-
         <style jsx>{`
           @keyframes spin {
             0% {
@@ -598,15 +815,7 @@ export default function SalesPage() {
   if (error) {
     return (
       <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto' }}>
-        <div
-          style={{
-            backgroundColor: '#f8d7da',
-            color: '#721c24',
-            padding: '20px',
-            borderRadius: '8px',
-            marginBottom: '20px',
-          }}
-        >
+        <div style={{ backgroundColor: '#f8d7da', color: '#721c24', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
           <h2 style={{ marginTop: 0 }}>⚠️ حدث خطأ</h2>
           <p>{error}</p>
           <p style={{ fontSize: '14px', marginTop: '10px' }}>تحقق من اتصال قاعدة البيانات وتأكد من صحة الإعدادات.</p>
@@ -648,7 +857,6 @@ export default function SalesPage() {
           <p style={{ color: '#666', margin: 0 }}>
             إجمالي التنفيذات: <strong>{sales.length}</strong> عملية بيع
           </p>
-
           {currentUser && (
             <div
               style={{
@@ -733,13 +941,7 @@ export default function SalesPage() {
         <StatCard title="مكتملة" value={stats.completed} color="#2ecc71" icon="✅" />
         <StatCard title="قيد الانتظار" value={stats.pending} color="#f39c12" icon="⏳" />
         <StatCard title="ملغاة" value={stats.cancelled} color="#e74c3c" icon="❌" />
-        <StatCard
-          title="إجمالي الإيرادات"
-          value={formatCurrency(stats.totalRevenue)}
-          color="#9b59b6"
-          icon="💵"
-          isCurrency
-        />
+        <StatCard title="إجمالي الإيرادات" value={formatCurrency(stats.totalRevenue)} color="#9b59b6" icon="💵" isCurrency />
       </div>
 
       {/* ===== FILTERS PANEL ===== */}
@@ -751,7 +953,7 @@ export default function SalesPage() {
             padding: '20px',
             marginBottom: '30px',
             border: '1px solid #dee2e6',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.08)',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
           }}
         >
           <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#2c3e50' }}>🔍 فلاتر البحث</h3>
@@ -766,40 +968,23 @@ export default function SalesPage() {
           >
             {/* بحث */}
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
-                بحث سريع
-              </label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>بحث سريع</label>
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => handleFilterChange('search', e.target.value)}
                 placeholder="ابحث بالعميل، رقم الجوال، كود الوحدة..."
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             {/* حالة */}
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
-                حالة التنفيذ
-              </label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>حالة التنفيذ</label>
               <select
                 value={filters.status}
                 onChange={(e) => handleFilterChange('status', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white',
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع الحالات</option>
                 <option value="completed">مكتملة</option>
@@ -811,25 +996,16 @@ export default function SalesPage() {
 
             {/* مشروع */}
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
-                المشروع
-              </label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>المشروع</label>
               <select
                 value={filters.project}
                 onChange={(e) => handleFilterChange('project', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white',
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع المشاريع</option>
-                {displayProjects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
+                {getDisplayProjects().map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
                   </option>
                 ))}
               </select>
@@ -837,23 +1013,14 @@ export default function SalesPage() {
 
             {/* موظف */}
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
-                الموظف
-              </label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>الموظف</label>
               <select
                 value={filters.employee}
                 onChange={(e) => handleFilterChange('employee', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white',
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع الموظفين</option>
-                {displayEmployees.map((emp) => (
+                {getDisplayEmployees().map((emp) => (
                   <option key={emp.id} value={emp.id}>
                     {emp.name} ({emp.role === 'admin' ? 'مدير' : emp.role === 'sales_manager' ? 'مدير مبيعات' : 'مندوب مبيعات'})
                   </option>
@@ -863,21 +1030,12 @@ export default function SalesPage() {
 
             {/* ترتيب */}
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
-                ترتيب حسب
-              </label>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>ترتيب حسب</label>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <select
                   value={filters.sortBy}
                   onChange={(e) => handleFilterChange('sortBy', e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white',
-                  }}
+                  style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                 >
                   <option value="created_at">تاريخ الإنشاء</option>
                   <option value="sale_date">تاريخ البيع</option>
@@ -887,13 +1045,7 @@ export default function SalesPage() {
                 <select
                   value={filters.sortOrder}
                   onChange={(e) => handleFilterChange('sortOrder', e.target.value)}
-                  style={{
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white',
-                  }}
+                  style={{ padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                 >
                   <option value="desc">تنازلي</option>
                   <option value="asc">تصاعدي</option>
@@ -920,18 +1072,7 @@ export default function SalesPage() {
       )}
 
       {/* ===== RESULTS SUMMARY ===== */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '20px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          border: '1px solid #e9ecef',
-        }}
-      >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <span style={{ color: '#495057', fontWeight: '500' }}>نتائج البحث:</span>
           <span style={{ color: '#2c3e50', fontWeight: '600' }}>{filteredSales.length} تنفيذ</span>
@@ -949,42 +1090,21 @@ export default function SalesPage() {
         {filteredSales.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>📭</div>
-            <h3 style={{ marginBottom: '10px', color: '#495057' }}>
-              {sales.length === 0 ? 'لا توجد تنفيذات' : 'لا توجد تنفيذات تطابق معايير البحث'}
-            </h3>
+            <h3 style={{ marginBottom: '10px', color: '#495057' }}>{sales.length === 0 ? 'لا توجد تنفيذات' : 'لا توجد تنفيذات تطابق معايير البحث'}</h3>
             <p style={{ marginBottom: '30px', maxWidth: '500px', margin: '0 auto' }}>
-              {sales.length === 0
-                ? 'لم يتم إضافة أي تنفيذات بعد. يمكنك إضافة تنفيذات جديدة من الزر أعلاه.'
-                : 'لم يتم العثور على تنفيذات تطابق معايير البحث. حاول تغيير الفلاتر.'}
+              {sales.length === 0 ? 'لم يتم إضافة أي تنفيذات بعد. يمكنك إضافة تنفيذات جديدة من الزر أعلاه.' : 'لم يتم العثور على تنفيذات تطابق معايير البحث. حاول تغيير الفلاتر.'}
             </p>
-
             {sales.length === 0 ? (
               <button
                 onClick={() => router.push('/dashboard/sales/new')}
-                style={{
-                  padding: '10px 30px',
-                  backgroundColor: '#007bff',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '16px',
-                }}
+                style={{ padding: '10px 30px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px' }}
               >
                 ➕ إضافة تنفيذ جديد
               </button>
             ) : (
               <button
                 onClick={resetFilters}
-                style={{
-                  padding: '10px 30px',
-                  backgroundColor: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '16px',
-                }}
+                style={{ padding: '10px 30px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '16px' }}
               >
                 🔄 عرض جميع التنفيذات
               </button>
@@ -1018,30 +1138,22 @@ export default function SalesPage() {
                     onClick={() => router.push(`/dashboard/sales/${sale.id}`)}
                   >
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50', fontFamily: 'monospace', fontSize: '13px' }}>
-                        #{sale.id.substring(0, 8)}
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>
-                        {new Date(sale.created_at).toLocaleDateString('ar-SA')}
-                      </div>
+                      <div style={{ fontWeight: '600', color: '#2c3e50', fontFamily: 'monospace', fontSize: '13px' }}>#{sale.id.substring(0, 8)}</div>
+                      <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>{new Date(sale.created_at).toLocaleDateString('ar-SA')}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{sale.clients?.name || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        📱 {sale.clients?.mobile || 'غير متوفر'}
-                      </div>
+                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{getClientName(sale.client_id)}</div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>📱 {getClientMobile(sale.client_id)}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{sale.units?.unit_code || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {sale.units?.unit_type || 'غير محدد'}
-                      </div>
+                      <div style={{ fontWeight: '600', color: '#2c3e50' }}>{getUnitCode(sale.unit_id)}</div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{getUnitType(sale.unit_id)}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ color: '#495057' }}>{sale.projects?.name || 'غير محدد'}</div>
+                      <div style={{ color: '#495057' }}>{getProjectName(sale.unit_id)}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
@@ -1049,16 +1161,12 @@ export default function SalesPage() {
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ color: '#495057', fontWeight: '600' }}>
-                        {formatCurrency(sale.price_after_tax ?? sale.price_before_tax)}
-                      </div>
+                      <div style={{ color: '#495057', fontWeight: '600' }}>{formatCurrency(sale.price_after_tax || sale.price_before_tax)}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
                       <div style={{ color: '#495057' }}>{sale.finance_type || '-'}</div>
-                      {sale.payment_method && (
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{sale.payment_method}</div>
-                      )}
+                      {sale.payment_method && <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{sale.payment_method}</div>}
                     </td>
 
                     <td style={{ padding: '15px' }}>
@@ -1066,14 +1174,8 @@ export default function SalesPage() {
                     </td>
 
                     <td style={{ padding: '15px' }}>
-                      <div style={{ color: '#495057' }}>{sale.sales_employee?.name || 'غير محدد'}</div>
-                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                        {sale.sales_employee?.role === 'admin'
-                          ? 'مدير'
-                          : sale.sales_employee?.role === 'sales_manager'
-                          ? 'مدير مبيعات'
-                          : 'مندوب مبيعات'}
-                      </div>
+                      <div style={{ color: '#495057' }}>{getEmployeeName(sale.sales_employee_id)}</div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{getEmployeeRole(sale.sales_employee_id)}</div>
                     </td>
 
                     <td style={{ padding: '15px' }}>
@@ -1137,27 +1239,43 @@ export default function SalesPage() {
         )}
       </div>
 
+      {/* ===== PAGINATION ===== */}
+      {filteredSales.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+          <div style={{ color: '#666', fontSize: '14px' }}>
+            عرض <strong>1-{filteredSales.length}</strong> من <strong>{filteredSales.length}</strong> تنفيذ
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              disabled
+              style={{ padding: '8px 16px', backgroundColor: '#e9ecef', color: '#6c757d', border: '1px solid #dee2e6', borderRadius: '4px', cursor: 'not-allowed' }}
+            >
+              السابق
+            </button>
+
+            <div style={{ padding: '8px 16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', fontWeight: '500' }}>1</div>
+
+            <button
+              disabled
+              style={{ padding: '8px 16px', backgroundColor: '#e9ecef', color: '#6c757d', border: '1px solid #dee2e6', borderRadius: '4px', cursor: 'not-allowed' }}
+            >
+              التالي
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ===== FOOTER INFO ===== */}
-      <div
-        style={{
-          marginTop: '30px',
-          padding: '15px',
-          backgroundColor: '#f8f9fa',
-          borderRadius: '8px',
-          fontSize: '12px',
-          color: '#6c757d',
-          textAlign: 'center',
-          border: '1px dashed #dee2e6',
-        }}
-      >
+      <div style={{ marginTop: '30px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', fontSize: '12px', color: '#6c757d', textAlign: 'center', border: '1px dashed #dee2e6' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <span>آخر تحديث للتنفيذات: {new Date().toLocaleString('ar-SA')}</span>
           <span>
             إجمالي النتائج: {filteredSales.length} من {sales.length}
           </span>
           <span>الإيرادات الإجمالية: {formatCurrency(stats.totalRevenue)}</span>
-          <span>عدد المشاريع: {displayProjects.length}</span>
-          <span>عدد الموظفين: {displayEmployees.length}</span>
+          <span>عدد المشاريع: {getDisplayProjects().length}</span>
+          <span>عدد الموظفين: {getDisplayEmployees().length}</span>
         </div>
       </div>
 
@@ -1176,7 +1294,7 @@ export default function SalesPage() {
 }
 
 /* =====================
-   Stat Card
+   Stat Card Component
 ===================== */
 
 function StatCard({

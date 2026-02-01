@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import * as XLSX from 'xlsx';
@@ -72,178 +72,36 @@ const UNIT_STATUSES = [
   { value: 'sold', label: 'مباعة', color: '#ef4444' },
 ] as const;
 
-// ===================== دالة مساعدة لجلب جميع البيانات مع Pagination =====================
-async function fetchAllUnits(employee: Employee | null): Promise<Unit[]> {
-  const allUnits: any[] = [];
-  const pageSize = 1000;
-  let page = 0;
-  let hasMore = true;
-
-  try {
-    while (hasMore) {
-      let query = supabase
-        .from('units')
-        .select(`
-          *,
-          project:projects!units_project_id_fkey (name,code),
-          model:project_models!units_model_id_fkey (name)
-        `)
-        .order('created_at', { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      // Apply role-based filtering
-      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', employee.id);
-
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        if (allowedProjectIds.length > 0) {
-          query = query.in('project_id', allowedProjectIds);
-        } else {
-          return []; // لا توجد مشاريع مسموحة
-        }
-      }
-
-      const { data, error } = await query;
-      
-      if (error) {
-        console.error('Error fetching units page', page, ':', error);
-        break;
-      }
-
-      if (data && data.length > 0) {
-        // Normalize data
-        const normalized = data.map((item: any) => ({
-          ...item,
-          project: normalizeRel<ProjectRef>(item.project),
-          model: normalizeRel<ModelRef>(item.model),
-          supported_price: Number(item.supported_price || 0),
-          land_area: item.land_area ? Number(item.land_area) : null,
-          build_area: item.build_area ? Number(item.build_area) : null,
-        }));
-        
-        allUnits.push(...normalized);
-        page++;
-        
-        // إذا كان عدد النتائج أقل من pageSize، فهذا يعني وصلنا للنهاية
-        if (data.length < pageSize) {
-          hasMore = false;
-        }
-      } else {
-        hasMore = false;
-      }
-    }
-    
-    return allUnits;
-  } catch (err) {
-    console.error('Error in fetchAllUnits:', err);
-    return [];
-  }
-}
-
-// ===================== دالة مساعدة لجلب الإحصائيات فقط =====================
-async function fetchUnitStats(employee: Employee | null): Promise<UnitStats> {
-  const stats: UnitStats = {
-    available: 0,
-    reserved: 0,
-    sold: 0,
-    total: 0,
-    totalPrice: 0
-  };
-
-  try {
-    // استخدام COUNT لجميع الحالات في استعلام واحد
-    const statuses: Unit['status'][] = ['available', 'reserved', 'sold'];
-    
-    for (const status of statuses) {
-      let query = supabase
-        .from('units')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', status);
-      
-      if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', employee.id);
-
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        if (allowedProjectIds.length > 0) {
-          query = query.in('project_id', allowedProjectIds);
-        } else {
-          return stats; // لا توجد مشاريع مسموحة
-        }
-      }
-      
-      const { count, error } = await query;
-      if (error) throw error;
-      
-      stats[status] = count || 0;
-    }
-    
-    stats.total = stats.available + stats.reserved + stats.sold;
-    
-    // حساب مجموع الأسعار
-    let priceQuery = supabase
-      .from('units')
-      .select('supported_price');
-    
-    if (employee?.role === 'sales' || employee?.role === 'sales_manager') {
-      const { data: employeeProjects } = await supabase
-        .from('employee_projects')
-        .select('project_id')
-        .eq('employee_id', employee.id);
-
-      const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-      if (allowedProjectIds.length > 0) {
-        priceQuery = priceQuery.in('project_id', allowedProjectIds);
-      } else {
-        return stats;
-      }
-    }
-    
-    const { data: priceData, error: priceError } = await priceQuery;
-    if (priceError) throw priceError;
-    
-    if (priceData) {
-      stats.totalPrice = priceData.reduce((sum, unit) => 
-        sum + Number(unit.supported_price || 0), 0
-      );
-    }
-    
-    return stats;
-  } catch (err) {
-    console.error('Error fetching unit stats:', err);
-    return stats;
-  }
-}
-
 /* =====================
    Helpers
 ===================== */
-
-function normalizeRel<T>(val: unknown): T | null {
-  if (!val) return null;
-  if (Array.isArray(val)) return (val[0] ?? null) as T | null;
-  if (typeof val === 'object') return val as T;
-  return null;
-}
 
 function projectText(p: ProjectRef | null) {
   if (!p) return '-';
   return p.code ? `${p.name} (${p.code})` : p.name;
 }
 
-/* =====================
-   Custom StatusBadge Component
-===================== */
+function formatCurrency(amount: number) {
+  return amount.toLocaleString('ar-SA') + ' ريال';
+}
 
-function StatusBadge({ 
+function formatArea(area: number | null) {
+  return area ? `${Number(area).toLocaleString('ar-SA')} م²` : '-';
+}
+
+function getRoleLabel(role: string): string {
+  switch (role) {
+    case 'admin': return 'مدير نظام';
+    case 'sales_manager': return 'مدير مبيعات';
+    case 'sales': return 'مندوب مبيعات';
+    default: return role;
+  }
+}
+
+function StatusBadge({
   status,
-  label 
-}: { 
+  label
+}: {
   status: 'available' | 'reserved' | 'sold';
   label: string;
 }) {
@@ -273,20 +131,16 @@ function StatusBadge({
   );
 }
 
-/* =====================
-   Stat Card Component
-===================== */
-
-function StatCard({ 
-  title, 
-  value, 
-  color, 
+function StatCard({
+  title,
+  value,
+  color,
   icon,
   isCurrency = false
-}: { 
-  title: string; 
-  value: number | string; 
-  color: string; 
+}: {
+  title: string;
+  value: number | string;
+  color: string;
   icon: string;
   isCurrency?: boolean;
 }) {
@@ -302,8 +156,8 @@ function StatCard({
       alignItems: 'center',
       gap: '15px'
     }}
-    onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-    onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+      onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+      onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
     >
       <div style={{
         width: '50px',
@@ -318,7 +172,7 @@ function StatCard({
       }}>
         {icon}
       </div>
-      
+
       <div style={{ flex: 1 }}>
         <div style={{
           fontSize: isCurrency ? '16px' : '24px',
@@ -345,20 +199,32 @@ function StatCard({
 ===================== */
 
 export default function UnitsPage() {
-  // State Management
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [filteredUnits, setFilteredUnits] = useState<Unit[]>([]);
+  const [employee, setEmployee] = useState<Employee | null>(null);
+
+  // Data
+  const [rows, setRows] = useState<Unit[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
+
+  // Dropdowns
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [employee, setEmployee] = useState<Employee | null>(null);
-  
-  // UI States
+
+  // UI states
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [statsLoading, setStatsLoading] = useState(false);
-  
+
+  // Stats
+  const [stats, setStats] = useState<UnitStats>({
+    available: 0,
+    reserved: 0,
+    sold: 0,
+    total: 0,
+    totalPrice: 0
+  });
+
   // Form States
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitCode, setUnitCode] = useState('');
@@ -371,16 +237,7 @@ export default function UnitsPage() {
   const [buildArea, setBuildArea] = useState('');
   const [projectId, setProjectId] = useState('');
   const [modelId, setModelId] = useState('');
-  
-  // Statistics
-  const [stats, setStats] = useState<UnitStats>({
-    available: 0,
-    reserved: 0,
-    sold: 0,
-    total: 0,
-    totalPrice: 0
-  });
-  
+
   // Filters
   const [filters, setFilters] = useState<FilterState>({
     project: 'all',
@@ -396,243 +253,225 @@ export default function UnitsPage() {
     sortOrder: 'desc'
   });
 
-  // Pagination للعرض فقط
+  // Pagination (server-side)
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const totalPages = Math.max(1, Math.ceil(totalRows / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + rows.length, totalRows);
 
-  // Initialize
+  // Prepare payload for RPC
+  const filtersPayload = useMemo(() => ({
+    project: filters.project,
+    model: filters.model,
+    unitType: filters.unitType,
+    status: filters.status,
+    priceFrom: filters.priceFrom,
+    priceTo: filters.priceTo,
+    areaFrom: filters.areaFrom,
+    areaTo: filters.areaTo,
+    search: filters.search,
+    sortBy: filters.sortBy,
+    sortOrder: filters.sortOrder
+  }), [filters]);
+
+  /* =====================
+     Init
+  ===================== */
+
   useEffect(() => {
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // تصحيح: تحديث النماذج عند تغيير المشروع في الفورم
-  useEffect(() => {
-    if (projectId) {
-      loadModels(projectId);
-    } else {
-      setModels([]);
-    }
-  }, [projectId]);
-
-  // تصحيح: تحديث النماذج عند تغيير فلتر المشروع
-  useEffect(() => {
-    if (filters.project && filters.project !== 'all') {
-      loadModelsForFilter(filters.project);
-    } else {
-      setModels([]);
-    }
-  }, [filters.project]);
-
   async function init() {
+    setError(null);
+    setLoading(true);
+    setStatsLoading(true);
+
     try {
       const emp = await getCurrentEmployee();
       setEmployee(emp);
-      await loadProjects(emp);
-      await loadAllData(emp); // تحميل كل البيانات
-    } catch (err) {
-      console.error('Error in init():', err);
+
+      await Promise.all([
+        loadProjects(emp),
+        loadStats(),
+      ]);
+
+      await loadUnits(1, itemsPerPage, filtersPayload);
+      setCurrentPage(1);
+    } catch (e) {
+      console.error(e);
       setError('حدث خطأ في تحميل البيانات');
-    }
-  }
-
-  // Load Projects based on employee role
-  async function loadProjects(emp: Employee | null) {
-    try {
-      let query = supabase
-        .from('projects')
-        .select('id,name,code')
-        .order('name');
-
-      // تطبيق الفلترة حسب الدور
-      if (emp?.role === 'sales' || emp?.role === 'sales_manager') {
-        const { data: employeeProjects } = await supabase
-          .from('employee_projects')
-          .select('project_id')
-          .eq('employee_id', emp.id);
-
-        const allowedProjectIds = (employeeProjects || []).map(p => p.project_id);
-        if (allowedProjectIds.length > 0) {
-          query = query.in('id', allowedProjectIds);
-        } else {
-          setProjects([]);
-          return;
-        }
-      }
-
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      setProjects(data || []);
-    } catch (err) {
-      console.error('Error loading projects:', err);
-    }
-  }
-
-  // Load Models for selected project (for form)
-  const loadModels = useCallback(async (projectId: string) => {
-    if (!projectId) {
-      setModels([]);
-      return;
-    }
-    
-    try {
-      const { data, error } = await supabase
-        .from('project_models')
-        .select('id,name')
-        .eq('project_id', projectId)
-        .order('name');
-
-      if (error) throw error;
-      setModels(data || []);
-    } catch (err) {
-      console.error('Error loading models:', err);
-    }
-  }, []);
-
-  // Load Models for filter dropdown
-  const loadModelsForFilter = useCallback(async (projectId: string) => {
-    if (!projectId || projectId === 'all') {
-      setModels([]);
-      return;
-    }
-    
-    try {
-      const { data, error } = await supabase
-        .from('project_models')
-        .select('id,name')
-        .eq('project_id', projectId)
-        .order('name');
-
-      if (error) throw error;
-      setModels(data || []);
-    } catch (err) {
-      console.error('Error loading models for filter:', err);
-    }
-  }, []);
-
-  // ### دالة جديدة: تحميل كل البيانات والإحصائيات ###
-  async function loadAllData(emp: Employee | null) {
-    setLoading(true);
-    setStatsLoading(true);
-    setError(null);
-    
-    try {
-      // تحميل الإحصائيات أولاً
-      const statsData = await fetchUnitStats(emp);
-      setStats(statsData);
-      setStatsLoading(false);
-      
-      // تحميل كل الوحدات
-      const allUnits = await fetchAllUnits(emp);
-      setUnits(allUnits);
-      
-      // تطبيق الفلاتر على كل البيانات
-      applyFiltersToData(allUnits);
-      
-    } catch (err) {
-      console.error('Error loading all data:', err);
-      setError('حدث خطأ في تحميل البيانات من قاعدة البيانات');
     } finally {
       setLoading(false);
       setStatsLoading(false);
     }
   }
 
-  // Apply filters to data
-  function applyFiltersToData(data: Unit[] = units) {
-    let filtered = [...data];
+  /* =====================
+     Load Projects (أسرع: Join employee_projects -> projects)
+  ===================== */
 
-    // Apply project filter
-    if (filters.project !== 'all') {
-      filtered = filtered.filter(unit => unit.project_id === filters.project);
-    }
+  async function loadProjects(emp: Employee | null) {
+    try {
+      // admin يشوف الكل
+      if (emp?.role === 'admin') {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id,name,code')
+          .order('name');
 
-    // Apply model filter
-    if (filters.model !== 'all') {
-      filtered = filtered.filter(unit => unit.model_id === filters.model);
-    }
-
-    // Apply unit type filter
-    if (filters.unitType !== 'all') {
-      filtered = filtered.filter(unit => unit.unit_type === filters.unitType);
-    }
-
-    // Apply status filter
-    if (filters.status !== 'all') {
-      filtered = filtered.filter(unit => unit.status === filters.status);
-    }
-
-    // Apply price range filter
-    if (filters.priceFrom) {
-      const minPrice = Number(filters.priceFrom);
-      filtered = filtered.filter(unit => unit.supported_price >= minPrice);
-    }
-
-    if (filters.priceTo) {
-      const maxPrice = Number(filters.priceTo);
-      filtered = filtered.filter(unit => unit.supported_price <= maxPrice);
-    }
-
-    // Apply area range filter
-    if (filters.areaFrom && filters.areaTo) {
-      const minArea = Number(filters.areaFrom);
-      const maxArea = Number(filters.areaTo);
-      filtered = filtered.filter(unit => 
-        unit.land_area && unit.land_area >= minArea && unit.land_area <= maxArea
-      );
-    }
-
-    // Apply search filter
-    if (filters.search) {
-      const searchTerm = filters.search.toLowerCase();
-      filtered = filtered.filter(unit => 
-        unit.unit_code.toLowerCase().includes(searchTerm) ||
-        (unit.block_no && unit.block_no.toLowerCase().includes(searchTerm)) ||
-        (unit.unit_no && unit.unit_no.toLowerCase().includes(searchTerm)) ||
-        (unit.project?.name && unit.project.name.toLowerCase().includes(searchTerm)) ||
-        (unit.project?.code && unit.project.code.toLowerCase().includes(searchTerm))
-      );
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aValue: any, bValue: any;
-      
-      switch (filters.sortBy) {
-        case 'unit_code':
-          aValue = a.unit_code;
-          bValue = b.unit_code;
-          break;
-        case 'supported_price':
-          aValue = a.supported_price;
-          bValue = b.supported_price;
-          break;
-        case 'land_area':
-          aValue = a.land_area || 0;
-          bValue = b.land_area || 0;
-          break;
-        default:
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
+        if (error) throw error;
+        setProjects(data || []);
+        return;
       }
 
-      if (filters.sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
+      // sales / sales_manager: المشاريع المسموح بيها فقط
+      const { data, error } = await supabase
+        .from('employee_projects')
+        .select('project_id, projects:projects(id,name,code)')
+        .eq('employee_id', emp?.id || '');
 
-    setFilteredUnits(filtered);
-    setCurrentPage(1); // Reset to first page when filters change
+      if (error) throw error;
+
+      const mapped: ProjectOption[] = (data || [])
+        .map((r: any) => r.projects)
+        .filter(Boolean)
+        .map((p: any) => ({ id: p.id, name: p.name, code: p.code }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+
+      setProjects(mapped);
+    } catch (e) {
+      console.error('Error loading projects:', e);
+      setProjects([]);
+    }
   }
 
-  // Handle filter changes
-  useEffect(() => {
-    applyFiltersToData();
-  }, [filters, units]);
+  /* =====================
+     Load Models
+  ===================== */
 
-  // Reset filters
+  const loadModels = useCallback(async (projId: string) => {
+    if (!projId) {
+      setModels([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('project_models')
+        .select('id,name')
+        .eq('project_id', projId)
+        .order('name');
+      if (error) throw error;
+      setModels(data || []);
+    } catch (e) {
+      console.error('Error loading models:', e);
+      setModels([]);
+    }
+  }, []);
+
+  const loadModelsForFilter = useCallback(async (projId: string) => {
+    if (!projId || projId === 'all') {
+      setModels([]);
+      return;
+    }
+    await loadModels(projId);
+  }, [loadModels]);
+
+  // Models for form
+  useEffect(() => {
+    if (projectId) loadModels(projectId);
+    else setModels([]);
+  }, [projectId, loadModels]);
+
+  // Models for filter
+  useEffect(() => {
+    loadModelsForFilter(filters.project);
+  }, [filters.project, loadModelsForFilter]);
+
+  /* =====================
+     RPC Calls
+  ===================== */
+
+  async function loadStats() {
+    setStatsLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('units_stats');
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? data[0] : data;
+
+      setStats({
+        available: Number(row?.available || 0),
+        reserved: Number(row?.reserved || 0),
+        sold: Number(row?.sold || 0),
+        total: Number(row?.total || 0),
+        totalPrice: Number(row?.total_price || 0),
+      });
+    } catch (e) {
+      console.error('Error loading stats:', e);
+      setStats({
+        available: 0, reserved: 0, sold: 0, total: 0, totalPrice: 0
+      });
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
+  async function loadUnits(page: number, pageSize: number, fPayload: any) {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error } = await supabase.rpc('units_list', {
+        filters: fPayload,
+        page,
+        page_size: pageSize,
+      });
+
+      if (error) throw error;
+
+      const total = Number(data?.total || 0);
+      const list = (data?.rows || []) as Unit[];
+
+      setTotalRows(total);
+      setRows(list);
+    } catch (e) {
+      console.error('Error loading units:', e);
+      setError('حدث خطأ في تحميل البيانات من قاعدة البيانات');
+      setTotalRows(0);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Debounce للبحث/الفلاتر
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const safePage = Math.min(currentPage, totalPages);
+      loadUnits(safePage, itemsPerPage, filtersPayload);
+    }, 250);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersPayload, currentPage, itemsPerPage]);
+
+  // لو الفلاتر اتغيرت (غير الصفحة)، رجّع للصفحة 1
+  useEffect(() => {
+    setCurrentPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    filters.project, filters.model, filters.unitType, filters.status,
+    filters.priceFrom, filters.priceTo, filters.areaFrom, filters.areaTo,
+    filters.sortBy, filters.sortOrder, filters.search
+  ]);
+
+  /* =====================
+     Actions
+  ===================== */
+
   function resetFilters() {
     setFilters({
       project: 'all',
@@ -649,7 +488,21 @@ export default function UnitsPage() {
     });
   }
 
-  // Handle form submission
+  function resetForm() {
+    setEditingId(null);
+    setUnitCode('');
+    setBlockNo('');
+    setUnitNo('');
+    setUnitType('apartment');
+    setStatus('available');
+    setPrice('');
+    setLandArea('');
+    setBuildArea('');
+    setProjectId('');
+    setModelId('');
+    setModels([]);
+  }
+
   async function handleSubmit() {
     if (!unitCode.trim() || !projectId || !price.trim() || Number(price) <= 0) {
       alert('يرجى ملء جميع الحقول المطلوبة بشكل صحيح');
@@ -675,43 +528,27 @@ export default function UnitsPage() {
           .from('units')
           .update(payload)
           .eq('id', editingId);
-        
         if (error) throw error;
         alert('تم تحديث الوحدة بنجاح');
       } else {
         const { error } = await supabase
           .from('units')
           .insert(payload);
-        
         if (error) throw error;
         alert('تم إضافة الوحدة بنجاح');
       }
 
       resetForm();
-      if (employee) await loadAllData(employee);
-    } catch (err) {
-      console.error('Error saving unit:', err);
+      await Promise.all([
+        loadStats(),
+        loadUnits(currentPage, itemsPerPage, filtersPayload),
+      ]);
+    } catch (e) {
+      console.error('Error saving unit:', e);
       alert('حدث خطأ في حفظ البيانات');
     }
   }
 
-  // Reset form
-  function resetForm() {
-    setEditingId(null);
-    setUnitCode('');
-    setBlockNo('');
-    setUnitNo('');
-    setUnitType('apartment');
-    setStatus('available');
-    setPrice('');
-    setLandArea('');
-    setBuildArea('');
-    setProjectId('');
-    setModelId('');
-    setModels([]);
-  }
-
-  // Start editing a unit
   async function startEdit(unit: Unit) {
     setEditingId(unit.id);
     setUnitCode(unit.unit_code);
@@ -723,12 +560,11 @@ export default function UnitsPage() {
     setLandArea(unit.land_area ? String(unit.land_area) : '');
     setBuildArea(unit.build_area ? String(unit.build_area) : '');
     setProjectId(unit.project_id);
-    
+
     await loadModels(unit.project_id);
     setModelId(unit.model_id || '');
   }
 
-  // Delete a unit
   async function deleteUnit(unit: Unit) {
     if (unit.status !== 'available') {
       alert('لا يمكن حذف وحدة محجوزة أو مباعة');
@@ -744,21 +580,42 @@ export default function UnitsPage() {
         .eq('id', unit.id);
 
       if (error) throw error;
-      
+
       alert('تم حذف الوحدة بنجاح');
-      if (employee) await loadAllData(employee);
-    } catch (err) {
-      console.error('Error deleting unit:', err);
+      await Promise.all([
+        loadStats(),
+        loadUnits(currentPage, itemsPerPage, filtersPayload),
+      ]);
+    } catch (e) {
+      console.error('Error deleting unit:', e);
       alert('حدث خطأ في حذف الوحدة');
     }
   }
 
-  // Export to Excel
-  function exportToExcel() {
+  async function exportToExcel() {
     setExporting(true);
-    
+
     try {
-      const excelData = filteredUnits.map(unit => ({
+      // هنجيب كل النتائج (حسب الفلاتر) في مرة واحدة لو العدد معقول
+      // لو كبير جداً، هات جزء أو زوّد حد أقصى حسب احتياجك
+      const maxExport = 50000;
+      const pageSize = Math.min(Math.max(totalRows, 1), maxExport);
+
+      const { data, error } = await supabase.rpc('units_list', {
+        filters: filtersPayload,
+        page: 1,
+        page_size: pageSize,
+      });
+
+      if (error) throw error;
+
+      const all = (data?.rows || []) as Unit[];
+
+      if (totalRows > maxExport) {
+        alert(`⚠️ عدد النتائج ${totalRows} كبير. تم تصدير أول ${maxExport} فقط.`);
+      }
+
+      const excelData = all.map(unit => ({
         'كود الوحدة': unit.unit_code,
         'رقم البلوك': unit.block_no || '-',
         'رقم الوحدة': unit.unit_no || '-',
@@ -775,45 +632,22 @@ export default function UnitsPage() {
       const ws = XLSX.utils.json_to_sheet(excelData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'الوحدات');
-      
+
       const fileName = `وحدات_${new Date().toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(wb, fileName);
-    } catch (err) {
-      console.error('Error exporting to Excel:', err);
+    } catch (e) {
+      console.error('Error exporting:', e);
       alert('حدث خطأ في تصدير البيانات');
     } finally {
       setExporting(false);
     }
   }
 
-  // Format currency
-  function formatCurrency(amount: number) {
-    return amount.toLocaleString('ar-SA') + ' ريال';
-  }
+  /* =====================
+     Render states
+  ===================== */
 
-  // Format area
-  function formatArea(area: number | null) {
-    return area ? `${area.toLocaleString('ar-SA')} م²` : '-';
-  }
-
-  // دالة لتحويل role code إلى نص عربي
-  function getRoleLabel(role: string): string {
-    switch (role) {
-      case 'admin': return 'مدير نظام';
-      case 'sales_manager': return 'مدير مبيعات';
-      case 'sales': return 'مندوب مبيعات';
-      default: return role;
-    }
-  }
-
-  // Pagination calculations للعرض فقط
-  const totalPages = Math.ceil(filteredUnits.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, filteredUnits.length);
-  const currentUnits = filteredUnits.slice(startIndex, endIndex);
-
-  // Component for loading state
-  if (loading) {
+  if (loading && rows.length === 0 && !error) {
     return (
       <div style={{
         padding: '40px',
@@ -823,19 +657,16 @@ export default function UnitsPage() {
         minHeight: '60vh',
         flexDirection: 'column'
       }}>
-        <div style={{ 
-          width: '50px', 
-          height: '50px', 
+        <div style={{
+          width: '50px',
+          height: '50px',
           border: '4px solid #f3f3f3',
           borderTop: '4px solid #3498db',
           borderRadius: '50%',
           animation: 'spin 1s linear infinite',
           marginBottom: '20px'
         }}></div>
-        <div style={{ color: '#666' }}>جاري تحميل جميع الوحدات...</div>
-        <div style={{ fontSize: '14px', color: '#999', marginTop: '10px' }}>
-          قد يستغرق بعض الوقت حسب عدد الوحدات
-        </div>
+        <div style={{ color: '#666' }}>جاري تحميل الوحدات...</div>
         <style jsx>{`
           @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -848,12 +679,12 @@ export default function UnitsPage() {
 
   if (error) {
     return (
-      <div style={{ 
+      <div style={{
         padding: '40px',
         maxWidth: '600px',
         margin: '0 auto'
       }}>
-        <div style={{ 
+        <div style={{
           backgroundColor: '#f8d7da',
           color: '#721c24',
           padding: '20px',
@@ -882,18 +713,18 @@ export default function UnitsPage() {
 
   return (
     <div style={{ padding: '20px' }}>
-      
+
       {/* ===== HEADER ===== */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'flex-start',
         flexWrap: 'wrap',
         gap: '20px',
         marginBottom: '30px'
       }}>
         <div>
-          <h1 style={{ 
+          <h1 style={{
             margin: '0 0 10px 0',
             color: '#2c3e50',
             fontSize: '28px'
@@ -901,18 +732,13 @@ export default function UnitsPage() {
             🏠 إدارة الوحدات
           </h1>
           <p style={{ color: '#666', margin: 0 }}>
-            إجمالي الوحدات: <strong>{stats.total.toLocaleString('ar-SA')}</strong> وحدة
+            إجمالي الوحدات: <strong>{Number(stats.total).toLocaleString('ar-SA')}</strong> وحدة
             {employee && (
               <span style={{ marginRight: '15px', color: '#0d8a3e' }}>
                 • {getRoleLabel(employee.role)}
               </span>
             )}
           </p>
-          {stats.total > 1000 && (
-            <p style={{ color: '#0d8a3e', fontSize: '14px', marginTop: '5px' }}>
-              ⚡ تم تحميل جميع الوحدات ({stats.total.toLocaleString('ar-SA')}) بنجاح
-            </p>
-          )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -932,10 +758,10 @@ export default function UnitsPage() {
           >
             {showFilters ? '✖ إخفاء الفلاتر' : '🔍 عرض الفلاتر'}
           </button>
-          
+
           <button
             onClick={exportToExcel}
-            disabled={exporting || filteredUnits.length === 0}
+            disabled={exporting || totalRows === 0}
             style={{
               padding: '10px 20px',
               backgroundColor: '#28a745',
@@ -946,14 +772,16 @@ export default function UnitsPage() {
               display: 'flex',
               alignItems: 'center',
               gap: '5px',
-              opacity: (exporting || filteredUnits.length === 0) ? 0.6 : 1
+              opacity: (exporting || totalRows === 0) ? 0.6 : 1
             }}
           >
             {exporting ? '⏳ جاري التصدير...' : '📊 تصدير Excel'}
           </button>
-          
+
           <button
-            onClick={() => employee && loadAllData(employee)}
+            onClick={async () => {
+              await Promise.all([loadStats(), loadUnits(currentPage, itemsPerPage, filtersPayload)]);
+            }}
             style={{
               padding: '10px 20px',
               backgroundColor: '#17a2b8',
@@ -971,7 +799,7 @@ export default function UnitsPage() {
         </div>
       </div>
 
-      {/* ===== STATISTICS CARDS ===== */}
+      {/* ===== STATISTICS ===== */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -979,119 +807,30 @@ export default function UnitsPage() {
         marginBottom: '30px'
       }}>
         {statsLoading ? (
-          // حالة التحميل للإحصائيات
           <>
-            <div style={{
-              backgroundColor: 'white',
-              borderRadius: '12px',
-              padding: '20px',
-              border: '1px solid #e0e0e0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '15px'
-            }}>
-              <div style={{
-                width: '50px',
-                height: '50px',
-                borderRadius: '10px',
-                backgroundColor: '#f3f3f3',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <div style={{
-                  width: '20px',
-                  height: '20px',
-                  border: '2px solid #ddd',
-                  borderTopColor: '#3498db',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite'
-                }}></div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{
-                  height: '24px',
-                  backgroundColor: '#f3f3f3',
-                  borderRadius: '4px',
-                  marginBottom: '8px'
-                }}></div>
-                <div style={{
-                  height: '14px',
-                  backgroundColor: '#f3f3f3',
-                  borderRadius: '4px',
-                  width: '60%'
-                }}></div>
-              </div>
-            </div>
-            {/* تكرار نفس البطاقة 3 مرات */}
-            {[1, 2, 3].map(i => (
+            {[1, 2, 3, 4].map(i => (
               <div key={i} style={{
                 backgroundColor: 'white',
                 borderRadius: '12px',
                 padding: '20px',
                 border: '1px solid #e0e0e0',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '15px'
-              }}>
-                <div style={{
-                  width: '50px',
-                  height: '50px',
-                  borderRadius: '10px',
-                  backgroundColor: '#f3f3f3'
-                }}></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{
-                    height: '24px',
-                    backgroundColor: '#f3f3f3',
-                    borderRadius: '4px',
-                    marginBottom: '8px'
-                  }}></div>
-                  <div style={{
-                    height: '14px',
-                    backgroundColor: '#f3f3f3',
-                    borderRadius: '4px',
-                    width: '60%'
-                  }}></div>
-                </div>
-              </div>
+                height: 90
+              }} />
             ))}
           </>
         ) : (
-          // الإحصائيات الفعلية
           <>
-            <StatCard 
-              title="المتاحة"
-              value={stats.available.toLocaleString('ar-SA')}
-              color="#10b981"
-              icon="✅"
-            />
-            <StatCard 
-              title="المحجوزة"
-              value={stats.reserved.toLocaleString('ar-SA')}
-              color="#f59e0b"
-              icon="⏳"
-            />
-            <StatCard 
-              title="المباعة"
-              value={stats.sold.toLocaleString('ar-SA')}
-              color="#ef4444"
-              icon="💰"
-            />
-            <StatCard 
-              title="القيمة الإجمالية"
-              value={formatCurrency(stats.totalPrice)}
-              color="#8b5cf6"
-              icon="💎"
-              isCurrency={true}
-            />
+            <StatCard title="المتاحة" value={stats.available} color="#10b981" icon="✅" />
+            <StatCard title="المحجوزة" value={stats.reserved} color="#f59e0b" icon="⏳" />
+            <StatCard title="المباعة" value={stats.sold} color="#ef4444" icon="💰" />
+            <StatCard title="القيمة الإجمالية" value={formatCurrency(stats.totalPrice)} color="#8b5cf6" icon="💎" isCurrency />
           </>
         )}
       </div>
 
       {/* ===== FILTERS PANEL ===== */}
       {showFilters && (
-        <div style={{ 
+        <div style={{
           backgroundColor: 'white',
           borderRadius: '8px',
           padding: '20px',
@@ -1100,21 +839,15 @@ export default function UnitsPage() {
           boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
         }}>
           <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#2c3e50' }}>🔍 فلاتر البحث المتقدمة</h3>
-          
+
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
             gap: '20px',
             marginBottom: '20px'
           }}>
-            {/* حقل البحث */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 بحث سريع
               </label>
               <input
@@ -1122,43 +855,20 @@ export default function UnitsPage() {
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                 placeholder="ابحث بكود الوحدة، البلوك، المشروع..."
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
-            {/* فلترة بالمشروع */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 المشروع
               </label>
               <select
                 value={filters.project}
                 onChange={(e) => {
-                  setFilters(prev => ({ 
-                    ...prev, 
-                    project: e.target.value,
-                    model: 'all' // إعادة ضبط النموذج عند تغيير المشروع
-                  }));
+                  setFilters(prev => ({ ...prev, project: e.target.value, model: 'all' }));
                 }}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع المشاريع</option>
                 {projects.map(project => (
@@ -1169,14 +879,8 @@ export default function UnitsPage() {
               </select>
             </div>
 
-            {/* فلترة بالنموذج */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 النموذج
               </label>
               <select
@@ -1184,45 +888,26 @@ export default function UnitsPage() {
                 onChange={(e) => setFilters(prev => ({ ...prev, model: e.target.value }))}
                 disabled={!filters.project || filters.project === 'all'}
                 style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white',
+                  width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd',
+                  fontSize: '14px', backgroundColor: 'white',
                   opacity: (!filters.project || filters.project === 'all') ? 0.6 : 1
                 }}
               >
-                <option value="all">
-                  {!filters.project || filters.project === 'all' ? 'اختر المشروع أولاً' : 'جميع النماذج'}
-                </option>
+                <option value="all">{(!filters.project || filters.project === 'all') ? 'اختر المشروع أولاً' : 'جميع النماذج'}</option>
                 {models.map(model => (
                   <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
               </select>
             </div>
 
-            {/* فلترة بنوع الوحدة */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 نوع الوحدة
               </label>
               <select
                 value={filters.unitType}
                 onChange={(e) => setFilters(prev => ({ ...prev, unitType: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع الأنواع</option>
                 {UNIT_TYPES.map(type => (
@@ -1231,43 +916,24 @@ export default function UnitsPage() {
               </select>
             </div>
 
-            {/* فلترة بالحالة */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 حالة الوحدة
               </label>
               <select
                 value={filters.status}
                 onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="all">جميع الحالات</option>
-                {UNIT_STATUSES.map(status => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
+                {UNIT_STATUSES.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </div>
 
-            {/* فلترة بالسعر */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 من سعر
               </label>
               <input
@@ -1275,23 +941,12 @@ export default function UnitsPage() {
                 value={filters.priceFrom}
                 onChange={(e) => setFilters(prev => ({ ...prev, priceFrom: e.target.value }))}
                 placeholder="الحد الأدنى"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 إلى سعر
               </label>
               <input
@@ -1299,24 +954,12 @@ export default function UnitsPage() {
                 value={filters.priceTo}
                 onChange={(e) => setFilters(prev => ({ ...prev, priceTo: e.target.value }))}
                 placeholder="الحد الأقصى"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '8px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
-            {/* فلترة بالمساحة */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 المساحة (م²)
               </label>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -1325,69 +968,38 @@ export default function UnitsPage() {
                   value={filters.areaFrom}
                   onChange={(e) => setFilters(prev => ({ ...prev, areaFrom: e.target.value }))}
                   placeholder="من"
-                  style={{
-                    flex: 1,
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px'
-                  }}
+                  style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
                 />
                 <input
                   type="number"
                   value={filters.areaTo}
                   onChange={(e) => setFilters(prev => ({ ...prev, areaTo: e.target.value }))}
                   placeholder="إلى"
-                  style={{
-                    flex: 1,
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px'
-                  }}
+                  style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px' }}
                 />
               </div>
             </div>
 
-            {/* الترتيب */}
             <div>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px',
-                fontWeight: '500',
-                color: '#2c3e50'
-              }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#2c3e50' }}>
                 ترتيب حسب
               </label>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <select
                   value={filters.sortBy}
                   onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value as FilterState['sortBy'] }))}
-                  style={{
-                    flex: 1,
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
+                  style={{ flex: 1, padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                 >
                   <option value="created_at">تاريخ الإنشاء</option>
                   <option value="unit_code">كود الوحدة</option>
                   <option value="supported_price">السعر</option>
                   <option value="land_area">المساحة</option>
                 </select>
-                
+
                 <select
                   value={filters.sortOrder}
                   onChange={(e) => setFilters(prev => ({ ...prev, sortOrder: e.target.value as 'asc' | 'desc' }))}
-                  style={{
-                    padding: '10px 15px',
-                    borderRadius: '8px',
-                    border: '1px solid #ddd',
-                    fontSize: '14px',
-                    backgroundColor: 'white'
-                  }}
+                  style={{ padding: '10px 15px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
                 >
                   <option value="desc">تنازلي</option>
                   <option value="asc">تصاعدي</option>
@@ -1396,9 +1008,8 @@ export default function UnitsPage() {
             </div>
           </div>
 
-          {/* أزرار الفلاتر */}
-          <div style={{ 
-            display: 'flex', 
+          <div style={{
+            display: 'flex',
             justifyContent: 'flex-end',
             gap: '10px',
             paddingTop: '20px',
@@ -1406,27 +1017,13 @@ export default function UnitsPage() {
           }}>
             <button
               onClick={resetFilters}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              style={{ padding: '8px 16px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
             >
               🔄 إعادة الضبط
             </button>
             <button
               onClick={() => setShowFilters(false)}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              style={{ padding: '8px 16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
             >
               تطبيق الفلاتر
             </button>
@@ -1445,37 +1042,16 @@ export default function UnitsPage() {
         borderRadius: '8px',
         border: '1px solid #e9ecef'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ color: '#495057', fontWeight: '500' }}>
-            نتائج البحث:
-          </span>
-          <span style={{ color: '#2c3e50', fontWeight: '600' }}>
-            {filteredUnits.length.toLocaleString('ar-SA')} وحدة
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ color: '#495057', fontWeight: '500' }}>نتائج البحث:</span>
+          <span style={{ color: '#2c3e50', fontWeight: '600' }}>{Number(totalRows).toLocaleString('ar-SA')} وحدة</span>
           {filters.search && (
-            <span style={{ 
-              backgroundColor: '#e3f2fd',
-              padding: '5px 15px',
-              borderRadius: '20px',
-              fontSize: '14px',
-              color: '#1565c0'
-            }}>
+            <span style={{ backgroundColor: '#e3f2fd', padding: '5px 15px', borderRadius: '20px', fontSize: '14px', color: '#1565c0' }}>
               🔍 البحث: "{filters.search}"
             </span>
           )}
-          {filteredUnits.length > 0 && (
-            <span style={{ 
-              backgroundColor: '#e6f4ea',
-              padding: '5px 15px',
-              borderRadius: '20px',
-              fontSize: '12px',
-              color: '#0d8a3e'
-            }}>
-              💾 تم تحميل {stats.total.toLocaleString('ar-SA')} وحدة
-            </span>
-          )}
         </div>
-        
+
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', color: '#666' }}>عرض:</span>
           <select
@@ -1484,12 +1060,7 @@ export default function UnitsPage() {
               setItemsPerPage(Number(e.target.value));
               setCurrentPage(1);
             }}
-            style={{
-              padding: '5px 10px',
-              borderRadius: '4px',
-              border: '1px solid #ddd',
-              fontSize: '14px'
-            }}
+            style={{ padding: '5px 10px', borderRadius: '4px', border: '1px solid #ddd', fontSize: '14px' }}
           >
             <option value={10}>10</option>
             <option value={25}>25</option>
@@ -1500,9 +1071,9 @@ export default function UnitsPage() {
         </div>
       </div>
 
-      {/* ===== ADD/EDIT FORM (Admin و Sales Manager فقط) ===== */}
+      {/* ===== ADD/EDIT FORM (Admin & Sales Manager فقط) ===== */}
       {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
-        <div style={{ 
+        <div style={{
           backgroundColor: 'white',
           borderRadius: '8px',
           padding: '20px',
@@ -1512,7 +1083,7 @@ export default function UnitsPage() {
           <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#2c3e50' }}>
             {editingId ? '✏️ تعديل وحدة' : '➕ إضافة وحدة جديدة'}
           </h3>
-          
+
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -1520,77 +1091,44 @@ export default function UnitsPage() {
             marginBottom: '20px'
           }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                كود الوحدة *
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>كود الوحدة *</label>
               <input
                 type="text"
                 value={unitCode}
                 onChange={(e) => setUnitCode(e.target.value)}
                 placeholder="أدخل كود الوحدة"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                رقم البلوك
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>رقم البلوك</label>
               <input
                 type="text"
                 value={blockNo}
                 onChange={(e) => setBlockNo(e.target.value)}
                 placeholder="رقم البلوك"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                رقم الوحدة
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>رقم الوحدة</label>
               <input
                 type="text"
                 value={unitNo}
                 onChange={(e) => setUnitNo(e.target.value)}
                 placeholder="رقم الوحدة"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                نوع الوحدة
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>نوع الوحدة</label>
               <select
                 value={unitType}
                 onChange={(e) => setUnitType(e.target.value as Unit['unit_type'])}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 {UNIT_TYPES.map(type => (
                   <option key={type.value} value={type.value}>{type.label}</option>
@@ -1599,101 +1137,57 @@ export default function UnitsPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                الحالة
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>الحالة</label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as Unit['status'])}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
-                {UNIT_STATUSES.map(status => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
+                {UNIT_STATUSES.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                السعر المعتمد *
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>السعر المعتمد *</label>
               <input
                 type="number"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
                 placeholder="السعر المعتمد"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                مساحة الأرض (م²)
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>مساحة الأرض (م²)</label>
               <input
                 type="number"
                 value={landArea}
                 onChange={(e) => setLandArea(e.target.value)}
                 placeholder="مساحة الأرض"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                مسطح البناء (م²)
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>مسطح البناء (م²)</label>
               <input
                 type="number"
                 value={buildArea}
                 onChange={(e) => setBuildArea(e.target.value)}
                 placeholder="مسطح البناء"
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px'
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                المشروع *
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>المشروع *</label>
               <select
                 value={projectId}
-                onChange={(e) => {
-                  setProjectId(e.target.value);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white'
-                }}
+                onChange={(e) => setProjectId(e.target.value)}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white' }}
               >
                 <option value="">اختر المشروع</option>
                 {projects.map(project => (
@@ -1705,22 +1199,12 @@ export default function UnitsPage() {
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>
-                النموذج
-              </label>
+              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#495057' }}>النموذج</label>
               <select
                 value={modelId}
                 onChange={(e) => setModelId(e.target.value)}
                 disabled={!projectId}
-                style={{
-                  width: '100%',
-                  padding: '10px 15px',
-                  borderRadius: '6px',
-                  border: '1px solid #ddd',
-                  fontSize: '14px',
-                  backgroundColor: 'white',
-                  opacity: !projectId ? 0.6 : 1
-                }}
+                style={{ width: '100%', padding: '10px 15px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '14px', backgroundColor: 'white', opacity: !projectId ? 0.6 : 1 }}
               >
                 <option value="">{projectId ? 'اختر النموذج' : 'اختر المشروع أولاً'}</option>
                 {models.map(model => (
@@ -1734,29 +1218,14 @@ export default function UnitsPage() {
             {editingId && (
               <button
                 onClick={resetForm}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer'
-                }}
+                style={{ padding: '10px 20px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
               >
                 إلغاء التعديل
               </button>
             )}
             <button
               onClick={handleSubmit}
-              style={{
-                padding: '10px 30px',
-                backgroundColor: '#28a745',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontWeight: '600'
-              }}
+              style={{ padding: '10px 30px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
             >
               {editingId ? '💾 حفظ التعديلات' : '➕ إضافة وحدة'}
             </button>
@@ -1764,7 +1233,7 @@ export default function UnitsPage() {
         </div>
       )}
 
-      {/* ===== UNITS TABLE ===== */}
+      {/* ===== TABLE ===== */}
       <div style={{
         backgroundColor: 'white',
         borderRadius: '8px',
@@ -1772,122 +1241,39 @@ export default function UnitsPage() {
         overflow: 'hidden',
         marginBottom: '30px'
       }}>
-        {filteredUnits.length === 0 ? (
-          <div style={{
-            textAlign: 'center',
-            padding: '60px 20px',
-            color: '#666'
-          }}>
+        {totalRows === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
             <div style={{ fontSize: '48px', marginBottom: '20px' }}>🏠</div>
             <h3 style={{ marginBottom: '10px', color: '#495057' }}>
-              {units.length === 0 ? 'لا توجد وحدات' : 'لا توجد وحدات تطابق معايير البحث'}
+              لا توجد وحدات تطابق معايير البحث
             </h3>
             <p style={{ marginBottom: '30px', maxWidth: '500px', margin: '0 auto' }}>
-              {units.length === 0 
-                ? 'لم يتم إضافة أي وحدات بعد.' 
-                : 'لم يتم العثور على وحدات تطابق معايير البحث. حاول تغيير الفلاتر.'}
+              حاول تغيير الفلاتر أو البحث.
             </p>
-            {units.length === 0 && (employee?.role === 'admin' || employee?.role === 'sales_manager') && (
-              <button
-                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                style={{
-                  padding: '10px 30px',
-                  backgroundColor: '#007bff',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '16px'
-                }}
-              >
-                ➕ إضافة وحدة جديدة
-              </button>
-            )}
           </div>
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                minWidth: '1200px'
-              }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1200px' }}>
                 <thead>
-                  <tr style={{
-                    backgroundColor: '#f8f9fa',
-                    borderBottom: '2px solid #dee2e6'
-                  }}>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>كود الوحدة</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>البلوك / الوحدة</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>النوع</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>الحالة</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>المساحة</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>السعر</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>المشروع</th>
-                    <th style={{ 
-                      padding: '15px', 
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#495057',
-                      fontSize: '14px'
-                    }}>النموذج</th>
+                  <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #dee2e6' }}>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>كود الوحدة</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>البلوك / الوحدة</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>النوع</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>الحالة</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>المساحة</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>السعر</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>المشروع</th>
+                    <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>النموذج</th>
                     {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
-                      <th style={{ 
-                        padding: '15px', 
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#495057',
-                        fontSize: '14px'
-                      }}>الإجراءات</th>
+                      <th style={{ padding: '15px', textAlign: 'right', fontWeight: '600', color: '#495057', fontSize: '14px' }}>الإجراءات</th>
                     )}
                   </tr>
                 </thead>
-                
+
                 <tbody>
-                  {currentUnits.map((unit, index) => (
-                    <tr 
+                  {rows.map((unit, index) => (
+                    <tr
                       key={unit.id}
                       style={{
                         backgroundColor: index % 2 === 0 ? '#fff' : '#f8f9fa',
@@ -1898,68 +1284,51 @@ export default function UnitsPage() {
                       onMouseLeave={(e) => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#fff' : '#f8f9fa'}
                     >
                       <td style={{ padding: '15px' }}>
-                        <div style={{ 
-                          fontWeight: '600',
-                          color: '#2c3e50',
-                          fontFamily: 'monospace',
-                          fontSize: '13px'
-                        }}>
+                        <div style={{ fontWeight: '600', color: '#2c3e50', fontFamily: 'monospace', fontSize: '13px' }}>
                           {unit.unit_code}
                         </div>
                         <div style={{ fontSize: '12px', color: '#999', marginTop: '5px' }}>
                           {new Date(unit.created_at).toLocaleDateString('ar-SA')}
                         </div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
-                        <div style={{ color: '#495057' }}>
-                          {unit.block_no || '-'}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                          {unit.unit_no || '-'}
-                        </div>
+                        <div style={{ color: '#495057' }}>{unit.block_no || '-'}</div>
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{unit.unit_no || '-'}</div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
                         <div style={{ color: '#495057' }}>
                           {UNIT_TYPES.find(t => t.value === unit.unit_type)?.label || unit.unit_type}
                         </div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
-                        <StatusBadge 
-                          status={unit.status} 
+                        <StatusBadge
+                          status={unit.status}
                           label={UNIT_STATUSES.find(s => s.value === unit.status)?.label || unit.status}
                         />
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
-                        <div style={{ color: '#495057' }}>
-                          {formatArea(unit.land_area)}
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                          {formatArea(unit.build_area)}
-                        </div>
+                        <div style={{ color: '#495057' }}>{formatArea(unit.land_area)}</div>
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>{formatArea(unit.build_area)}</div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
                         <div style={{ color: '#495057', fontWeight: '600' }}>
-                          {formatCurrency(unit.supported_price)}
+                          {formatCurrency(Number(unit.supported_price || 0))}
                         </div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
-                        <div style={{ color: '#495057' }}>
-                          {projectText(unit.project)}
-                        </div>
+                        <div style={{ color: '#495057' }}>{projectText(unit.project)}</div>
                       </td>
-                      
+
                       <td style={{ padding: '15px' }}>
-                        <div style={{ color: '#495057' }}>
-                          {unit.model?.name || '-'}
-                        </div>
+                        <div style={{ color: '#495057' }}>{unit.model?.name || '-'}</div>
                       </td>
-                      
+
                       {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
                         <td style={{ padding: '15px' }}>
                           <div style={{ display: 'flex', gap: '8px' }}>
@@ -1975,15 +1344,12 @@ export default function UnitsPage() {
                                 fontSize: '13px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '5px',
-                                transition: 'all 0.2s ease'
+                                gap: '5px'
                               }}
-                              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
-                              onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
                             >
                               ✏️ تعديل
                             </button>
-                            
+
                             <button
                               onClick={() => deleteUnit(unit)}
                               disabled={unit.status !== 'available'}
@@ -1998,18 +1364,7 @@ export default function UnitsPage() {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '5px',
-                                transition: 'all 0.2s ease',
                                 opacity: unit.status === 'available' ? 1 : 0.6
-                              }}
-                              onMouseOver={(e) => {
-                                if (unit.status === 'available') {
-                                  e.currentTarget.style.backgroundColor = '#f5c6cb';
-                                }
-                              }}
-                              onMouseOut={(e) => {
-                                if (unit.status === 'available') {
-                                  e.currentTarget.style.backgroundColor = '#f8d7da';
-                                }
                               }}
                             >
                               🗑️ حذف
@@ -2036,15 +1391,15 @@ export default function UnitsPage() {
                 gap: '10px'
               }}>
                 <div style={{ fontSize: '14px', color: '#666' }}>
-                  عرض <strong>{(startIndex + 1).toLocaleString('ar-SA')} - {endIndex.toLocaleString('ar-SA')}</strong> من <strong>{filteredUnits.length.toLocaleString('ar-SA')}</strong> وحدة
+                  عرض <strong>{(startIndex + 1).toLocaleString('ar-SA')} - {endIndex.toLocaleString('ar-SA')}</strong> من <strong>{totalRows.toLocaleString('ar-SA')}</strong> وحدة
                 </div>
-                
+
                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                   <button
                     onClick={() => setCurrentPage(1)}
                     disabled={currentPage === 1}
-                    style={{ 
-                      padding: '8px 12px', 
+                    style={{
+                      padding: '8px 12px',
                       backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
                       color: currentPage === 1 ? '#9ca3af' : 'white',
                       border: 'none',
@@ -2054,12 +1409,12 @@ export default function UnitsPage() {
                   >
                     ⟨⟨
                   </button>
-                  
+
                   <button
                     onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                     disabled={currentPage === 1}
-                    style={{ 
-                      padding: '8px 12px', 
+                    style={{
+                      padding: '8px 12px',
                       backgroundColor: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
                       color: currentPage === 1 ? '#9ca3af' : 'white',
                       border: 'none',
@@ -2069,25 +1424,20 @@ export default function UnitsPage() {
                   >
                     ⟨
                   </button>
-                  
+
                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                     let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    
+                    if (totalPages <= 5) pageNum = i + 1;
+                    else if (currentPage <= 3) pageNum = i + 1;
+                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                    else pageNum = currentPage - 2 + i;
+
                     return (
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        style={{ 
-                          padding: '8px 12px', 
+                        style={{
+                          padding: '8px 12px',
                           minWidth: '40px',
                           backgroundColor: currentPage === pageNum ? '#1d4ed8' : '#3b82f6',
                           color: 'white',
@@ -2101,12 +1451,12 @@ export default function UnitsPage() {
                       </button>
                     );
                   })}
-                  
+
                   <button
                     onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                     disabled={currentPage === totalPages}
-                    style={{ 
-                      padding: '8px 12px', 
+                    style={{
+                      padding: '8px 12px',
                       backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
                       color: currentPage === totalPages ? '#9ca3af' : 'white',
                       border: 'none',
@@ -2116,12 +1466,12 @@ export default function UnitsPage() {
                   >
                     ⟩
                   </button>
-                  
+
                   <button
                     onClick={() => setCurrentPage(totalPages)}
                     disabled={currentPage === totalPages}
-                    style={{ 
-                      padding: '8px 12px', 
+                    style={{
+                      padding: '8px 12px',
                       backgroundColor: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
                       color: currentPage === totalPages ? '#9ca3af' : 'white',
                       border: 'none',
@@ -2132,7 +1482,7 @@ export default function UnitsPage() {
                     ⟩⟩
                   </button>
                 </div>
-                
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span style={{ fontSize: '14px', color: '#666' }}>الصفحة:</span>
                   <input
@@ -2141,15 +1491,8 @@ export default function UnitsPage() {
                     max={totalPages}
                     value={currentPage}
                     onChange={(e) => {
-                      const page = parseInt(e.target.value);
-                      if (page >= 1 && page <= totalPages) {
-                        setCurrentPage(page);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      if (!e.target.value || parseInt(e.target.value) < 1) {
-                        setCurrentPage(1);
-                      }
+                      const p = parseInt(e.target.value);
+                      if (!Number.isNaN(p) && p >= 1 && p <= totalPages) setCurrentPage(p);
                     }}
                     style={{
                       width: '60px',
@@ -2167,7 +1510,6 @@ export default function UnitsPage() {
         )}
       </div>
 
-      {/* ===== FOOTER INFO ===== */}
       <div style={{
         padding: '15px',
         backgroundColor: '#f8f9fa',
@@ -2178,13 +1520,12 @@ export default function UnitsPage() {
         border: '1px dashed #dee2e6'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-          <span>آخر تحديث للوحدات: {new Date().toLocaleString('ar-SA')}</span>
-          <span>نتائج البحث: {filteredUnits.length.toLocaleString('ar-SA')} من {stats.total.toLocaleString('ar-SA')}</span>
+          <span>آخر تحديث: {new Date().toLocaleString('ar-SA')}</span>
+          <span>نتائج: {totalRows.toLocaleString('ar-SA')}</span>
           <span>القيمة الإجمالية: {formatCurrency(stats.totalPrice)}</span>
         </div>
       </div>
 
-      {/* CSS للـ loading spinner */}
       <style jsx>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }

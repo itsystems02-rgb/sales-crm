@@ -92,7 +92,6 @@ type FollowUp = {
   client_id: string;
   client_name: string;
   client_status?: string;
-  // schema has visit_location but no duration
   visit_location?: string | null;
 };
 
@@ -155,7 +154,6 @@ type ReservationNoteRow = {
   note_text: string;
   created_at: string;
 
-  // resolved fields
   client_id?: string;
   client_name?: string;
 
@@ -179,12 +177,10 @@ type DetailedActivity = {
    Utils
 ===================== */
 
-// Build ISO range from (YYYY-MM-DD) start to (YYYY-MM-DD) end inclusive.
-// We'll query created_at: gte(startISO) and lt(nextDayEndISO)
 function buildIsoRange(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00.000`);
   const end = new Date(`${endDate}T00:00:00.000`);
-  end.setDate(end.getDate() + 1); // next day start (exclusive)
+  end.setDate(end.getDate() + 1); // exclusive
 
   return {
     startISO: start.toISOString(),
@@ -196,23 +192,40 @@ function safeText(v: any) {
   return (v ?? '').toString();
 }
 
-// Pagination helper (PostgREST sometimes caps results)
-async function fetchAllPaged<T>(
-  queryFactory: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
-): Promise<T[]> {
+// بعض علاقات supabase بتطلع Array بدل Object
+function relOne<T>(rel: any): T | undefined {
+  if (!rel) return undefined;
+  return Array.isArray(rel) ? rel[0] : rel;
+}
+
+/**
+ * ✅ Pagination helper
+ * مهم: queryFactory ممكن يرجع PostgrestFilterBuilder (thenable) أو Promise
+ * عشان كده بنستقبل any ونعمل await جواه
+ */
+async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any): Promise<T[]> {
   const pageSize = 1000;
   let from = 0;
   let all: T[] = [];
+
   while (true) {
-    const { data, error } = await queryFactory(from, from + pageSize - 1);
-    if (error) break;
-    const batch = data || [];
+    const res = await queryFactory(from, from + pageSize - 1);
+    const { data, error } = res || {};
+
+    if (error) {
+      console.error('Paged fetch error:', error);
+      break;
+    }
+
+    const batch = (data || []) as T[];
     all = all.concat(batch);
+
     if (batch.length < pageSize) break;
+
     from += pageSize;
-    // small delay to avoid rate limiting
     await new Promise((r) => setTimeout(r, 80));
   }
+
   return all;
 }
 
@@ -228,7 +241,6 @@ export default function EmployeeActivityReportPage() {
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
 
-  // date range (from/to)
   const todayStr = new Date().toISOString().split('T')[0];
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: todayStr,
@@ -264,7 +276,6 @@ export default function EmployeeActivityReportPage() {
       setDebugInfo('🔄 جاري تهيئة الصفحة...');
 
       const emp = await getCurrentEmployee();
-
       if (!emp) {
         router.push('/login');
         return;
@@ -324,7 +335,7 @@ export default function EmployeeActivityReportPage() {
       setDebugInfo((p) => p + `\n✅ تم جلب ${employees.length} موظف`);
 
       if (employees.length > 0) {
-        setSelectedEmployeeId(employees[0].id);
+        setSelectedEmployeeId((prev) => prev || employees[0].id);
       }
     } catch (err: any) {
       console.error('fetchAllEmployees error:', err);
@@ -363,7 +374,6 @@ export default function EmployeeActivityReportPage() {
     );
 
     try {
-      // fetch all in parallel
       const [followUps, reservations, sales, visits, reservationNotes] = await Promise.all([
         fetchFollowUps(selectedEmployeeId, startISO, endISOExclusive),
         fetchReservations(selectedEmployeeId, startISO, endISOExclusive, dateRange.start, dateRange.end),
@@ -384,10 +394,9 @@ export default function EmployeeActivityReportPage() {
         );
       });
 
-      // Build unified activities
       const allActivities: EmployeeActivity[] = [];
 
-      // FollowUps → activities
+      // FollowUps
       for (const f of followUps) {
         allActivities.push({
           id: f.id,
@@ -398,13 +407,13 @@ export default function EmployeeActivityReportPage() {
           client_name: f.client_name,
           timestamp: f.created_at,
           reference_id: f.client_id,
-          duration: 10, // estimate (schema has no duration)
+          duration: 10,
           status: f.client_status,
           notes: f.notes,
         });
       }
 
-      // Reservations → activities (creation)
+      // Reservations + Reservation FollowUps
       for (const r of reservations) {
         allActivities.push({
           id: r.id,
@@ -423,13 +432,11 @@ export default function EmployeeActivityReportPage() {
           notes: r.notes || '',
         });
 
-        // Reservation follow-up inside reservations table (if employee is follow_employee_id)
-        // last_follow_up_at is date, follow_up_details is text
+        // ✅ متابعة الحجز (لو الموظف متابع الحجز وفيه last_follow_up_at)
         if (r.follow_employee_id === selectedEmployeeId && r.last_follow_up_at) {
-          // attach as a separate activity (date only -> set at 12:00 to make it sortable)
           const followupTs = new Date(`${r.last_follow_up_at}T12:00:00.000`).toISOString();
           allActivities.push({
-            id: `${r.id}-followup`,
+            id: `${r.id}-followup-${r.last_follow_up_at}`,
             type: 'reservation_followup',
             action: 'متابعة حجز',
             details: r.follow_up_details
@@ -449,7 +456,7 @@ export default function EmployeeActivityReportPage() {
         }
       }
 
-      // Sales → activities
+      // Sales
       for (const s of sales) {
         allActivities.push({
           id: s.id,
@@ -470,7 +477,7 @@ export default function EmployeeActivityReportPage() {
         });
       }
 
-      // Visits → activities
+      // Visits
       for (const v of visits) {
         const extra = [
           v.visit_location ? `المكان: ${v.visit_location}` : '',
@@ -497,7 +504,7 @@ export default function EmployeeActivityReportPage() {
         });
       }
 
-      // Reservation Notes → activities
+      // Reservation Notes
       for (const n of reservationNotes) {
         allActivities.push({
           id: n.id,
@@ -517,7 +524,7 @@ export default function EmployeeActivityReportPage() {
         });
       }
 
-      // Sort desc by timestamp
+      // Sort desc
       allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       setActivities(allActivities);
@@ -537,12 +544,10 @@ export default function EmployeeActivityReportPage() {
   }
 
   /* =====================
-     Fetchers (correct with schema)
+     Fetchers
   ===================== */
 
   async function fetchFollowUps(employeeId: string, startISO: string, endISOExclusive: string): Promise<FollowUp[]> {
-    // schema: client_followups(id, client_id, employee_id, type, notes, next_follow_up_date, created_at, visit_location)
-    // join clients(name, status)
     const rows = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('client_followups')
@@ -554,16 +559,19 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((f) => ({
-      id: f.id,
-      type: f.type,
-      notes: f.notes,
-      created_at: f.created_at,
-      client_id: f.client_id,
-      visit_location: f.visit_location ?? null,
-      client_name: f.clients?.name || 'غير معروف',
-      client_status: f.clients?.status || 'غير معروف',
-    }));
+    return rows.map((f) => {
+      const c = relOne<{ name: string; status: string }>(f.clients);
+      return {
+        id: f.id,
+        type: f.type,
+        notes: f.notes,
+        created_at: f.created_at,
+        client_id: f.client_id,
+        visit_location: f.visit_location ?? null,
+        client_name: c?.name || 'غير معروف',
+        client_status: c?.status || 'غير معروف',
+      };
+    });
   }
 
   async function fetchReservations(
@@ -573,31 +581,25 @@ export default function EmployeeActivityReportPage() {
     startDateStr: string,
     endDateStr: string
   ): Promise<ReservationRow[]> {
-    // schema: reservations has employee_id, follow_employee_id, last_follow_up_at (date), follow_up_details
-    // We want:
-    // - reservations created by employee within created_at range
-    // - AND reservations where follow_employee_id == employee and last_follow_up_at within date range
-    //
-    // We'll do two queries and merge unique.
+    const selectStr = `
+      id,
+      reservation_date,
+      status,
+      notes,
+      created_at,
+      client_id,
+      unit_id,
+      follow_employee_id,
+      follow_up_details,
+      last_follow_up_at,
+      clients(name),
+      units(unit_code, project_id, projects(name))
+    `;
+
     const createdByMe = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('reservations')
-        .select(
-          `
-          id,
-          reservation_date,
-          status,
-          notes,
-          created_at,
-          client_id,
-          unit_id,
-          follow_employee_id,
-          follow_up_details,
-          last_follow_up_at,
-          clients(name),
-          units(unit_code, project_id, projects(name))
-        `
-        )
+        .select(selectStr)
         .eq('employee_id', employeeId)
         .gte('created_at', startISO)
         .lt('created_at', endISOExclusive)
@@ -608,22 +610,7 @@ export default function EmployeeActivityReportPage() {
     const followedByMe = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('reservations')
-        .select(
-          `
-          id,
-          reservation_date,
-          status,
-          notes,
-          created_at,
-          client_id,
-          unit_id,
-          follow_employee_id,
-          follow_up_details,
-          last_follow_up_at,
-          clients(name),
-          units(unit_code, project_id, projects(name))
-        `
-        )
+        .select(selectStr)
         .eq('follow_employee_id', employeeId)
         .gte('last_follow_up_at', startDateStr)
         .lte('last_follow_up_at', endDateStr)
@@ -631,36 +618,40 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    // merge unique by id
     const map = new Map<string, any>();
     for (const r of createdByMe) map.set(r.id, r);
     for (const r of followedByMe) map.set(r.id, r);
 
     const merged = Array.from(map.values());
 
-    return merged.map((r) => ({
-      id: r.id,
-      reservation_date: r.reservation_date,
-      status: r.status,
-      notes: r.notes ?? null,
-      created_at: r.created_at,
+    return merged.map((r) => {
+      const client = relOne<{ name: string }>(r.clients);
+      const unit = relOne<any>(r.units);
+      const project = relOne<{ name: string }>(unit?.projects);
 
-      client_id: r.client_id,
-      client_name: r.clients?.name || 'غير معروف',
+      return {
+        id: r.id,
+        reservation_date: r.reservation_date,
+        status: r.status,
+        notes: r.notes ?? null,
+        created_at: r.created_at,
 
-      unit_id: r.unit_id,
-      unit_code: r.units?.unit_code || 'غير معروف',
+        client_id: r.client_id,
+        client_name: client?.name || 'غير معروف',
 
-      project_name: r.units?.projects?.name || 'غير معروف',
+        unit_id: r.unit_id,
+        unit_code: unit?.unit_code || 'غير معروف',
 
-      follow_employee_id: r.follow_employee_id ?? null,
-      follow_up_details: r.follow_up_details ?? null,
-      last_follow_up_at: r.last_follow_up_at ?? null,
-    }));
+        project_name: project?.name || 'غير معروف',
+
+        follow_employee_id: r.follow_employee_id ?? null,
+        follow_up_details: r.follow_up_details ?? null,
+        last_follow_up_at: r.last_follow_up_at ?? null,
+      };
+    });
   }
 
   async function fetchSales(employeeId: string, startISO: string, endISOExclusive: string): Promise<SaleRow[]> {
-    // schema: sales has project_id and sales_employee_id
     const rows = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('sales')
@@ -688,27 +679,32 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((s) => ({
-      id: s.id,
-      sale_date: s.sale_date,
-      price_before_tax: Number(s.price_before_tax || 0),
-      contract_type: s.contract_type ?? null,
-      finance_type: s.finance_type ?? null,
-      finance_entity: s.finance_entity ?? null,
-      created_at: s.created_at,
+    return rows.map((s) => {
+      const client = relOne<{ name: string }>(s.clients);
+      const unit = relOne<{ unit_code: string }>(s.units);
+      const project = relOne<{ name: string }>(s.projects);
 
-      client_id: s.client_id,
-      client_name: s.clients?.name || 'غير معروف',
+      return {
+        id: s.id,
+        sale_date: s.sale_date,
+        price_before_tax: Number(s.price_before_tax || 0),
+        contract_type: s.contract_type ?? null,
+        finance_type: s.finance_type ?? null,
+        finance_entity: s.finance_entity ?? null,
+        created_at: s.created_at,
 
-      unit_id: s.unit_id,
-      unit_code: s.units?.unit_code || 'غير معروف',
+        client_id: s.client_id,
+        client_name: client?.name || 'غير معروف',
 
-      project_name: s.projects?.name || 'غير معروف',
-    }));
+        unit_id: s.unit_id,
+        unit_code: unit?.unit_code || 'غير معروف',
+
+        project_name: project?.name || 'غير معروف',
+      };
+    });
   }
 
   async function fetchVisits(employeeId: string, startISO: string, endISOExclusive: string): Promise<VisitRow[]> {
-    // schema: visits(employee_id, client_id, visit_date, visit_location, details, created_at, salary, commitments, bank, job_sector)
     const rows = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('visits')
@@ -720,24 +716,26 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((v) => ({
-      id: v.id,
-      created_at: v.created_at,
-      visit_date: v.visit_date,
-      visit_location: v.visit_location ?? null,
-      details: v.details ?? null,
-      client_id: v.client_id,
-      client_name: v.clients?.name || 'غير معروف',
-      salary: v.salary ?? null,
-      commitments: v.commitments ?? null,
-      bank: v.bank ?? null,
-      job_sector: v.job_sector ?? null,
-    }));
+    return rows.map((v) => {
+      const client = relOne<{ name: string }>(v.clients);
+
+      return {
+        id: v.id,
+        created_at: v.created_at,
+        visit_date: v.visit_date,
+        visit_location: v.visit_location ?? null,
+        details: v.details ?? null,
+        client_id: v.client_id,
+        client_name: client?.name || 'غير معروف',
+        salary: v.salary ?? null,
+        commitments: v.commitments ?? null,
+        bank: v.bank ?? null,
+        job_sector: v.job_sector ?? null,
+      };
+    });
   }
 
   async function fetchReservationNotes(employeeId: string, startISO: string, endISOExclusive: string): Promise<ReservationNoteRow[]> {
-    // schema: reservation_notes(reservation_id, note_text, created_by, created_at)
-    // Need to join reservation to get client/unit/project names
     const rows = await fetchAllPaged<any>((from, to) =>
       supabase
         .from('reservation_notes')
@@ -766,23 +764,30 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((n) => ({
-      id: n.id,
-      reservation_id: n.reservation_id,
-      note_text: n.note_text,
-      created_at: n.created_at,
+    return rows.map((n) => {
+      const res = relOne<any>(n.reservations);
+      const client = relOne<{ name: string }>(res?.clients);
+      const unit = relOne<any>(res?.units);
+      const project = relOne<{ name: string }>(unit?.projects);
 
-      client_id: n.reservations?.client_id,
-      client_name: n.reservations?.clients?.name || 'غير معروف',
+      return {
+        id: n.id,
+        reservation_id: n.reservation_id,
+        note_text: n.note_text,
+        created_at: n.created_at,
 
-      unit_id: n.reservations?.unit_id,
-      unit_code: n.reservations?.units?.unit_code || 'غير معروف',
+        client_id: res?.client_id,
+        client_name: client?.name || 'غير معروف',
 
-      project_name: n.reservations?.units?.projects?.name || 'غير معروف',
+        unit_id: res?.unit_id,
+        unit_code: unit?.unit_code || 'غير معروف',
 
-      reservation_status: n.reservations?.status || '',
-      reservation_date: n.reservations?.reservation_date || '',
-    }));
+        project_name: project?.name || 'غير معروف',
+
+        reservation_status: res?.status || '',
+        reservation_date: res?.reservation_date || '',
+      };
+    });
   }
 
   /* =====================
@@ -815,8 +820,7 @@ export default function EmployeeActivityReportPage() {
     for (const a of list) activityCounts[a.action] = (activityCounts[a.action] || 0) + 1;
     const busiestActivity = Object.entries(activityCounts).sort((x, y) => y[1] - x[1])[0]?.[0] || 'لا توجد بيانات';
 
-    // Efficiency score (adjusted for your CRM):
-    // Sales (40), Reservations (20), Reservation Notes (8), Reservation FollowUps (10), FollowUps (10), Visits (12)
+    // Efficiency score (موزون حسب CRM عندك)
     let efficiencyScore = 0;
     if (list.length > 0) {
       const score =
@@ -1257,12 +1261,14 @@ export default function EmployeeActivityReportPage() {
               const now = new Date();
               const end = new Date(now);
               const start = new Date(now);
+
               if (x.label === 'أمس') {
                 start.setDate(start.getDate() - 1);
                 end.setDate(end.getDate() - 1);
               } else if (x.label.startsWith('آخر')) {
                 start.setDate(start.getDate() - (x.days - 1));
               }
+
               const startStr = start.toISOString().split('T')[0];
               const endStr = end.toISOString().split('T')[0];
 
@@ -1297,6 +1303,7 @@ export default function EmployeeActivityReportPage() {
               borderRadius: '8px',
               marginBottom: '20px',
               border: '1px solid #e9ecef',
+              marginTop: 20,
             }}
           >
             <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري توليد التقرير...</div>
@@ -1321,6 +1328,7 @@ export default function EmployeeActivityReportPage() {
                 flexWrap: 'wrap',
                 gap: '15px',
                 border: '1px solid #e9ecef',
+                marginTop: 20,
               }}
             >
               <div>
@@ -1334,7 +1342,8 @@ export default function EmployeeActivityReportPage() {
                 <div
                   style={{
                     padding: '5px 15px',
-                    backgroundColor: summary.efficiencyScore >= 80 ? '#e6f4ea' : summary.efficiencyScore >= 60 ? '#fff8e1' : '#ffebee',
+                    backgroundColor:
+                      summary.efficiencyScore >= 80 ? '#e6f4ea' : summary.efficiencyScore >= 60 ? '#fff8e1' : '#ffebee',
                     color: summary.efficiencyScore >= 80 ? '#0d8a3e' : summary.efficiencyScore >= 60 ? '#fbbc04' : '#ea4335',
                     borderRadius: '20px',
                     fontSize: '13px',
@@ -1418,11 +1427,6 @@ export default function EmployeeActivityReportPage() {
               <div style={{ marginTop: 20 }}>
                 <Card title="التفاصيل الكاملة (Raw Data)">
                   <div style={{ padding: 15, display: 'grid', gap: 16 }}>
-                    <div style={{ fontSize: 13, color: '#666' }}>
-                      ملاحظة: “عملاء جدد” في النظام غير ممكن حسابها بدقة لأن جدول <b>clients</b> لا يحتوي على <b>created_by</b> في الـSchema الحالي.
-                      لذلك التقرير يعتمد على الأنشطة الفعلية (Followups / Reservations / Sales / Visits / Reservation Notes).
-                    </div>
-
                     <details>
                       <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>FollowUps ({detailedData.followUps.length})</summary>
                       <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>

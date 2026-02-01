@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -12,79 +12,345 @@ import Card from '@/components/ui/Card';
    Types
 ===================== */
 
+type Role = 'admin' | 'sales' | 'sales_manager';
+
 type Employee = {
   id: string;
   name: string;
-  role: 'admin' | 'sales' | 'sales_manager';
+  role: Role;
   email: string;
   projects?: string[];
 };
 
+type StatRow = {
+  id: string;
+  name: string;
+  followUps: number;
+  reservations: number;
+  sales: number;
+  totalActivity: number;
+  projects: string[];
+};
+
 type DashboardStats = {
-  // إحصائيات عامة
   totalClients: number;
   totalAvailableUnits: number;
-  
-  // إحصائيات الموظف الحالي
+
   myFollowUps: number;
   myReservations: number;
   mySales: number;
-  
-  // إحصائيات الموظفين الآخرين
-  otherEmployeesStats: Array<{
-    id: string;
-    name: string;
-    followUps: number;
-    reservations: number;
-    sales: number;
-    totalActivity: number;
-    projects: string[];
-  }>;
-  
-  // إحصائيات الفريق (لـ sales_manager فقط)
-  myTeamStats?: Array<{
-    id: string;
-    name: string;
-    followUps: number;
-    reservations: number;
-    sales: number;
-    totalActivity: number;
-    projects: string[];
-  }>;
-  
-  // إحصائيات إضافية
+
+  otherEmployeesStats: StatRow[];
+  myTeamStats?: StatRow[];
+
   clientsByStatus: {
     lead: number;
     reserved: number;
     converted: number;
     visited: number;
   };
-  
+
   unitsByStatus: {
     available: number;
     reserved: number;
     sold: number;
   };
-  
-  // متوسط النشاط
+
   avgFollowUpsPerEmployee: number;
   avgReservationsPerEmployee: number;
   avgSalesPerEmployee: number;
-  
-  // معدل التحويل
+
   conversionRate: number;
   reservationToSaleRate: number;
-  
-  // إحصائيات إضافية
+
   myProjectsUnits: {
     available: number;
     reserved: number;
     sold: number;
   };
-  
-  // المشاريع الخاصة بالـ sales_manager
+
   managerProjects?: string[];
 };
+
+/* =====================
+   Helpers
+===================== */
+
+function getStartDate(range: 'today' | 'week' | 'month' | 'all'): string {
+  const now = new Date();
+
+  switch (range) {
+    case 'today':
+      now.setHours(0, 0, 0, 0);
+      break;
+    case 'week':
+      now.setDate(now.getDate() - 7);
+      break;
+    case 'month':
+      now.setMonth(now.getMonth() - 1);
+      break;
+    case 'all':
+      return '1970-01-01';
+  }
+
+  return now.toISOString();
+}
+
+function calculatePercentage(value: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.min((value / total) * 100, 100);
+}
+
+function getRoleLabel(role: Role): string {
+  switch (role) {
+    case 'admin':
+      return 'مدير نظام';
+    case 'sales_manager':
+      return 'مدير مبيعات';
+    case 'sales':
+      return 'مندوب مبيعات';
+    default:
+      return role;
+  }
+}
+
+// Concurrency limiter
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, idx: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length) as any;
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await mapper(items[current], current);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+function shouldRetrySchemaError(msg?: string) {
+  const m = (msg || '').toLowerCase();
+  return (
+    m.includes('column') ||
+    m.includes('does not exist') ||
+    m.includes('relationship') ||
+    m.includes('schema cache') ||
+    m.includes('not found')
+  );
+}
+
+async function getEmployeeProjects(employeeId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('employee_projects')
+    .select('project_id')
+    .eq('employee_id', employeeId);
+
+  if (error) {
+    console.error('Error fetching employee projects:', error);
+    return [];
+  }
+
+  return data?.map((p: any) => p.project_id) || [];
+}
+
+// sales_manager: فريقه = sales فقط داخل نفس المشاريع
+async function getTeamEmployees(managerId: string): Promise<Employee[]> {
+  const managerProjects = await getEmployeeProjects(managerId);
+  if (managerProjects.length === 0) return [];
+
+  const { data: employeeProjects, error } = await supabase
+    .from('employee_projects')
+    .select('employee_id')
+    .in('project_id', managerProjects);
+
+  if (error) {
+    console.error('Error fetching team employees:', error);
+    return [];
+  }
+
+  const employeeIds = [...new Set((employeeProjects || []).map((ep: any) => ep.employee_id))]
+    .filter((id) => id !== managerId);
+
+  if (employeeIds.length === 0) return [];
+
+  const { data: employees, error: empError } = await supabase
+    .from('employees')
+    .select('id, name, email, role')
+    .in('id', employeeIds)
+    .eq('role', 'sales');
+
+  if (empError) {
+    console.error('Error fetching employees data:', empError);
+    return [];
+  }
+
+  return (employees || []) as Employee[];
+}
+
+async function countUnitsByStatus(projectIds?: string[]) {
+  const base = (status: 'available' | 'reserved' | 'sold') => {
+    let q = supabase
+      .from('units')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', status);
+
+    if (projectIds && projectIds.length > 0) q = q.in('project_id', projectIds);
+    return q;
+  };
+
+  const [{ count: available }, { count: reserved }, { count: sold }] = await Promise.all([
+    base('available'),
+    base('reserved'),
+    base('sold')
+  ]);
+
+  return { available: available || 0, reserved: reserved || 0, sold: sold || 0 };
+}
+
+async function countClientsByStatus(projectIds?: string[]) {
+  const base = (status: 'lead' | 'reserved' | 'converted' | 'visited') => {
+    let q = supabase
+      .from('clients')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', status);
+
+    if (projectIds && projectIds.length > 0) q = q.in('project_id', projectIds);
+    return q;
+  };
+
+  const [{ count: lead }, { count: reserved }, { count: converted }, { count: visited }] = await Promise.all([
+    base('lead'),
+    base('reserved'),
+    base('converted'),
+    base('visited')
+  ]);
+
+  return {
+    lead: lead || 0,
+    reserved: reserved || 0,
+    converted: converted || 0,
+    visited: visited || 0
+  };
+}
+
+/**
+ * Count للأنشطة + فلترة بالمشاريع
+ * الهدف: أرقام sales و sales_manager تكون صحيحة (مقيدة بمشاريعهم)
+ *
+ * ملاحظة: بسبب اختلاف الـ schema عندك، بنحاول أكتر من استراتيجية:
+ * - project_id مباشر
+ * - join على units أو clients (لو فيه FK)
+ */
+async function countActivityWithProjects(params: {
+  table: 'client_followups' | 'reservations' | 'sales';
+  employeeField: string;
+  employeeId: string;
+  startDate: string;
+  projectIds?: string[];
+}): Promise<number> {
+  const { table, employeeField, employeeId, startDate, projectIds } = params;
+
+  if (!projectIds || projectIds.length === 0) {
+    const { count } = await supabase
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq(employeeField, employeeId)
+      .gte('created_at', startDate);
+
+    return count || 0;
+  }
+
+  const attempts: Array<() => any> = [];
+
+  if (table === 'client_followups') {
+    attempts.push(() =>
+      supabase
+        .from('client_followups')
+        .select('id, clients!inner(project_id)', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('clients.project_id', projectIds)
+    );
+
+    attempts.push(() =>
+      supabase
+        .from('client_followups')
+        .select('id', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('project_id', projectIds)
+    );
+  }
+
+  if (table === 'reservations') {
+    attempts.push(() =>
+      supabase
+        .from('reservations')
+        .select('id', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('project_id', projectIds)
+    );
+
+    attempts.push(() =>
+      supabase
+        .from('reservations')
+        .select('id, units!inner(project_id)', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('units.project_id', projectIds)
+    );
+
+    attempts.push(() =>
+      supabase
+        .from('reservations')
+        .select('id, clients!inner(project_id)', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('clients.project_id', projectIds)
+    );
+  }
+
+  if (table === 'sales') {
+    attempts.push(() =>
+      supabase
+        .from('sales')
+        .select('id', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('project_id', projectIds)
+    );
+
+    attempts.push(() =>
+      supabase
+        .from('sales')
+        .select('id, units!inner(project_id)', { count: 'exact', head: true })
+        .eq(employeeField, employeeId)
+        .gte('created_at', startDate)
+        .in('units.project_id', projectIds)
+    );
+  }
+
+  for (const makeQuery of attempts) {
+    const { count, error } = await makeQuery();
+    if (!error) return count || 0;
+
+    // لو الخطأ مش schema، نطبع ونوقف
+    if (!shouldRetrySchemaError(error.message)) {
+      console.error(`[${table}] count error:`, error);
+      return 0;
+    }
+  }
+
+  return 0;
+}
 
 /* =====================
    Page
@@ -97,498 +363,299 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('month');
 
-  /* =====================
-     Helper Functions
-  ===================== */
-  function getStartDate(range: 'today' | 'week' | 'month' | 'all'): string {
-    const now = new Date();
-    
-    switch (range) {
-      case 'today':
-        now.setHours(0, 0, 0, 0);
-        break;
-      case 'week':
-        now.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        now.setMonth(now.getMonth() - 1);
-        break;
-      case 'all':
-        return '1970-01-01';
-    }
-    
-    return now.toISOString();
-  }
+  const isProjectScoped = useMemo(
+    () => employee?.role === 'sales' || employee?.role === 'sales_manager',
+    [employee?.role]
+  );
 
-  function getActivityLevel(activity: number): { label: string; color: string; bgColor: string } {
-    if (activity >= 20) return { label: 'ممتاز', color: '#0d8a3e', bgColor: '#e6f4ea' };
-    if (activity >= 10) return { label: 'جيد جداً', color: '#34a853', bgColor: '#e8f5e9' };
-    if (activity >= 5) return { label: 'جيد', color: '#fbbc04', bgColor: '#fff8e1' };
-    if (activity >= 1) return { label: 'ضعيف', color: '#ea4335', bgColor: '#ffebee' };
-    return { label: 'لا يوجد نشاط', color: '#666', bgColor: '#f5f5f5' };
-  }
-
-  function calculatePercentage(value: number, total: number): number {
-    if (total === 0) return 0;
-    return Math.min((value / total) * 100, 100);
-  }
-
-  // دالة مساعدة لجلب كل الوحدات باستخدام Pagination
-  async function getAllUnits(projectIds?: string[]) {
-    let allUnits: any[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    let hasMore = true;
-    
-    while (hasMore) {
-      let query = supabase
-        .from('units')
-        .select('status, project_id')
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-      
-      if (projectIds && projectIds.length > 0) {
-        query = query.in('project_id', projectIds);
-      }
-      
-      const { data, error } = await query;
-      
-      if (error) {
-        console.error('Error fetching units:', error);
-        break;
-      }
-      
-      if (data && data.length > 0) {
-        allUnits = [...allUnits, ...data];
-        page++;
-        
-        if (data.length < pageSize) {
-          hasMore = false;
-        }
-      } else {
-        hasMore = false;
-      }
-    }
-    
-    return allUnits;
-  }
-
-  // دالة جديدة: جلب المشاريع المرتبطة بالموظف
-  async function getEmployeeProjects(employeeId: string): Promise<string[]> {
-    const { data, error } = await supabase
-      .from('employee_projects')
-      .select('project_id')
-      .eq('employee_id', employeeId);
-    
-    if (error) {
-      console.error('Error fetching employee projects:', error);
-      return [];
-    }
-    
-    return data?.map(p => p.project_id) || [];
-  }
-
-  // دالة جديدة: جلب موظفي الفريق لـ sales_manager
-  async function getTeamEmployees(managerId: string): Promise<Employee[]> {
-    // جلب المشاريع الخاصة بالـ manager
-    const managerProjects = await getEmployeeProjects(managerId);
-    
-    if (managerProjects.length === 0) return [];
-    
-    // جلب جميع الموظفين المرتبطين بنفس المشاريع
-    const { data: employeeProjects, error } = await supabase
-      .from('employee_projects')
-      .select('employee_id')
-      .in('project_id', managerProjects);
-    
-    if (error) {
-      console.error('Error fetching team employees:', error);
-      return [];
-    }
-    
-    const employeeIds = [...new Set(employeeProjects?.map(ep => ep.employee_id) || [])];
-    
-    // إزالة المدير نفسه من القائمة
-    const filteredIds = employeeIds.filter(id => id !== managerId);
-    
-    if (filteredIds.length === 0) return [];
-    
-    // جلب بيانات الموظفين
-    const { data: employees, error: empError } = await supabase
-      .from('employees')
-      .select('id, name, email, role')
-      .in('id', filteredIds)
-      .in('role', ['sales', 'sales_manager']);
-    
-    if (empError) {
-      console.error('Error fetching employees data:', empError);
-      return [];
-    }
-    
-    return employees as Employee[];
-  }
-
-  /* =====================
-     INIT
-  ===================== */
   useEffect(() => {
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange]);
 
   async function init() {
     try {
       setLoading(true);
-      
-      // 1. الحصول على بيانات الموظف الحالي
+
       const emp = await getCurrentEmployee();
       if (!emp) {
         setLoading(false);
         return;
       }
-      
-      // 2. الحصول على اسم الموظف والمشاريع المرتبطة
-      const [empData, empProjects] = await Promise.all([
-        supabase
-          .from('employees')
-          .select('name, email')
-          .eq('id', emp.id)
-          .single(),
+
+      // جلب الاسم + البريد + المشاريع
+      const [empRow, empProjects] = await Promise.all([
+        supabase.from('employees').select('name, email, role').eq('id', emp.id).single(),
         getEmployeeProjects(emp.id)
       ]);
-      
+
       const employeeData: Employee = {
-        ...emp,
-        name: empData?.data?.name || 'موظف',
-        email: empData?.data?.email || '',
+        id: emp.id,
+        name: empRow.data?.name || 'موظف',
+        email: empRow.data?.email || '',
+        role: (empRow.data?.role as Role) || (emp.role as Role),
         projects: empProjects
       };
-      
-      setEmployee(employeeData);
 
-      // 3. تحميل الإحصائيات
+      setEmployee(employeeData);
       await loadDashboardStats(employeeData);
-      
-      setLoading(false);
     } catch (err) {
       console.error('Error in init():', err);
+    } finally {
       setLoading(false);
     }
   }
 
-  /* =====================
-     Load Dashboard Stats
-  ===================== */
   async function loadDashboardStats(emp: Employee) {
     setLoading(true);
-    
+
     try {
       const startDate = getStartDate(timeRange);
-      
-      // ===== تحديد المشاريع المسموحة حسب الدور =====
+
       let allowedProjectIds: string[] = [];
       let managerProjects: string[] = [];
       let teamEmployees: Employee[] = [];
-      
+
       if (emp.role === 'sales' || emp.role === 'sales_manager') {
         allowedProjectIds = emp.projects || [];
       }
-      
+
       if (emp.role === 'sales_manager') {
-        managerProjects = emp.projects || [];
-        // جلب فريق المبيعات المرتبط بنفس المشاريع
+        managerProjects = allowedProjectIds;
         teamEmployees = await getTeamEmployees(emp.id);
       }
 
-      // ===== حالة الموظفين بدون مشاريع =====
-      if ((emp.role === 'sales' || emp.role === 'sales_manager') && allowedProjectIds.length === 0) {
-        const unitsByStatus = {
-          available: 0,
-          reserved: 0,
-          sold: 0
-        };
-
-        const dashboardStats: DashboardStats = {
+      if (isProjectScoped && allowedProjectIds.length === 0) {
+        const zeros = { available: 0, reserved: 0, sold: 0 };
+        setStats({
           totalClients: 0,
           totalAvailableUnits: 0,
           myFollowUps: 0,
           myReservations: 0,
           mySales: 0,
           otherEmployeesStats: [],
+          myTeamStats: undefined,
           clientsByStatus: { lead: 0, reserved: 0, converted: 0, visited: 0 },
-          unitsByStatus,
+          unitsByStatus: zeros,
           avgFollowUpsPerEmployee: 0,
           avgReservationsPerEmployee: 0,
           avgSalesPerEmployee: 0,
           conversionRate: 0,
           reservationToSaleRate: 0,
-          myProjectsUnits: unitsByStatus
-        };
-
-        setStats(dashboardStats);
+          myProjectsUnits: zeros,
+          managerProjects: emp.role === 'sales_manager' ? managerProjects : undefined
+        });
         return;
       }
 
-      // ===== جلب الوحدات حسب الصلاحيات =====
-      let filteredUnits: any[] = [];
-      
-      if (emp.role === 'admin') {
-        filteredUnits = await getAllUnits();
-      } else {
-        filteredUnits = await getAllUnits(allowedProjectIds);
-      }
+      const projectFilter = emp.role === 'admin' ? undefined : allowedProjectIds;
 
-      const unitsByStatus = {
-        available: filteredUnits.filter(u => u.status === 'available').length,
-        reserved: filteredUnits.filter(u => u.status === 'reserved').length,
-        sold: filteredUnits.filter(u => u.status === 'sold').length
-      };
+      // ===== كل العدادات الأساسية Parallel (ده أهم سبب للسرعة) =====
+      const [unitsByStatus, clientsByStatus, myFollowUps, myReservations, mySales] = await Promise.all([
+        countUnitsByStatus(projectFilter),
+        countClientsByStatus(projectFilter),
 
-      // ===== عدد الوحدات المتاحة =====
-      const getAvailableUnitsCount = async (projectIds?: string[]) => {
-        let count = 0;
-        let page = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-        
-        while (hasMore) {
-          let query = supabase
-            .from('units')
-            .select('id', { count: 'exact', head: false })
-            .eq('status', 'available')
-            .range(page * pageSize, (page + 1) * pageSize - 1);
-          
-          if (projectIds && projectIds.length > 0) {
-            query = query.in('project_id', projectIds);
-          }
-          
-          const { data } = await query;
-          
-          if (data) {
-            count += data.length;
-            page++;
-            
-            if (data.length < pageSize) {
-              hasMore = false;
-            }
-          } else {
-            hasMore = false;
-          }
-        }
-        
-        return count;
-      };
+        countActivityWithProjects({
+          table: 'client_followups',
+          employeeField: 'employee_id',
+          employeeId: emp.id,
+          startDate,
+          projectIds: projectFilter
+        }),
+        countActivityWithProjects({
+          table: 'reservations',
+          employeeField: 'employee_id',
+          employeeId: emp.id,
+          startDate,
+          projectIds: projectFilter
+        }),
+        countActivityWithProjects({
+          table: 'sales',
+          employeeField: 'sales_employee_id',
+          employeeId: emp.id,
+          startDate,
+          projectIds: projectFilter
+        })
+      ]);
 
-      let myAvailableUnits = 0;
-      let totalAvailableUnitsForAdmin = 0;
+      // ===== إحصائيات الموظفين =====
+      let otherEmployeesStats: StatRow[] = [];
+      let myTeamStats: StatRow[] = [];
 
       if (emp.role === 'admin') {
-        totalAvailableUnitsForAdmin = await getAvailableUnitsCount();
-      } else {
-        myAvailableUnits = await getAvailableUnitsCount(allowedProjectIds);
-      }
-
-      // ===== المتابعات الخاصة بالموظف الحالي =====
-      const { count: myFollowUps } = await supabase
-        .from('client_followups')
-        .select('*', { count: 'exact', head: true })
-        .eq('employee_id', emp.id)
-        .gte('created_at', startDate);
-
-      // ===== الحجوزات الخاصة بالموظف الحالي =====
-      const { count: myReservations } = await supabase
-        .from('reservations')
-        .select('*', { count: 'exact', head: true })
-        .eq('employee_id', emp.id)
-        .gte('created_at', startDate);
-
-      // ===== التنفيذات الخاصة بالموظف الحالي =====
-      const { count: mySales } = await supabase
-        .from('sales')
-        .select('*', { count: 'exact', head: true })
-        .eq('sales_employee_id', emp.id)
-        .gte('created_at', startDate);
-
-      // ===== إحصائيات الموظفين الآخرين =====
-      let otherEmployeesStats = [];
-      let myTeamStats = [];
-      
-      if (emp.role === 'admin') {
-        // الأدمن يرى كل الموظفين
-        const { data: allEmployees } = await supabase
+        const { data: allEmployees, error } = await supabase
           .from('employees')
           .select('id, name, role')
           .neq('id', emp.id)
           .in('role', ['sales', 'sales_manager']);
 
-        for (const otherEmp of (allEmployees || [])) {
-          const otherEmpProjects = await getEmployeeProjects(otherEmp.id);
-          
-          const [
-            { count: followUps },
-            { count: reservations },
-            { count: sales }
-          ] = await Promise.all([
-            supabase
-              .from('client_followups')
-              .select('*', { count: 'exact', head: true })
-              .eq('employee_id', otherEmp.id)
-              .gte('created_at', startDate),
-            
-            supabase
-              .from('reservations')
-              .select('*', { count: 'exact', head: true })
-              .eq('employee_id', otherEmp.id)
-              .gte('created_at', startDate),
-            
-            supabase
-              .from('sales')
-              .select('*', { count: 'exact', head: true })
-              .eq('sales_employee_id', otherEmp.id)
-              .gte('created_at', startDate)
-          ]);
+        if (error) {
+          console.error('Error fetching employees:', error);
+        } else {
+          const ids = (allEmployees || []).map((e: any) => e.id);
 
-          otherEmployeesStats.push({
-            id: otherEmp.id,
-            name: otherEmp.name || 'موظف',
-            followUps: followUps || 0,
-            reservations: reservations || 0,
-            sales: sales || 0,
-            totalActivity: (followUps || 0) + (reservations || 0) + (sales || 0),
-            projects: otherEmpProjects
+          // مشاريع الموظفين (Batch)
+          const { data: allEmpProjects } = await supabase
+            .from('employee_projects')
+            .select('employee_id, project_id')
+            .in('employee_id', ids);
+
+          const projectsMap = new Map<string, string[]>();
+          (allEmpProjects || []).forEach((row: any) => {
+            const arr = projectsMap.get(row.employee_id) || [];
+            arr.push(row.project_id);
+            projectsMap.set(row.employee_id, arr);
           });
-        }
-      } else if (emp.role === 'sales_manager') {
-        // sales_manager يرى فريق المبيعات الخاص به
-        for (const teamMember of teamEmployees) {
-          const teamMemberProjects = await getEmployeeProjects(teamMember.id);
-          
-          // فلترة فقط المشاريع المشتركة مع المدير
-          const sharedProjects = teamMemberProjects.filter(projectId => 
-            managerProjects.includes(projectId)
-          );
-          
-          if (sharedProjects.length === 0) continue;
-          
-          const [
-            { count: followUps },
-            { count: reservations },
-            { count: sales }
-          ] = await Promise.all([
-            supabase
-              .from('client_followups')
-              .select('*', { count: 'exact', head: true })
-              .eq('employee_id', teamMember.id)
-              .gte('created_at', startDate),
-            
-            supabase
-              .from('reservations')
-              .select('*', { count: 'exact', head: true })
-              .eq('employee_id', teamMember.id)
-              .gte('created_at', startDate),
-            
-            supabase
-              .from('sales')
-              .select('*', { count: 'exact', head: true })
-              .eq('sales_employee_id', teamMember.id)
-              .gte('created_at', startDate)
-          ]);
 
-          myTeamStats.push({
-            id: teamMember.id,
-            name: teamMember.name || 'موظف',
-            followUps: followUps || 0,
-            reservations: reservations || 0,
-            sales: sales || 0,
-            totalActivity: (followUps || 0) + (reservations || 0) + (sales || 0),
-            projects: sharedProjects
+          otherEmployeesStats = await mapWithConcurrency(allEmployees || [], 8, async (e: any) => {
+            const projects = projectsMap.get(e.id) || [];
+
+            const [fu, rs, sl] = await Promise.all([
+              countActivityWithProjects({
+                table: 'client_followups',
+                employeeField: 'employee_id',
+                employeeId: e.id,
+                startDate
+              }),
+              countActivityWithProjects({
+                table: 'reservations',
+                employeeField: 'employee_id',
+                employeeId: e.id,
+                startDate
+              }),
+              countActivityWithProjects({
+                table: 'sales',
+                employeeField: 'sales_employee_id',
+                employeeId: e.id,
+                startDate
+              })
+            ]);
+
+            return {
+              id: e.id,
+              name: e.name || 'موظف',
+              followUps: fu,
+              reservations: rs,
+              sales: sl,
+              totalActivity: fu + rs + sl,
+              projects
+            };
           });
         }
       }
 
-      // ===== توزيع العملاء حسب الحالة =====
-      let clientsQuery = supabase
-        .from('clients')
-        .select('status');
-      
-      if (emp.role === 'sales' || emp.role === 'sales_manager') {
-        clientsQuery = clientsQuery.in('project_id', allowedProjectIds);
+      if (emp.role === 'sales_manager') {
+        // Projects map مرة واحدة
+        const teamIds = teamEmployees.map((t) => t.id);
+        const { data: teamProjectsData } = await supabase
+          .from('employee_projects')
+          .select('employee_id, project_id')
+          .in('employee_id', teamIds);
+
+        const teamProjectsMap = new Map<string, string[]>();
+        (teamProjectsData || []).forEach((row: any) => {
+          const arr = teamProjectsMap.get(row.employee_id) || [];
+          arr.push(row.project_id);
+          teamProjectsMap.set(row.employee_id, arr);
+        });
+
+        const computed = await mapWithConcurrency(teamEmployees, 8, async (m) => {
+          const memberProjects = teamProjectsMap.get(m.id) || [];
+          const shared = memberProjects.filter((p) => managerProjects.includes(p));
+          if (shared.length === 0) return null;
+
+          const [fu, rs, sl] = await Promise.all([
+            countActivityWithProjects({
+              table: 'client_followups',
+              employeeField: 'employee_id',
+              employeeId: m.id,
+              startDate,
+              projectIds: shared
+            }),
+            countActivityWithProjects({
+              table: 'reservations',
+              employeeField: 'employee_id',
+              employeeId: m.id,
+              startDate,
+              projectIds: shared
+            }),
+            countActivityWithProjects({
+              table: 'sales',
+              employeeField: 'sales_employee_id',
+              employeeId: m.id,
+              startDate,
+              projectIds: shared
+            })
+          ]);
+
+          return {
+            id: m.id,
+            name: m.name || 'موظف',
+            followUps: fu,
+            reservations: rs,
+            sales: sl,
+            totalActivity: fu + rs + sl,
+            projects: shared
+          } as StatRow;
+        });
+
+        myTeamStats = computed.filter(Boolean) as StatRow[];
       }
-      
-      const { data: clientsByStatusData } = await clientsQuery;
 
-      const clientsByStatus = {
-        lead: clientsByStatusData?.filter(c => c.status === 'lead').length || 0,
-        reserved: clientsByStatusData?.filter(c => c.status === 'reserved').length || 0,
-        converted: clientsByStatusData?.filter(c => c.status === 'converted').length || 0,
-        visited: clientsByStatusData?.filter(c => c.status === 'visited').length || 0
-      };
+      // ===== متوسطات + معدلات =====
+      const totalClients = Object.values(clientsByStatus).reduce((a, b) => a + b, 0);
 
-      // ===== حساب المتوسطات =====
       let employeeCount = 1;
-      let totalFollowUps = myFollowUps || 0;
-      let totalReservations = myReservations || 0;
-      let totalSales = mySales || 0;
-      
+      let totalFollowUps = myFollowUps;
+      let totalReservations = myReservations;
+      let totalSales = mySales;
+
       if (emp.role === 'admin') {
         const { data: allSalesEmployees } = await supabase
           .from('employees')
           .select('id')
           .in('role', ['sales', 'sales_manager']);
-        
+
         employeeCount = allSalesEmployees?.length || 1;
-        
-        totalFollowUps = otherEmployeesStats.reduce((sum, emp) => sum + emp.followUps, myFollowUps || 0);
-        totalReservations = otherEmployeesStats.reduce((sum, emp) => sum + emp.reservations, myReservations || 0);
-        totalSales = otherEmployeesStats.reduce((sum, emp) => sum + emp.sales, mySales || 0);
+
+        totalFollowUps = otherEmployeesStats.reduce((sum, e) => sum + e.followUps, myFollowUps);
+        totalReservations = otherEmployeesStats.reduce((sum, e) => sum + e.reservations, myReservations);
+        totalSales = otherEmployeesStats.reduce((sum, e) => sum + e.sales, mySales);
       } else if (emp.role === 'sales_manager') {
-        employeeCount = myTeamStats.length + 1; // +1 للمدير نفسه
-        
-        const teamFollowUps = myTeamStats.reduce((sum, emp) => sum + emp.followUps, 0);
-        const teamReservations = myTeamStats.reduce((sum, emp) => sum + emp.reservations, 0);
-        const teamSales = myTeamStats.reduce((sum, emp) => sum + emp.sales, 0);
-        
-        totalFollowUps = (myFollowUps || 0) + teamFollowUps;
-        totalReservations = (myReservations || 0) + teamReservations;
-        totalSales = (mySales || 0) + teamSales;
+        employeeCount = myTeamStats.length + 1;
+        totalFollowUps = myFollowUps + myTeamStats.reduce((sum, e) => sum + e.followUps, 0);
+        totalReservations = myReservations + myTeamStats.reduce((sum, e) => sum + e.reservations, 0);
+        totalSales = mySales + myTeamStats.reduce((sum, e) => sum + e.sales, 0);
       }
 
-      // ===== حساب معدلات التحويل =====
-      const totalClients = Object.values(clientsByStatus).reduce((a, b) => a + b, 0);
-      
-      const conversionRate = totalClients && totalSales 
-        ? Math.round((totalSales / totalClients) * 100) 
-        : 0;
-      
-      const reservationToSaleRate = totalReservations && totalSales
-        ? Math.round((totalSales / totalReservations) * 100)
-        : 0;
+      const conversionRate = totalClients && totalSales ? Math.round((totalSales / totalClients) * 100) : 0;
+      const reservationToSaleRate =
+        totalReservations && totalSales ? Math.round((totalSales / totalReservations) * 100) : 0;
 
-      // ===== تجميع كل الإحصائيات =====
-      const dashboardStats: DashboardStats = {
+      setStats({
         totalClients,
-        totalAvailableUnits: emp.role === 'admin' ? totalAvailableUnitsForAdmin : myAvailableUnits,
-        
-        myFollowUps: myFollowUps || 0,
-        myReservations: myReservations || 0,
-        mySales: mySales || 0,
-        
+        totalAvailableUnits: unitsByStatus.available,
+
+        myFollowUps,
+        myReservations,
+        mySales,
+
         otherEmployeesStats,
-        myTeamStats: myTeamStats.length > 0 ? myTeamStats : undefined,
-        
+        myTeamStats: emp.role === 'sales_manager' && myTeamStats.length ? myTeamStats : undefined,
+
         clientsByStatus,
         unitsByStatus,
-        
+
         avgFollowUpsPerEmployee: Math.round(totalFollowUps / employeeCount),
         avgReservationsPerEmployee: Math.round(totalReservations / employeeCount),
         avgSalesPerEmployee: Math.round(totalSales / employeeCount),
-        
+
         conversionRate,
         reservationToSaleRate,
-        
+
         myProjectsUnits: unitsByStatus,
         managerProjects: emp.role === 'sales_manager' ? managerProjects : undefined
-      };
-
-      setStats(dashboardStats);
+      });
     } catch (err) {
       console.error('Error loading dashboard stats:', err);
     } finally {
@@ -596,21 +663,6 @@ export default function DashboardPage() {
     }
   }
 
-  /* =====================
-     Helper: Get Role Label
-  ===================== */
-  function getRoleLabel(role: string): string {
-    switch (role) {
-      case 'admin': return 'مدير نظام';
-      case 'sales_manager': return 'مدير مبيعات';
-      case 'sales': return 'مندوب مبيعات';
-      default: return role;
-    }
-  }
-
-  /* =====================
-     UI
-  ===================== */
   if (loading) {
     return (
       <RequireAuth>
@@ -627,33 +679,34 @@ export default function DashboardPage() {
   return (
     <RequireAuth>
       <div className="page dashboard-page">
-        
         {/* Header */}
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          marginBottom: '20px',
-          flexWrap: 'wrap',
-          gap: '10px'
-        }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '20px',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}
+        >
           <div>
             <h1 style={{ margin: 0 }}>لوحة التحكم</h1>
             <p style={{ color: '#666', marginTop: '5px' }}>
-              مرحباً {employee?.name} ({getRoleLabel(employee?.role || '')})
-              {employee?.projects && employee.projects.length > 0 && (
+              مرحباً {employee?.name} ({employee ? getRoleLabel(employee.role) : ''})
+              {employee?.projects?.length ? (
                 <span style={{ fontSize: '12px', color: '#0d8a3e', marginRight: '10px' }}>
                   • {employee.projects.length} مشروع
                 </span>
-              )}
+              ) : null}
             </p>
           </div>
-          
+
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <span>الفترة الزمنية:</span>
-            <select 
-              value={timeRange} 
-              onChange={e => setTimeRange(e.target.value as any)}
+            <select
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value as any)}
               style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #ddd' }}
             >
               <option value="today">اليوم</option>
@@ -664,698 +717,173 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Quick Stats Cards */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-          gap: '20px', 
-          marginBottom: '30px' 
-        }}>
-          {/* العملاء */}
-          <div className="card-stats" style={{ 
-            padding: '20px', 
-            backgroundColor: 'white', 
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            border: '1px solid #eaeaea'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>إجمالي العملاء</div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1a73e8' }}>
-                  {stats?.totalClients.toLocaleString()}
-                </div>
-                {employee?.role === 'sales_manager' && (
-                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
-                    في مشاريعك ({stats?.managerProjects?.length || 0})
-                  </div>
-                )}
-              </div>
-              <div style={{ 
-                width: '50px', 
-                height: '50px', 
-                borderRadius: '12px', 
-                backgroundColor: '#e8f0fe',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '24px', color: '#1a73e8' }}>👥</span>
-              </div>
-            </div>
-            <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-              <span style={{ color: '#0d8a3e' }}>متابعة: {stats?.clientsByStatus.lead}</span>
-              <span style={{ color: '#fbbc04' }}>محجوز: {stats?.clientsByStatus.reserved}</span>
-              <span style={{ color: '#34a853' }}>تم البيع: {stats?.clientsByStatus.converted}</span>
+        {/* Quick Stats */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '20px',
+            marginBottom: '30px'
+          }}
+        >
+          <div style={{ padding: '20px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+            <div style={{ color: '#666', fontSize: '14px' }}>إجمالي العملاء</div>
+            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{stats?.totalClients.toLocaleString()}</div>
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+              متابعة: {stats?.clientsByStatus.lead} • محجوز: {stats?.clientsByStatus.reserved} • تم البيع:{' '}
+              {stats?.clientsByStatus.converted}
             </div>
           </div>
 
-          {/* الوحدات المتاحة */}
-          <div className="card-stats" style={{ 
-            padding: '20px', 
-            backgroundColor: 'white', 
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            border: '1px solid #eaeaea'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>
-                  الوحدات المتاحة 
-                  {employee?.role === 'sales' && '(مشاريعك)'}
-                  {employee?.role === 'sales_manager' && '(فريقك)'}
-                </div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0d8a3e' }}>
-                  {stats?.totalAvailableUnits.toLocaleString()}
-                </div>
-              </div>
-              <div style={{ 
-                width: '50px', 
-                height: '50px', 
-                borderRadius: '12px', 
-                backgroundColor: '#e6f4ea',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '24px', color: '#0d8a3e' }}>🏠</span>
-              </div>
+          <div style={{ padding: '20px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+            <div style={{ color: '#666', fontSize: '14px' }}>
+              الوحدات المتاحة {employee?.role === 'admin' ? '(كل المشاريع)' : '(مشاريعك)'}
             </div>
-            <div style={{ marginTop: '15px', fontSize: '12px', color: '#666' }}>
-              {employee?.role === 'admin' ? 'كل المشاريع' : 
-               employee?.role === 'sales_manager' ? 'المشاريع الخاصة بفريقك' : 
-               'المشاريع المرتبطة بك فقط'}
-            </div>
+            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{stats?.totalAvailableUnits.toLocaleString()}</div>
           </div>
 
-          {/* نشاطي الشخصي */}
-          <div className="card-stats" style={{ 
-            padding: '20px', 
-            backgroundColor: 'white', 
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            border: '1px solid #eaeaea'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>نشاطي الشخصي</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-                  <span style={{ color: '#1a73e8' }}>{stats?.myFollowUps}</span> / 
-                  <span style={{ color: '#fbbc04' }}> {stats?.myReservations}</span> / 
-                  <span style={{ color: '#34a853' }}> {stats?.mySales}</span>
-                </div>
-                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                  متابعات / حجوزات / تنفيذات
-                </div>
-              </div>
-              <div style={{ 
-                width: '50px', 
-                height: '50px', 
-                borderRadius: '12px', 
-                backgroundColor: '#fff8e1',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '24px', color: '#fbbc04' }}>📊</span>
-              </div>
+          <div style={{ padding: '20px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+            <div style={{ color: '#666', fontSize: '14px' }}>نشاطي</div>
+            <div style={{ fontSize: '22px', fontWeight: 'bold' }}>
+              {stats?.myFollowUps} / {stats?.myReservations} / {stats?.mySales}
             </div>
-            <div style={{ marginTop: '15px' }}>
-              <div style={{ 
-                height: '6px', 
-                backgroundColor: '#eee', 
-                borderRadius: '3px',
-                overflow: 'hidden'
-              }}>
-                <div style={{ 
-                  width: `${Math.min((stats?.myFollowUps || 0) * 5, 100)}%`, 
-                  height: '100%', 
-                  backgroundColor: '#1a73e8' 
-                }} />
-              </div>
-            </div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>متابعات / حجوزات / تنفيذات</div>
           </div>
 
-          {/* معدلات التحويل */}
-          <div className="card-stats" style={{ 
-            padding: '20px', 
-            backgroundColor: 'white', 
-            borderRadius: '8px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            border: '1px solid #eaeaea'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: '#666', fontSize: '14px', marginBottom: '5px' }}>معدل التحويل</div>
-                <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#ea4335' }}>
-                  {stats?.conversionRate}%
-                </div>
-                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                  من عميل إلى بيع
-                </div>
-              </div>
-              <div style={{ 
-                width: '50px', 
-                height: '50px', 
-                borderRadius: '12px', 
-                backgroundColor: '#ffebee',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}>
-                <span style={{ fontSize: '24px', color: '#ea4335' }}>📈</span>
-              </div>
-            </div>
-            <div style={{ marginTop: '15px', fontSize: '12px' }}>
+          <div style={{ padding: '20px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #eaeaea' }}>
+            <div style={{ color: '#666', fontSize: '14px' }}>معدل التحويل</div>
+            <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{stats?.conversionRate}%</div>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
               {stats?.reservationToSaleRate}% من الحجوزات تتحول لبيع
             </div>
           </div>
         </div>
 
-        {/* قسمين رئيسيين */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: employee?.role === 'admin' ? '1fr 1fr' : '1fr', 
-          gap: '20px',
-          marginBottom: '30px'
-        }}>
-          {/* إحصائيات الوحدات */}
-          <Card title={`توزيع الوحدات ${employee?.role === 'sales' ? '(مشاريعك)' : employee?.role === 'sales_manager' ? '(فريقك)' : ''}`}>
-            <div style={{ padding: '15px' }}>
-              {(() => {
-                const total = (stats?.unitsByStatus.available || 0) + 
-                             (stats?.unitsByStatus.reserved || 0) + 
-                             (stats?.unitsByStatus.sold || 0);
-                
-                return (
-                  <>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-                      <div style={{ 
-                        width: '12px', 
-                        height: '12px', 
-                        backgroundColor: '#0d8a3e', 
-                        borderRadius: '50%',
-                        marginRight: '8px'
-                      }} />
-                      <span>متاحة: {stats?.unitsByStatus.available}</span>
-                      <div style={{ flex: 1, marginLeft: '10px' }}>
-                        <div style={{ 
-                          width: `${calculatePercentage(stats?.unitsByStatus.available || 0, total)}%`, 
-                          height: '8px', 
-                          backgroundColor: '#0d8a3e',
-                          borderRadius: '4px'
-                        }} />
-                      </div>
-                    </div>
-                    
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-                      <div style={{ 
-                        width: '12px', 
-                        height: '12px', 
-                        backgroundColor: '#fbbc04', 
-                        borderRadius: '50%',
-                        marginRight: '8px'
-                      }} />
-                      <span>محجوزة: {stats?.unitsByStatus.reserved}</span>
-                      <div style={{ flex: 1, marginLeft: '10px' }}>
-                        <div style={{ 
-                          width: `${calculatePercentage(stats?.unitsByStatus.reserved || 0, total)}%`, 
-                          height: '8px', 
-                          backgroundColor: '#fbbc04',
-                          borderRadius: '4px'
-                        }} />
-                      </div>
-                    </div>
-                    
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <div style={{ 
-                        width: '12px', 
-                        height: '12px', 
-                        backgroundColor: '#34a853', 
-                        borderRadius: '50%',
-                        marginRight: '8px'
-                      }} />
-                      <span>مباعة: {stats?.unitsByStatus.sold}</span>
-                      <div style={{ flex: 1, marginLeft: '10px' }}>
-                        <div style={{ 
-                          width: `${calculatePercentage(stats?.unitsByStatus.sold || 0, total)}%`, 
-                          height: '8px', 
-                          backgroundColor: '#34a853',
-                          borderRadius: '4px'
-                        }} />
-                      </div>
-                    </div>
-                    
-                    <div style={{ marginTop: '15px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
-                      إجمالي الوحدات: {total.toLocaleString()}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </Card>
-
-          {/* أداء الفريق (لـ sales_manager) أو أداء الموظفين (لـ admin) */}
-          {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
-            <Card title={employee?.role === 'admin' ? "أداء فريق المبيعات" : "أداء فريقك"}>
-              <div style={{ padding: '15px' }}>
-                {employee?.role === 'sales_manager' && (!stats?.myTeamStats || stats.myTeamStats.length === 0) ? (
-                  <div style={{ textAlign: 'center', color: '#666', padding: '20px' }}>
-                    لا يوجد موظفين في فريقك حالياً
-                    <div style={{ marginTop: '10px', fontSize: '12px' }}>
-                      قم بإضافة موظفين إلى المشاريع الخاصة بك
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ 
-                      display: 'grid', 
-                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                      gap: '10px',
-                      marginBottom: '10px',
-                      paddingBottom: '10px',
-                      borderBottom: '1px solid #eee',
-                      fontWeight: 'bold',
-                      fontSize: '12px',
-                      color: '#666'
-                    }}>
-                      <div>الاسم</div>
-                      <div style={{ textAlign: 'center' }}>متابعات</div>
-                      <div style={{ textAlign: 'center' }}>حجوزات</div>
-                      <div style={{ textAlign: 'center' }}>تنفيذات</div>
-                      <div style={{ textAlign: 'center' }}>النشاط</div>
-                    </div>
-                    
-                    {(employee?.role === 'admin' ? stats?.otherEmployeesStats : stats?.myTeamStats)?.map(empStat => {
-                      const activityLevel = getActivityLevel(empStat.totalActivity);
-                      return (
-                        <div 
-                          key={empStat.id}
-                          style={{ 
-                            display: 'grid', 
-                            gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                            gap: '10px',
-                            padding: '8px 0',
-                            borderBottom: '1px solid #f5f5f5',
-                            fontSize: '14px',
-                            alignItems: 'center'
-                          }}
-                        >
-                          <div>{empStat.name}</div>
-                          <div style={{ textAlign: 'center', color: '#1a73e8' }}>{empStat.followUps}</div>
-                          <div style={{ textAlign: 'center', color: '#fbbc04' }}>{empStat.reservations}</div>
-                          <div style={{ textAlign: 'center', color: '#34a853' }}>{empStat.sales}</div>
-                          <div style={{ textAlign: 'center' }}>
-                            <span style={{ 
-                              padding: '3px 8px', 
-                              borderRadius: '12px', 
-                              fontSize: '11px',
-                              backgroundColor: activityLevel.bgColor,
-                              color: activityLevel.color
-                            }}>
-                              {activityLevel.label}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    
-                    <div style={{ marginTop: '15px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
-                      المتوسط: {stats?.avgFollowUpsPerEmployee} متابعة | {stats?.avgReservationsPerEmployee} حجز | {stats?.avgSalesPerEmployee} تنفيذ
-                    </div>
-                  </>
-                )}
-              </div>
-            </Card>
-          )}
-        </div>
-
-        {/* إحصائيات سريعة إضافية */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-          gap: '20px' 
-        }}>
-          {/* مقارنة الأداء */}
-          <Card title="مقارنة الأداء">
-            <div style={{ padding: '15px' }}>
-              <div style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <span style={{ fontSize: '12px' }}>متابعات</span>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
-                    أنت: {stats?.myFollowUps} | المتوسط: {stats?.avgFollowUpsPerEmployee}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', height: '20px', borderRadius: '10px', overflow: 'hidden' }}>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.myFollowUps || 0, Math.max(stats?.myFollowUps || 0, stats?.avgFollowUpsPerEmployee || 1))}%`, 
-                    backgroundColor: '#1a73e8',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.myFollowUps || 0}
-                  </div>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.avgFollowUpsPerEmployee || 0, Math.max(stats?.myFollowUps || 0, stats?.avgFollowUpsPerEmployee || 1))}%`, 
-                    backgroundColor: '#c2e0ff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#1a73e8',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.avgFollowUpsPerEmployee || 0}
-                  </div>
-                </div>
-              </div>
-              
-              <div style={{ marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <span style={{ fontSize: '12px' }}>حجوزات</span>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
-                    أنت: {stats?.myReservations} | المتوسط: {stats?.avgReservationsPerEmployee}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', height: '20px', borderRadius: '10px', overflow: 'hidden' }}>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.myReservations || 0, Math.max(stats?.myReservations || 0, stats?.avgReservationsPerEmployee || 1))}%`, 
-                    backgroundColor: '#fbbc04',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.myReservations || 0}
-                  </div>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.avgReservationsPerEmployee || 0, Math.max(stats?.myReservations || 0, stats?.avgReservationsPerEmployee || 1))}%`, 
-                    backgroundColor: '#ffeaa7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fbbc04',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.avgReservationsPerEmployee || 0}
-                  </div>
-                </div>
-              </div>
-              
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <span style={{ fontSize: '12px' }}>تنفيذات</span>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
-                    أنت: {stats?.mySales} | المتوسط: {stats?.avgSalesPerEmployee}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', height: '20px', borderRadius: '10px', overflow: 'hidden' }}>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.mySales || 0, Math.max(stats?.mySales || 0, stats?.avgSalesPerEmployee || 1))}%`, 
-                    backgroundColor: '#34a853',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.mySales || 0}
-                  </div>
-                  <div style={{ 
-                    width: `${calculatePercentage(stats?.avgSalesPerEmployee || 0, Math.max(stats?.mySales || 0, stats?.avgSalesPerEmployee || 1))}%`, 
-                    backgroundColor: '#a8e6a8',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#34a853',
-                    fontSize: '10px'
-                  }}>
-                    {stats?.avgSalesPerEmployee || 0}
-                  </div>
-                </div>
-              </div>
-              
-              <div style={{ marginTop: '15px', fontSize: '12px', color: '#666' }}>
-                <div>🔵 أنت | ⚪ المتوسط {employee?.role === 'sales_manager' ? 'فريقك' : 'بين المندوبين'}</div>
-              </div>
-            </div>
-          </Card>
-
-          {/* أزرار سريعة */}
-          <Card title="إجراءات سريعة">
-            <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <button 
-                onClick={() => router.push('/dashboard/clients')}
-                style={{ 
-                  padding: '12px', 
-                  backgroundColor: '#2563eb',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.2s',
-                  textAlign: 'right',
-                  color: 'white'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              >
-                <span style={{ marginRight: '10px', fontSize: '18px' }}>👥</span> إدارة العملاء
-              </button>
-              
-              <button 
-                onClick={() => router.push('/dashboard/units')}
-                style={{ 
-                  padding: '12px', 
-                  backgroundColor: '#2563eb',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.2s',
-                  textAlign: 'right',
-                  color: 'white'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              >
-                <span style={{ marginRight: '10px', fontSize: '18px' }}>🏠</span> إدارة الوحدات
-              </button>
-              
-              <button 
-                onClick={() => router.push('/dashboard/projects')}
-                style={{ 
-                  padding: '12px', 
-                  backgroundColor: '#2563eb',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.2s',
-                  textAlign: 'right',
-                  color: 'white'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              >
-                <span style={{ marginRight: '10px', fontSize: '18px' }}>📋</span> إدارة المشاريع
-              </button>
-              
-              {employee?.role === 'admin' && (
-                <button 
-                  onClick={() => router.push('/dashboard/employees')}
-                  style={{ 
-                    padding: '12px', 
-                    backgroundColor: '#2563eb',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    transition: 'all 0.2s',
-                    textAlign: 'right',
-                    color: 'white'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                >
-                  <span style={{ marginRight: '10px', fontSize: '18px' }}>👨‍💼</span> إدارة الموظفين
-                </button>
-              )}
-              
-              {employee?.role === 'sales_manager' && (
-                <button 
-                  onClick={() => router.push('/dashboard/team')}
-                  style={{ 
-                    padding: '12px', 
-                    backgroundColor: '#2563eb',
-                    border: '1px solid #ddd',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    transition: 'all 0.2s',
-                    textAlign: 'right',
-                    color: 'white'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-                >
-                  <span style={{ marginRight: '10px', fontSize: '18px' }}>👥</span> إدارة الفريق
-                </button>
-              )}
-              
-              <button 
-                onClick={() => router.push('/dashboard/reservations')}
-                style={{ 
-                  padding: '12px', 
-                  backgroundColor: '#2563eb',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.2s',
-                  textAlign: 'right',
-                  color: 'white'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              >
-                <span style={{ marginRight: '10px', fontSize: '18px' }}>📅</span> الحجوزات
-              </button>
-              
-              <button 
-                onClick={() => router.push('/dashboard/sales')}
-                style={{ 
-                  padding: '12px', 
-                  backgroundColor: '#2563eb',
-                  border: '1px solid #ddd',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'all 0.2s',
-                  textAlign: 'right',
-                  color: 'white'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#1d4ed8'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              >
-                <span style={{ marginRight: '10px', fontSize: '18px' }}>💰</span> التنفيذات
-              </button>
-            </div>
-          </Card>
-        </div>
-
-        {/* ملخص أداء */}
-        <Card title="ملخص الأداء">
+        {/* Units breakdown */}
+        <Card title="توزيع الوحدات">
           <div style={{ padding: '15px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
-              <div style={{ 
-                width: '40px', 
-                height: '40px', 
-                borderRadius: '50%', 
-                backgroundColor: employee?.role === 'admin' ? '#e6f4ea' : 
-                                 employee?.role === 'sales_manager' ? '#e0e7ff' : '#e8f0fe',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: '15px'
-              }}>
-                <span style={{ fontSize: '20px' }}>
-                  {employee?.role === 'admin' ? '👨‍💼' : 
-                   employee?.role === 'sales_manager' ? '👔' : '👤'}
-                </span>
-              </div>
-              <div>
-                <div style={{ fontWeight: 'bold' }}>{employee?.name}</div>
-                <div style={{ fontSize: '12px', color: '#666' }}>
-                  {getRoleLabel(employee?.role || '')} | {employee?.email}
-                  {employee?.projects && employee.projects.length > 0 && (
-                    <span style={{ marginRight: '10px', color: '#0d8a3e' }}>
-                      • {employee.projects.length} مشروع
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-              gap: '15px', 
-              marginTop: '15px' 
-            }}>
-              <div style={{ 
-                backgroundColor: '#f8f9fa', 
-                padding: '15px', 
-                borderRadius: '8px',
-                borderLeft: '4px solid #1a73e8'
-              }}>
-                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>كفاءة المتابعة</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                  {stats?.myFollowUps && stats.myFollowUps > 0 && stats.myReservations 
-                    ? Math.round((stats.myReservations / stats.myFollowUps) * 100) 
-                    : 0}%
-                </div>
-                <div style={{ fontSize: '11px', color: '#666' }}>من المتابعات تتحول لحجوزات</div>
-              </div>
-              
-            <div style={{ 
-               backgroundColor: '#f8f9fa', 
-               padding: '15px', 
-               borderRadius: '8px',
-               borderLeft: '4px solid #fbbc04' // ← تصحيح هنا
-              }}>
-                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>معدل الإنجاز</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                  {stats?.myReservations && stats.myReservations > 0 && stats.mySales 
-                    ? Math.round((stats.mySales / stats.myReservations) * 100) 
-                    : 0}%
-                </div>
-                <div style={{ fontSize: '11px', color: '#666' }}>من الحجوزات تتحول لتنفيذات</div>
-              </div>
-              
-              <div style={{ 
-                backgroundColor: '#f8f9fa', 
-                padding: '15px', 
-                borderRadius: '8px',
-                borderLeft: '4px solid #34a853'
-              }}>
-                <div style={{ fontSize: '12px', color: '#666', marginBottom: '5px' }}>قيمة التنفيذات</div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                  {stats?.mySales || 0}
-                </div>
-                <div style={{ fontSize: '11px', color: '#666' }}>وحدات تم بيعها</div>
-              </div>
-            </div>
-            
-            {employee?.role === 'sales_manager' && stats?.myTeamStats && stats.myTeamStats.length > 0 && (
-              <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#f0f9ff', borderRadius: '8px' }}>
-                <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px', color: '#0c4a6e' }}>
-                  أداء فريقك ({stats.myTeamStats.length} عضو)
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                  <div>إجمالي المتابعات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.followUps, 0)}</div>
-                  <div>إجمالي الحجوزات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.reservations, 0)}</div>
-                  <div>إجمالي التنفيذات: {stats.myTeamStats.reduce((sum, emp) => sum + emp.sales, 0)}</div>
-                </div>
-              </div>
-            )}
-            
-            <div style={{ marginTop: '20px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
-              آخر تحديث: {new Date().toLocaleString('ar-SA')} | الفترة: {timeRange === 'today' ? 'اليوم' : timeRange === 'week' ? 'آخر أسبوع' : timeRange === 'month' ? 'آخر شهر' : 'الكل'}
-            </div>
+            {(() => {
+              const total =
+                (stats?.unitsByStatus.available || 0) + (stats?.unitsByStatus.reserved || 0) + (stats?.unitsByStatus.sold || 0);
+
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ width: 90 }}>متاحة:</span>
+                    <strong style={{ width: 60 }}>{stats?.unitsByStatus.available}</strong>
+                    <div style={{ flex: 1, marginRight: 10, background: '#eee', height: 8, borderRadius: 4 }}>
+                      <div
+                        style={{
+                          width: `${calculatePercentage(stats?.unitsByStatus.available || 0, total)}%`,
+                          height: 8,
+                          borderRadius: 4,
+                          background: '#0d8a3e'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ width: 90 }}>محجوزة:</span>
+                    <strong style={{ width: 60 }}>{stats?.unitsByStatus.reserved}</strong>
+                    <div style={{ flex: 1, marginRight: 10, background: '#eee', height: 8, borderRadius: 4 }}>
+                      <div
+                        style={{
+                          width: `${calculatePercentage(stats?.unitsByStatus.reserved || 0, total)}%`,
+                          height: 8,
+                          borderRadius: 4,
+                          background: '#fbbc04'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <span style={{ width: 90 }}>مباعة:</span>
+                    <strong style={{ width: 60 }}>{stats?.unitsByStatus.sold}</strong>
+                    <div style={{ flex: 1, marginRight: 10, background: '#eee', height: 8, borderRadius: 4 }}>
+                      <div
+                        style={{
+                          width: `${calculatePercentage(stats?.unitsByStatus.sold || 0, total)}%`,
+                          height: 8,
+                          borderRadius: 4,
+                          background: '#34a853'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </Card>
 
+        {/* Team / Other employees */}
+        {employee?.role === 'sales_manager' && stats?.myTeamStats?.length ? (
+          <div style={{ marginTop: 20 }}>
+            <Card title="أداء فريقك">
+              <div style={{ padding: 15, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
+                      <th style={{ padding: 8 }}>الموظف</th>
+                      <th style={{ padding: 8 }}>متابعات</th>
+                      <th style={{ padding: 8 }}>حجوزات</th>
+                      <th style={{ padding: 8 }}>تنفيذات</th>
+                      <th style={{ padding: 8 }}>الإجمالي</th>
+                      <th style={{ padding: 8 }}>المشاريع المشتركة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.myTeamStats.map((r) => (
+                      <tr key={r.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
+                        <td style={{ padding: 8 }}>{r.name}</td>
+                        <td style={{ padding: 8 }}>{r.followUps}</td>
+                        <td style={{ padding: 8 }}>{r.reservations}</td>
+                        <td style={{ padding: 8 }}>{r.sales}</td>
+                        <td style={{ padding: 8, fontWeight: 700 }}>{r.totalActivity}</td>
+                        <td style={{ padding: 8, color: '#666', fontSize: 12 }}>{r.projects.length}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        ) : null}
+
+        {employee?.role === 'admin' && stats?.otherEmployeesStats?.length ? (
+          <div style={{ marginTop: 20 }}>
+            <Card title="أداء الموظفين">
+              <div style={{ padding: 15, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'right', borderBottom: '1px solid #eee' }}>
+                      <th style={{ padding: 8 }}>الموظف</th>
+                      <th style={{ padding: 8 }}>متابعات</th>
+                      <th style={{ padding: 8 }}>حجوزات</th>
+                      <th style={{ padding: 8 }}>تنفيذات</th>
+                      <th style={{ padding: 8 }}>الإجمالي</th>
+                      <th style={{ padding: 8 }}>عدد المشاريع</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.otherEmployeesStats.map((r) => (
+                      <tr key={r.id} style={{ borderBottom: '1px solid #f2f2f2' }}>
+                        <td style={{ padding: 8 }}>{r.name}</td>
+                        <td style={{ padding: 8 }}>{r.followUps}</td>
+                        <td style={{ padding: 8 }}>{r.reservations}</td>
+                        <td style={{ padding: 8 }}>{r.sales}</td>
+                        <td style={{ padding: 8, fontWeight: 700 }}>{r.totalActivity}</td>
+                        <td style={{ padding: 8, color: '#666', fontSize: 12 }}>{r.projects.length}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+        ) : null}
       </div>
     </RequireAuth>
   );

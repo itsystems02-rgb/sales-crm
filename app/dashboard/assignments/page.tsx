@@ -157,7 +157,7 @@ export default function AssignmentsPage() {
 
     if (error) throw error;
 
-    const ids = (rows || []).map(r => r.project_id).filter(Boolean);
+    const ids = (rows || []).map(r => (r as any).project_id).filter(Boolean);
     if (ids.length === 0) {
       setMyAllowedProjects([]);
       return [];
@@ -178,9 +178,11 @@ export default function AssignmentsPage() {
   /* =====================
      Load employees list
      - admin: all sales + sales_manager
-     - sales_manager: employees who share projects with manager (via employee_projects)
+     - sales_manager: TEAM = sales only inside manager projects (EXCLUDE manager)
+     (نفس منطق الداشبورد)
   ===================== */
   const loadEmployees = useCallback(async (emp: EmployeeLite, allowedProjectIds: string[]) => {
+    // admin: كل الموظفين (sales + sales_manager)
     if (emp.role === 'admin') {
       const { data, error } = await supabase
         .from('employees')
@@ -192,7 +194,7 @@ export default function AssignmentsPage() {
       return data || [];
     }
 
-    // sales_manager: employee_projects where project_id in managerProjects
+    // sales_manager: TEAM employees from employee_projects where project_id in managerProjects
     if (allowedProjectIds.length === 0) {
       setEmployees([]);
       return [];
@@ -205,18 +207,22 @@ export default function AssignmentsPage() {
 
     if (epErr) throw epErr;
 
-    const employeeIds = Array.from(new Set((epRows || []).map(r => r.employee_id).filter(Boolean)));
+    // ✅ unique + exclude manager نفسه
+    const employeeIds = Array.from(
+      new Set((epRows || []).map(r => (r as any).employee_id).filter(Boolean))
+    ).filter(id => id !== emp.id);
 
     if (employeeIds.length === 0) {
       setEmployees([]);
       return [];
     }
 
+    // ✅ team = sales فقط (زي الداشبورد)
     const { data: emps, error: eErr } = await supabase
       .from('employees')
       .select('id, role, name')
       .in('id', employeeIds)
-      .in('role', ['sales', 'sales_manager'])
+      .eq('role', 'sales')
       .order('name');
 
     if (eErr) throw eErr;
@@ -260,7 +266,7 @@ export default function AssignmentsPage() {
 
     if (error) throw error;
 
-    const ids = new Set((data || []).map(r => r.client_id));
+    const ids = new Set((data || []).map((r: any) => r.client_id));
     setAssignedFromDB(ids);
     // أول مرة نختار موظف: نخلي الـ UI مطابق للـ DB
     setSelectedInUI(new Set(ids));
@@ -313,16 +319,21 @@ export default function AssignmentsPage() {
         // Join clients عبر FK (clients!inner)
         let q = supabase
           .from('client_assignments')
-          .select('client_id, assigned_at, clients!inner(id,name,mobile,eligible,status,interested_in_project_id,created_at)', { count: 'exact' })
+          .select(
+            'client_id, assigned_at, clients!inner(id,name,mobile,eligible,status,interested_in_project_id,created_at)',
+            { count: 'exact' }
+          )
           .eq('employee_id', selectedEmployeeId)
           .order('assigned_at', { ascending: false })
           .range(from, to);
 
         // Filters على جدول clients عبر join
         if (filters.search) {
-          // فلترة name/mobile
-          // PostgREST يدعم or عبر foreign table بنفس الاسم "clients."
-          q = q.or(`clients.name.ilike.%${filters.search}%,clients.mobile.ilike.%${filters.search}%`);
+          // أفضل: or على foreign table
+          q = q.or(
+            `name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`,
+            { foreignTable: 'clients' as any }
+          );
         }
 
         if (filters.status.length > 0) {
@@ -453,6 +464,8 @@ export default function AssignmentsPage() {
         // Default select first employee for convenience
         if (emps.length > 0) {
           setSelectedEmployeeId(emps[0].id);
+        } else {
+          setSelectedEmployeeId('');
         }
 
         // Load projects for filter dropdown
@@ -608,8 +621,6 @@ export default function AssignmentsPage() {
   const displayProjectsMap = useMemo(() => {
     const map = new Map<string, Project>();
     (filterProjects || []).forEach(p => map.set(p.id, p));
-    // في حالة admin: filterProjects فيها كل المشاريع
-    // في حالة sales_manager: فيها مشاريع المانجر فقط
     return map;
   }, [filterProjects]);
 
@@ -643,7 +654,7 @@ export default function AssignmentsPage() {
                 ) : (
                   employees.map(emp => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.name || emp.id} {emp.role === 'sales_manager' ? '(مدير مبيعات)' : ''}
+                      {emp.name || emp.id}
                     </option>
                   ))
                 )}

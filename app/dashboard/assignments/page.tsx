@@ -297,6 +297,19 @@ export default function AssignmentsPage() {
   }, [filters, unassignedOnly]);
 
   /* =====================
+     RPC: get unassigned ids
+     (لازم تكون عامل function في Supabase)
+  ===================== */
+  const fetchUnassignedIds = useCallback(async (): Promise<string[]> => {
+    const { data, error } = await supabase.rpc('get_unassigned_client_ids');
+    if (error) throw error;
+
+    // data = [{ id: '...' }, ...]
+    const ids = (data || []).map((r: any) => r.id).filter(Boolean);
+    return ids as string[];
+  }, []);
+
+  /* =====================
      Load Clients (Two modes)
   ===================== */
   const loadClients = useCallback(async (emp: EmployeeLite, page = currentPage) => {
@@ -332,21 +345,10 @@ export default function AssignmentsPage() {
           );
         }
 
-        if (filters.status.length > 0) {
-          q = q.in('clients.status', filters.status);
-        }
-
-        if (filters.eligible !== null) {
-          q = q.eq('clients.eligible', filters.eligible === 'true');
-        }
-
-        if (filters.interested_in_project_id !== null) {
-          q = q.eq('clients.interested_in_project_id', filters.interested_in_project_id);
-        }
-
-        if (filters.from_date) {
-          q = q.gte('clients.created_at', filters.from_date);
-        }
+        if (filters.status.length > 0) q = q.in('clients.status', filters.status);
+        if (filters.eligible !== null) q = q.eq('clients.eligible', filters.eligible === 'true');
+        if (filters.interested_in_project_id !== null) q = q.eq('clients.interested_in_project_id', filters.interested_in_project_id);
+        if (filters.from_date) q = q.gte('clients.created_at', filters.from_date);
 
         if (filters.to_date) {
           const nextDay = new Date(filters.to_date);
@@ -378,25 +380,14 @@ export default function AssignmentsPage() {
       // ---------------------------
       // TAB: ALL CLIENTS
       // ---------------------------
-      // ✅ FIX: force LEFT join
+      // ✅ رجعنا select الطبيعي (بدون join) لأن الفلترة هتيجي من RPC
       let query = supabase
         .from('clients')
-        .select(
-          `
-          id,
-          name,
-          mobile,
-          eligible,
-          status,
-          interested_in_project_id,
-          created_at,
-          client_assignments!left(client_id)
-        `,
-          { count: 'exact' }
-        )
+        .select('id,name,mobile,eligible,status,interested_in_project_id,created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
 
+      // Scope: sales_manager يرى عملاء مشاريعه فقط
       if (emp.role === 'sales_manager') {
         if (myAllowedProjectIds.length === 0) {
           setClients([]);
@@ -406,52 +397,47 @@ export default function AssignmentsPage() {
         query = query.in('interested_in_project_id', myAllowedProjectIds);
       }
 
-      if (filters.search) {
-        query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
-      }
-      if (filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      }
-      if (filters.eligible !== null) {
-        query = query.eq('eligible', filters.eligible === 'true');
-      }
-      if (filters.interested_in_project_id !== null) {
-        query = query.eq('interested_in_project_id', filters.interested_in_project_id);
-      }
-      if (filters.from_date) {
-        query = query.gte('created_at', filters.from_date);
-      }
+      // Filters
+      if (filters.search) query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
+      if (filters.status.length > 0) query = query.in('status', filters.status);
+      if (filters.eligible !== null) query = query.eq('eligible', filters.eligible === 'true');
+      if (filters.interested_in_project_id !== null) query = query.eq('interested_in_project_id', filters.interested_in_project_id);
+      if (filters.from_date) query = query.gte('created_at', filters.from_date);
+
       if (filters.to_date) {
         const nextDay = new Date(filters.to_date);
         nextDay.setDate(nextDay.getDate() + 1);
         query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
       }
 
-      // ✅ Unassigned only filter (works now with !left)
+      // ✅ Unassigned only filter via RPC + OR chunks
       if (unassignedOnly) {
-        query = query.is('client_assignments.client_id', null);
+        const ids = await fetchUnassignedIds();
+
+        if (ids.length === 0) {
+          setClients([]);
+          setTotalRows(0);
+          return;
+        }
+
+        // مهم: in لها حدود، فنعمل OR على chunks
+        const chunks = chunkArray(ids, 500);
+        const orParts = chunks.map(
+          (ch) => `id.in.(${ch.map(x => `"${x}"`).join(',')})`
+        );
+        query = query.or(orParts.join(','));
       }
 
       const { data, error, count } = await query;
       if (error) throw error;
 
-      const mapped = (data || []).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        mobile: c.mobile,
-        eligible: c.eligible,
-        status: c.status,
-        interested_in_project_id: c.interested_in_project_id,
-        created_at: c.created_at,
-      })) as ClientListItem[];
-
-      setClients(mapped);
+      setClients((data || []) as ClientListItem[]);
       setTotalRows(count || 0);
     } catch (e: any) {
       console.error('loadClients error:', e);
       setClients([]);
       setTotalRows(0);
-      alert('حدث خطأ في تحميل العملاء');
+      alert('حدث خطأ في تحميل العملاء: ' + (e?.message || ''));
     } finally {
       setLoading(false);
     }
@@ -462,7 +448,8 @@ export default function AssignmentsPage() {
     selectedEmployeeId,
     filters,
     myAllowedProjectIds,
-    unassignedOnly
+    unassignedOnly,
+    fetchUnassignedIds
   ]);
 
   /* =====================
@@ -481,11 +468,8 @@ export default function AssignmentsPage() {
         const allowedIds = allowed.map(p => p.id);
         const emps = await loadEmployees(emp, allowedIds);
 
-        if (emps.length > 0) {
-          setSelectedEmployeeId(emps[0].id);
-        } else {
-          setSelectedEmployeeId('');
-        }
+        if (emps.length > 0) setSelectedEmployeeId(emps[0].id);
+        else setSelectedEmployeeId('');
 
         await loadFilterProjects(emp, allowed);
       } catch (e) {
@@ -593,6 +577,7 @@ export default function AssignmentsPage() {
         return;
       }
 
+      // Insert in chunks
       const addChunks = chunkArray(toAdd, 500);
       for (const ch of addChunks) {
         const payload = ch.map(clientId => ({
@@ -604,6 +589,7 @@ export default function AssignmentsPage() {
         if (error) throw error;
       }
 
+      // Delete in chunks
       const delChunks = chunkArray(toRemove, 500);
       for (const ch of delChunks) {
         const { error } = await supabase
@@ -696,7 +682,7 @@ export default function AssignmentsPage() {
               <Button
                 onClick={() => {
                   setTab('assigned');
-                  setUnassignedOnly(false); // ✅ avoid confusion
+                  setUnassignedOnly(false);
                   setCurrentPage(1);
                 }}
                 variant={tab === 'assigned' ? 'primary' : undefined}

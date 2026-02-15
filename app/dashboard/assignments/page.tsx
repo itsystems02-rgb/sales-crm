@@ -109,6 +109,9 @@ export default function AssignmentsPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
 
+  // ✅ NEW: Unassigned only filter (يطبق على tab=all فقط)
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+
   // Data lists
   const [clients, setClients] = useState<ClientListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,6 +128,9 @@ export default function AssignmentsPage() {
 
   // Save state
   const [saving, setSaving] = useState(false);
+
+  // ✅ NEW: bulk selection count
+  const [bulkCount, setBulkCount] = useState<number>(20);
 
   const selectAllPageRef = useRef<HTMLInputElement>(null);
 
@@ -291,9 +297,10 @@ export default function AssignmentsPage() {
       filters.eligible !== null ||
       filters.interested_in_project_id !== null ||
       filters.from_date ||
-      filters.to_date
+      filters.to_date ||
+      unassignedOnly // ✅ include
     );
-  }, [filters]);
+  }, [filters, unassignedOnly]);
 
   /* =====================
      Load Clients (Two modes)
@@ -329,7 +336,6 @@ export default function AssignmentsPage() {
 
         // Filters على جدول clients عبر join
         if (filters.search) {
-          // أفضل: or على foreign table
           q = q.or(
             `name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`,
             { foreignTable: 'clients' as any }
@@ -383,9 +389,22 @@ export default function AssignmentsPage() {
       // ---------------------------
       // TAB: ALL CLIENTS
       // ---------------------------
+      // ✅ IMPORTANT: include client_assignments for unassigned filter
       let query = supabase
         .from('clients')
-        .select('id,name,mobile,eligible,status,interested_in_project_id,created_at', { count: 'exact' })
+        .select(
+          `
+          id,
+          name,
+          mobile,
+          eligible,
+          status,
+          interested_in_project_id,
+          created_at,
+          client_assignments ( client_id )
+        `,
+          { count: 'exact' }
+        )
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -421,10 +440,26 @@ export default function AssignmentsPage() {
         query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
       }
 
+      // ✅ NEW: Unassigned only filter
+      if (unassignedOnly) {
+        query = query.is('client_assignments.client_id', null);
+      }
+
       const { data, error, count } = await query;
       if (error) throw error;
 
-      setClients((data || []) as ClientListItem[]);
+      // ✅ map back to ClientListItem shape (ignore client_assignments field)
+      const mapped = (data || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        mobile: c.mobile,
+        eligible: c.eligible,
+        status: c.status,
+        interested_in_project_id: c.interested_in_project_id,
+        created_at: c.created_at,
+      })) as ClientListItem[];
+
+      setClients(mapped);
       setTotalRows(count || 0);
     } catch (e: any) {
       console.error('loadClients error:', e);
@@ -440,7 +475,8 @@ export default function AssignmentsPage() {
     tab,
     selectedEmployeeId,
     filters,
-    myAllowedProjectIds
+    myAllowedProjectIds,
+    unassignedOnly
   ]);
 
   /* =====================
@@ -509,6 +545,7 @@ export default function AssignmentsPage() {
       from_date: '',
       to_date: '',
     });
+    setUnassignedOnly(false); // ✅ reset
     setCurrentPage(1);
     if (!me) return;
     loadClients(me, 1);
@@ -538,6 +575,15 @@ export default function AssignmentsPage() {
     setSelectedInUI(prev => {
       const next = new Set(prev);
       clients.forEach(c => next.delete(c.id));
+      return next;
+    });
+  };
+
+  // ✅ NEW: select first N in current page
+  const selectBulk = (count: number) => {
+    setSelectedInUI(prev => {
+      const next = new Set(prev);
+      clients.slice(0, Math.max(0, count)).forEach(c => next.add(c.id));
       return next;
     });
   };
@@ -707,6 +753,27 @@ export default function AssignmentsPage() {
                 </Button>
               )}
             </div>
+
+            {/* ✅ NEW: Unassigned filter toggle */}
+            <div style={{ marginTop: 10 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: '#444' }}>
+                <input
+                  type="checkbox"
+                  checked={unassignedOnly}
+                  onChange={(e) => {
+                    setUnassignedOnly(e.target.checked);
+                    setCurrentPage(1);
+                  }}
+                  disabled={tab === 'assigned'} // لا يطبق على assigned
+                />
+                عرض العملاء غير الموزعين فقط
+                {tab === 'assigned' && (
+                  <span style={{ color: '#999', fontSize: 12 }}>
+                    (متاح في "كل العملاء" فقط)
+                  </span>
+                )}
+              </label>
+            </div>
           </div>
 
           {showFilters && (
@@ -797,9 +864,30 @@ export default function AssignmentsPage() {
 
         <Card title={`قائمة العملاء (${totalRows.toLocaleString()})`}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+            {/* ✅ NEW: bulk select controls */}
+            <select
+              value={bulkCount}
+              onChange={(e) => setBulkCount(parseInt(e.target.value))}
+              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ddd' }}
+              disabled={clients.length === 0 || !selectedEmployeeId}
+            >
+              <option value={20}>تحديد 20</option>
+              <option value={50}>تحديد 50</option>
+              <option value={100}>تحديد 100</option>
+              <option value={200}>تحديد 200</option>
+            </select>
+
+            <Button
+              onClick={() => selectBulk(bulkCount)}
+              disabled={clients.length === 0 || !selectedEmployeeId}
+            >
+              تحديد أول {bulkCount}
+            </Button>
+
             <Button onClick={selectPage} disabled={clients.length === 0 || !selectedEmployeeId}>
               تحديد كل عملاء الصفحة
             </Button>
+
             <Button onClick={unselectPage} disabled={clients.length === 0 || !selectedEmployeeId} variant="danger">
               إلغاء تحديد الصفحة
             </Button>

@@ -149,13 +149,11 @@ export default function AssignmentsPage() {
      Load my allowed projects (sales_manager scope)
   ===================== */
   const loadMyAllowedProjects = useCallback(async (emp: EmployeeLite) => {
-    // admin مش محتاجين scope
     if (emp.role === 'admin') {
       setMyAllowedProjects([]);
       return [];
     }
 
-    // sales_manager: المشاريع من employee_projects
     const { data: rows, error } = await supabase
       .from('employee_projects')
       .select('project_id')
@@ -185,7 +183,6 @@ export default function AssignmentsPage() {
      Load employees list
   ===================== */
   const loadEmployees = useCallback(async (emp: EmployeeLite, allowedProjectIds: string[]) => {
-    // admin: كل الموظفين (sales + sales_manager)
     if (emp.role === 'admin') {
       const { data, error } = await supabase
         .from('employees')
@@ -197,7 +194,6 @@ export default function AssignmentsPage() {
       return data || [];
     }
 
-    // sales_manager: TEAM employees from employee_projects where project_id in managerProjects
     if (allowedProjectIds.length === 0) {
       setEmployees([]);
       return [];
@@ -210,7 +206,6 @@ export default function AssignmentsPage() {
 
     if (epErr) throw epErr;
 
-    // ✅ unique + exclude manager نفسه
     const employeeIds = Array.from(
       new Set((epRows || []).map(r => (r as any).employee_id).filter(Boolean))
     ).filter(id => id !== emp.id);
@@ -220,7 +215,6 @@ export default function AssignmentsPage() {
       return [];
     }
 
-    // ✅ team = sales فقط (زي الداشبورد)
     const { data: emps, error: eErr } = await supabase
       .from('employees')
       .select('id, role, name')
@@ -297,19 +291,6 @@ export default function AssignmentsPage() {
   }, [filters, unassignedOnly]);
 
   /* =====================
-     RPC: get unassigned ids
-     (لازم تكون عامل function في Supabase)
-  ===================== */
-  const fetchUnassignedIds = useCallback(async (): Promise<string[]> => {
-    const { data, error } = await supabase.rpc('get_unassigned_client_ids');
-    if (error) throw error;
-
-    // data = [{ id: '...' }, ...]
-    const ids = (data || []).map((r: any) => r.id).filter(Boolean);
-    return ids as string[];
-  }, []);
-
-  /* =====================
      Load Clients (Two modes)
   ===================== */
   const loadClients = useCallback(async (emp: EmployeeLite, page = currentPage) => {
@@ -380,14 +361,25 @@ export default function AssignmentsPage() {
       // ---------------------------
       // TAB: ALL CLIENTS
       // ---------------------------
-      // ✅ رجعنا select الطبيعي (بدون join) لأن الفلترة هتيجي من RPC
+      // ✅ LEFT embed علشان نقدر نجيب unassigned
       let query = supabase
         .from('clients')
-        .select('id,name,mobile,eligible,status,interested_in_project_id,created_at', { count: 'exact' })
+        .select(
+          `
+          id,
+          name,
+          mobile,
+          eligible,
+          status,
+          interested_in_project_id,
+          created_at,
+          client_assignments!left(client_id)
+        `,
+          { count: 'exact' }
+        )
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      // Scope: sales_manager يرى عملاء مشاريعه فقط
       if (emp.role === 'sales_manager') {
         if (myAllowedProjectIds.length === 0) {
           setClients([]);
@@ -397,7 +389,6 @@ export default function AssignmentsPage() {
         query = query.in('interested_in_project_id', myAllowedProjectIds);
       }
 
-      // Filters
       if (filters.search) query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
       if (filters.status.length > 0) query = query.in('status', filters.status);
       if (filters.eligible !== null) query = query.eq('eligible', filters.eligible === 'true');
@@ -410,28 +401,25 @@ export default function AssignmentsPage() {
         query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
       }
 
-      // ✅ Unassigned only filter via RPC + OR chunks
+      // ✅ FIX الحقيقي: فلترة الـ relation نفسها
       if (unassignedOnly) {
-        const ids = await fetchUnassignedIds();
-
-        if (ids.length === 0) {
-          setClients([]);
-          setTotalRows(0);
-          return;
-        }
-
-        // مهم: in لها حدود، فنعمل OR على chunks
-        const chunks = chunkArray(ids, 500);
-        const orParts = chunks.map(
-          (ch) => `id.in.(${ch.map(x => `"${x}"`).join(',')})`
-        );
-        query = query.or(orParts.join(','));
+        query = query.is('client_assignments', null);
       }
 
       const { data, error, count } = await query;
       if (error) throw error;
 
-      setClients((data || []) as ClientListItem[]);
+      const mapped = (data || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        mobile: c.mobile,
+        eligible: c.eligible,
+        status: c.status,
+        interested_in_project_id: c.interested_in_project_id,
+        created_at: c.created_at,
+      })) as ClientListItem[];
+
+      setClients(mapped);
       setTotalRows(count || 0);
     } catch (e: any) {
       console.error('loadClients error:', e);
@@ -448,8 +436,7 @@ export default function AssignmentsPage() {
     selectedEmployeeId,
     filters,
     myAllowedProjectIds,
-    unassignedOnly,
-    fetchUnassignedIds
+    unassignedOnly
   ]);
 
   /* =====================
@@ -577,7 +564,6 @@ export default function AssignmentsPage() {
         return;
       }
 
-      // Insert in chunks
       const addChunks = chunkArray(toAdd, 500);
       for (const ch of addChunks) {
         const payload = ch.map(clientId => ({
@@ -589,7 +575,6 @@ export default function AssignmentsPage() {
         if (error) throw error;
       }
 
-      // Delete in chunks
       const delChunks = chunkArray(toRemove, 500);
       for (const ch of delChunks) {
         const { error } = await supabase
@@ -824,7 +809,6 @@ export default function AssignmentsPage() {
                     </div>
                   </div>
                 </div>
-
               </div>
 
               <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
@@ -850,16 +834,14 @@ export default function AssignmentsPage() {
               <option value={200}>تحديد 200</option>
             </select>
 
-            <Button
-              onClick={() => selectBulk(bulkCount)}
-              disabled={clients.length === 0 || !selectedEmployeeId}
-            >
+            <Button onClick={() => selectBulk(bulkCount)} disabled={clients.length === 0 || !selectedEmployeeId}>
               تحديد أول {bulkCount}
             </Button>
 
             <Button onClick={selectPage} disabled={clients.length === 0 || !selectedEmployeeId}>
               تحديد كل عملاء الصفحة
             </Button>
+
             <Button onClick={unselectPage} disabled={clients.length === 0 || !selectedEmployeeId} variant="danger">
               إلغاء تحديد الصفحة
             </Button>
@@ -955,7 +937,8 @@ export default function AssignmentsPage() {
                     padding: '6px 10px',
                     background: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
                     color: currentPage === 1 ? '#9ca3af' : 'white',
-                    border: 'none', borderRadius: 6,
+                    border: 'none',
+                    borderRadius: 6,
                     cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
                   }}
                 >⟨⟨</button>
@@ -967,7 +950,8 @@ export default function AssignmentsPage() {
                     padding: '6px 10px',
                     background: currentPage === 1 ? '#e5e7eb' : '#3b82f6',
                     color: currentPage === 1 ? '#9ca3af' : 'white',
-                    border: 'none', borderRadius: 6,
+                    border: 'none',
+                    borderRadius: 6,
                     cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
                   }}
                 >⟨</button>
@@ -983,7 +967,8 @@ export default function AssignmentsPage() {
                     padding: '6px 10px',
                     background: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
                     color: currentPage === totalPages ? '#9ca3af' : 'white',
-                    border: 'none', borderRadius: 6,
+                    border: 'none',
+                    borderRadius: 6,
                     cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
                   }}
                 >⟩</button>
@@ -995,7 +980,8 @@ export default function AssignmentsPage() {
                     padding: '6px 10px',
                     background: currentPage === totalPages ? '#e5e7eb' : '#3b82f6',
                     color: currentPage === totalPages ? '#9ca3af' : 'white',
-                    border: 'none', borderRadius: 6,
+                    border: 'none',
+                    borderRadius: 6,
                     cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
                   }}
                 >⟩⟩</button>

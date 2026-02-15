@@ -109,7 +109,7 @@ export default function AssignmentsPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
 
-  // ✅ NEW: Unassigned only filter (يطبق على tab=all فقط)
+  // ✅ Unassigned only filter (يطبق على tab=all فقط)
   const [unassignedOnly, setUnassignedOnly] = useState(false);
 
   // Data lists
@@ -129,7 +129,7 @@ export default function AssignmentsPage() {
   // Save state
   const [saving, setSaving] = useState(false);
 
-  // ✅ NEW: bulk selection count
+  // ✅ bulk selection count
   const [bulkCount, setBulkCount] = useState<number>(20);
 
   const selectAllPageRef = useRef<HTMLInputElement>(null);
@@ -183,9 +183,6 @@ export default function AssignmentsPage() {
 
   /* =====================
      Load employees list
-     - admin: all sales + sales_manager
-     - sales_manager: TEAM = sales only inside manager projects (EXCLUDE manager)
-     (نفس منطق الداشبورد)
   ===================== */
   const loadEmployees = useCallback(async (emp: EmployeeLite, allowedProjectIds: string[]) => {
     // admin: كل الموظفين (sales + sales_manager)
@@ -239,8 +236,6 @@ export default function AssignmentsPage() {
 
   /* =====================
      Load projects for filter dropdown
-     - admin: all projects
-     - sales_manager: manager allowed projects
   ===================== */
   const loadFilterProjects = useCallback(async (emp: EmployeeLite, allowedProjects: Project[]) => {
     if (emp.role === 'admin') {
@@ -274,7 +269,6 @@ export default function AssignmentsPage() {
 
     const ids = new Set((data || []).map((r: any) => r.client_id));
     setAssignedFromDB(ids);
-    // أول مرة نختار موظف: نخلي الـ UI مطابق للـ DB
     setSelectedInUI(new Set(ids));
   }, []);
 
@@ -298,14 +292,12 @@ export default function AssignmentsPage() {
       filters.interested_in_project_id !== null ||
       filters.from_date ||
       filters.to_date ||
-      unassignedOnly // ✅ include
+      unassignedOnly
     );
   }, [filters, unassignedOnly]);
 
   /* =====================
      Load Clients (Two modes)
-     tab=all => from clients
-     tab=assigned => from client_assignments join clients
   ===================== */
   const loadClients = useCallback(async (emp: EmployeeLite, page = currentPage) => {
     setLoading(true);
@@ -323,7 +315,6 @@ export default function AssignmentsPage() {
           return;
         }
 
-        // Join clients عبر FK (clients!inner)
         let q = supabase
           .from('client_assignments')
           .select(
@@ -334,7 +325,6 @@ export default function AssignmentsPage() {
           .order('assigned_at', { ascending: false })
           .range(from, to);
 
-        // Filters على جدول clients عبر join
         if (filters.search) {
           q = q.or(
             `name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`,
@@ -364,7 +354,6 @@ export default function AssignmentsPage() {
           q = q.lt('clients.created_at', nextDay.toISOString().split('T')[0]);
         }
 
-        // Scope للـ sales_manager: العملاء لازم يكونوا ضمن مشاريع المانجر
         if (emp.role === 'sales_manager') {
           if (myAllowedProjectIds.length === 0) {
             setClients([]);
@@ -389,7 +378,7 @@ export default function AssignmentsPage() {
       // ---------------------------
       // TAB: ALL CLIENTS
       // ---------------------------
-      // ✅ IMPORTANT: include client_assignments for unassigned filter
+      // ✅ FIX: force LEFT join
       let query = supabase
         .from('clients')
         .select(
@@ -401,14 +390,13 @@ export default function AssignmentsPage() {
           status,
           interested_in_project_id,
           created_at,
-          client_assignments ( client_id )
+          client_assignments!left(client_id)
         `,
           { count: 'exact' }
         )
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      // Scope: sales_manager يرى عملاء مشاريعه فقط
       if (emp.role === 'sales_manager') {
         if (myAllowedProjectIds.length === 0) {
           setClients([]);
@@ -418,7 +406,6 @@ export default function AssignmentsPage() {
         query = query.in('interested_in_project_id', myAllowedProjectIds);
       }
 
-      // Filters
       if (filters.search) {
         query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
       }
@@ -440,7 +427,7 @@ export default function AssignmentsPage() {
         query = query.lt('created_at', nextDay.toISOString().split('T')[0]);
       }
 
-      // ✅ NEW: Unassigned only filter
+      // ✅ Unassigned only filter (works now with !left)
       if (unassignedOnly) {
         query = query.is('client_assignments.client_id', null);
       }
@@ -448,7 +435,6 @@ export default function AssignmentsPage() {
       const { data, error, count } = await query;
       if (error) throw error;
 
-      // ✅ map back to ClientListItem shape (ignore client_assignments field)
       const mapped = (data || []).map((c: any) => ({
         id: c.id,
         name: c.name,
@@ -490,21 +476,17 @@ export default function AssignmentsPage() {
         setMe(emp);
         ensureAllowed(emp);
 
-        // Load manager scope projects (if sales_manager)
         const allowed = await loadMyAllowedProjects(emp);
 
-        // Load employees list (based on role)
         const allowedIds = allowed.map(p => p.id);
         const emps = await loadEmployees(emp, allowedIds);
 
-        // Default select first employee for convenience
         if (emps.length > 0) {
           setSelectedEmployeeId(emps[0].id);
         } else {
           setSelectedEmployeeId('');
         }
 
-        // Load projects for filter dropdown
         await loadFilterProjects(emp, allowed);
       } catch (e) {
         console.error('init error:', e);
@@ -515,7 +497,6 @@ export default function AssignmentsPage() {
     })();
   }, [ensureAllowed, loadMyAllowedProjects, loadEmployees, loadFilterProjects]);
 
-  // When selected employee changes => fetch assignments IDs (for checkboxes)
   useEffect(() => {
     if (!selectedEmployeeId) return;
     loadAssignedIdsForEmployee(selectedEmployeeId).catch((e) => {
@@ -524,7 +505,6 @@ export default function AssignmentsPage() {
     });
   }, [selectedEmployeeId, loadAssignedIdsForEmployee]);
 
-  // Reload clients when filters/pagination/tab changes
   useEffect(() => {
     if (!me) return;
     loadClients(me, currentPage);
@@ -545,7 +525,7 @@ export default function AssignmentsPage() {
       from_date: '',
       to_date: '',
     });
-    setUnassignedOnly(false); // ✅ reset
+    setUnassignedOnly(false);
     setCurrentPage(1);
     if (!me) return;
     loadClients(me, 1);
@@ -579,7 +559,6 @@ export default function AssignmentsPage() {
     });
   };
 
-  // ✅ NEW: select first N in current page
   const selectBulk = (count: number) => {
     setSelectedInUI(prev => {
       const next = new Set(prev);
@@ -614,7 +593,6 @@ export default function AssignmentsPage() {
         return;
       }
 
-      // Insert in chunks
       const addChunks = chunkArray(toAdd, 500);
       for (const ch of addChunks) {
         const payload = ch.map(clientId => ({
@@ -626,7 +604,6 @@ export default function AssignmentsPage() {
         if (error) throw error;
       }
 
-      // Delete in chunks
       const delChunks = chunkArray(toRemove, 500);
       for (const ch of delChunks) {
         const { error } = await supabase
@@ -637,12 +614,10 @@ export default function AssignmentsPage() {
         if (error) throw error;
       }
 
-      // Refresh assigned IDs
       await loadAssignedIdsForEmployee(selectedEmployeeId);
 
       alert(`تم الحفظ بنجاح ✅\nتمت إضافة: ${toAdd.length}\nتمت إزالة: ${toRemove.length}`);
 
-      // لو tab = assigned، اعمل reload عشان القائمة تعكس الحذف/الإضافة
       setCurrentPage(1);
       await loadClients(me, 1);
     } catch (e: any) {
@@ -708,10 +683,24 @@ export default function AssignmentsPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
-              <Button onClick={() => setTab('all')} variant={tab === 'all' ? 'primary' : undefined}>
+              <Button
+                onClick={() => {
+                  setTab('all');
+                  setCurrentPage(1);
+                }}
+                variant={tab === 'all' ? 'primary' : undefined}
+              >
                 كل العملاء
               </Button>
-              <Button onClick={() => setTab('assigned')} variant={tab === 'assigned' ? 'primary' : undefined}>
+
+              <Button
+                onClick={() => {
+                  setTab('assigned');
+                  setUnassignedOnly(false); // ✅ avoid confusion
+                  setCurrentPage(1);
+                }}
+                variant={tab === 'assigned' ? 'primary' : undefined}
+              >
                 المعيّنين فقط
               </Button>
 
@@ -754,7 +743,6 @@ export default function AssignmentsPage() {
               )}
             </div>
 
-            {/* ✅ NEW: Unassigned filter toggle */}
             <div style={{ marginTop: 10 }}>
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: '#444' }}>
                 <input
@@ -764,7 +752,7 @@ export default function AssignmentsPage() {
                     setUnassignedOnly(e.target.checked);
                     setCurrentPage(1);
                   }}
-                  disabled={tab === 'assigned'} // لا يطبق على assigned
+                  disabled={tab === 'assigned'}
                 />
                 عرض العملاء غير الموزعين فقط
                 {tab === 'assigned' && (
@@ -864,7 +852,6 @@ export default function AssignmentsPage() {
 
         <Card title={`قائمة العملاء (${totalRows.toLocaleString()})`}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-            {/* ✅ NEW: bulk select controls */}
             <select
               value={bulkCount}
               onChange={(e) => setBulkCount(parseInt(e.target.value))}
@@ -887,7 +874,6 @@ export default function AssignmentsPage() {
             <Button onClick={selectPage} disabled={clients.length === 0 || !selectedEmployeeId}>
               تحديد كل عملاء الصفحة
             </Button>
-
             <Button onClick={unselectPage} disabled={clients.length === 0 || !selectedEmployeeId} variant="danger">
               إلغاء تحديد الصفحة
             </Button>

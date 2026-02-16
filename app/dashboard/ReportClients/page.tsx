@@ -35,7 +35,7 @@ type ClientRow = {
   status: string;
   interested_in_project_id: string | null;
   created_at: string;
-  updated_at?: string | null; // اتضاف عندك
+  updated_at?: string | null;
 };
 
 type ClientMetrics = {
@@ -54,7 +54,6 @@ type ClientMetrics = {
 
   editedClients: number;
 
-  // مفيد: توزيع الحالات
   statusCounts: Record<string, number>;
 };
 
@@ -65,13 +64,6 @@ type WorkedSets = {
   reservationNotes: Set<string>;
   visits: Set<string>;
   union: Set<string>;
-};
-
-type TopEmployeeRow = {
-  employee_id: string;
-  employee_name: string;
-  assigned_clients: number;
-  worked_clients: number;
 };
 
 /* =====================
@@ -91,12 +83,6 @@ function chunkArray<T>(arr: T[], size: number) {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
-}
-
-// بعض علاقات Supabase تطلع Array بدل Object
-function relOne<T>(rel: any): T | undefined {
-  if (!rel) return undefined;
-  return Array.isArray(rel) ? rel[0] : rel;
 }
 
 /**
@@ -167,9 +153,9 @@ export default function ClientsReportPage() {
 
   // sales_manager scope
   const [myAllowedProjects, setMyAllowedProjects] = useState<Project[]>([]);
-  const myAllowedProjectIds = useMemo(() => myAllowedProjects.map(p => p.id), [myAllowedProjects]);
+  const myAllowedProjectIds = useMemo(() => myAllowedProjects.map((p) => p.id), [myAllowedProjects]);
 
-  // projects dropdown (اختياري مفيد)
+  // projects dropdown
   const [filterProjects, setFilterProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string>('all');
 
@@ -182,12 +168,10 @@ export default function ClientsReportPage() {
   const [workedSets, setWorkedSets] = useState<WorkedSets | null>(null);
 
   const [showClients, setShowClients] = useState(true);
-  const [showTopEmployees, setShowTopEmployees] = useState(true);
 
   const [exporting, setExporting] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // client table filter
   const [searchTerm, setSearchTerm] = useState('');
 
   /* =====================
@@ -209,7 +193,6 @@ export default function ClientsReportPage() {
       }
 
       // ✅ صلاحيات التقرير
-      // (لو تحب Admin فقط زي تقرير الموظفين قولي)
       if (emp.role !== 'admin' && emp.role !== 'sales_manager') {
         alert('غير مصرح لك بالوصول إلى تقرير العملاء');
         router.push('/dashboard');
@@ -220,7 +203,7 @@ export default function ClientsReportPage() {
       setDebugInfo((p) => p + `\n✅ المستخدم: ${emp.name} (${emp.role})`);
 
       const allowedProjects = await loadMyAllowedProjects(emp);
-      await loadEmployees(emp, allowedProjects.map(p => p.id));
+      await loadEmployees(emp, allowedProjects.map((p) => p.id));
       await loadFilterProjects(emp, allowedProjects);
 
       setLoading(false);
@@ -238,24 +221,17 @@ export default function ClientsReportPage() {
       return [];
     }
 
-    const { data: rows, error } = await supabase
-      .from('employee_projects')
-      .select('project_id')
-      .eq('employee_id', emp.id);
+    const { data: rows, error } = await supabase.from('employee_projects').select('project_id').eq('employee_id', emp.id);
 
     if (error) throw error;
 
-    const ids = (rows || []).map(r => (r as any).project_id).filter(Boolean);
+    const ids = (rows || []).map((r) => (r as any).project_id).filter(Boolean);
     if (ids.length === 0) {
       setMyAllowedProjects([]);
       return [];
     }
 
-    const { data: projects, error: pErr } = await supabase
-      .from('projects')
-      .select('id,name,code')
-      .in('id', ids)
-      .order('name');
+    const { data: projects, error: pErr } = await supabase.from('projects').select('id,name,code').in('id', ids).order('name');
 
     if (pErr) throw pErr;
 
@@ -278,22 +254,17 @@ export default function ClientsReportPage() {
       return;
     }
 
-    // Sales manager: الموظفين ضمن نطاق مشاريعه (زي كود التوزيع)
+    // Sales manager: الموظفين ضمن نطاق مشاريعه
     if (allowedProjectIds.length === 0) {
       setEmployees([]);
       return;
     }
 
-    const { data: epRows, error: epErr } = await supabase
-      .from('employee_projects')
-      .select('employee_id')
-      .in('project_id', allowedProjectIds);
+    const { data: epRows, error: epErr } = await supabase.from('employee_projects').select('employee_id').in('project_id', allowedProjectIds);
 
     if (epErr) throw epErr;
 
-    const employeeIds = Array.from(
-      new Set((epRows || []).map((r: any) => r.employee_id).filter(Boolean))
-    );
+    const employeeIds = Array.from(new Set((epRows || []).map((r: any) => r.employee_id).filter(Boolean)));
 
     if (employeeIds.length === 0) {
       setEmployees([]);
@@ -314,16 +285,11 @@ export default function ClientsReportPage() {
 
   async function loadFilterProjects(emp: Employee, allowedProjects: Project[]) {
     if (emp.role === 'admin') {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('id,name,code')
-        .order('name');
-
+      const { data, error } = await supabase.from('projects').select('id,name,code').order('name');
       if (error) throw error;
       setFilterProjects(data || []);
       return;
     }
-
     setFilterProjects(allowedProjects || []);
   }
 
@@ -331,7 +297,6 @@ export default function ClientsReportPage() {
      Report core
   ===================== */
   async function fetchClientsInRange(startISO: string, endISOExclusive: string): Promise<ClientRow[]> {
-    // جلب كل العملاء اللي اتنشأوا داخل الفترة
     const rows = await fetchAllPaged<any>((from, to) => {
       let q = supabase
         .from('clients')
@@ -366,16 +331,12 @@ export default function ClientsReportPage() {
   }
 
   async function fetchAssignmentsForClients(clientIds: string[]) {
-    // يرجع Map client_id -> Set employee_ids (ممكن أكثر من تعيين تاريخيًا)
+    // Map client_id -> Set employee_ids
     const map = new Map<string, Set<string>>();
     const chunks = chunkArray(clientIds, 500);
 
     for (const ch of chunks) {
-      const { data, error } = await supabase
-        .from('client_assignments')
-        .select('client_id, employee_id')
-        .in('client_id', ch);
-
+      const { data, error } = await supabase.from('client_assignments').select('client_id, employee_id').in('client_id', ch);
       if (error) throw error;
 
       for (const r of data || []) {
@@ -389,7 +350,13 @@ export default function ClientsReportPage() {
     return map;
   }
 
-  async function distinctClientIdsFromTableInRange(table: string, clientIds: string[], startISO: string, endISOExclusive: string, clientCol = 'client_id') {
+  async function distinctClientIdsFromTableInRange(
+    table: string,
+    clientIds: string[],
+    startISO: string,
+    endISOExclusive: string,
+    clientCol = 'client_id'
+  ) {
     const out = new Set<string>();
     const chunks = chunkArray(clientIds, 500);
 
@@ -408,17 +375,69 @@ export default function ClientsReportPage() {
     return out;
   }
 
+  /**
+   * ✅ FIX: reservation_notes لا يحتوي client_id
+   * نحسب العملاء عن طريق:
+   * reservation_notes.reservation_id -> reservations.id -> reservations.client_id
+   */
+  async function distinctClientsFromReservationNotesInRange(clientIds: string[], startISO: string, endISOExclusive: string) {
+    // 1) هات reservation ids الخاصة بالعملاء
+    const resIdToClientId = new Map<string, string>();
+    const reservationIds: string[] = [];
+
+    const clientChunks = chunkArray(clientIds, 500);
+    for (const ch of clientChunks) {
+      const { data, error } = await supabase.from('reservations').select('id, client_id').in('client_id', ch);
+      if (error) throw error;
+
+      (data || []).forEach((r: any) => {
+        if (!r?.id || !r?.client_id) return;
+        reservationIds.push(r.id);
+        resIdToClientId.set(r.id, r.client_id);
+      });
+    }
+
+    if (reservationIds.length === 0) return new Set<string>();
+
+    // 2) هات notes خلال الفترة على reservations دي
+    const out = new Set<string>();
+    const resChunks = chunkArray(reservationIds, 500);
+
+    for (const rch of resChunks) {
+      let q = supabase
+        .from('reservation_notes')
+        .select('reservation_id, created_at')
+        .in('reservation_id', rch)
+        .gte('created_at', startISO)
+        .lt('created_at', endISOExclusive);
+
+      // لو التقرير مختار موظف (مش الكل) وعايز notes بتاعته فقط:
+      // لو تحب ده فعلاً، فعّل السطرين دول.
+      // if (selectedEmployeeId !== 'all') q = q.eq('created_by', selectedEmployeeId);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      (data || []).forEach((n: any) => {
+        const cid = resIdToClientId.get(n.reservation_id);
+        if (cid) out.add(cid);
+      });
+    }
+
+    return out;
+  }
+
   async function fetchWorkedSets(clientIds: string[], startISO: string, endISOExclusive: string): Promise<WorkedSets> {
-    // كل “العمل عليهم” هنا داخل نفس الفترة
     const [followups, sales, visits] = await Promise.all([
       distinctClientIdsFromTableInRange('client_followups', clientIds, startISO, endISOExclusive, 'client_id'),
       distinctClientIdsFromTableInRange('sales', clientIds, startISO, endISOExclusive, 'client_id'),
       distinctClientIdsFromTableInRange('visits', clientIds, startISO, endISOExclusive, 'client_id'),
     ]);
 
-    // reservations و reservation_notes
     const reservations = await distinctClientIdsFromTableInRange('reservations', clientIds, startISO, endISOExclusive, 'client_id');
-    const reservationNotes = await distinctClientIdsFromTableInRange('reservation_notes', clientIds, startISO, endISOExclusive, 'client_id');
+
+    // ✅ هنا التعديل الحقيقي
+    const reservationNotes = await distinctClientsFromReservationNotesInRange(clientIds, startISO, endISOExclusive);
 
     const union = new Set<string>();
     [followups, sales, visits, reservations, reservationNotes].forEach((s) => s.forEach((id) => union.add(id)));
@@ -444,7 +463,9 @@ export default function ClientsReportPage() {
     const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
 
     setDebugInfo(
-      `🔄 توليد تقرير العملاء...\n🗓️ الفترة: ${dateRange.start} → ${dateRange.end}\n⏱️ حدود الاستعلام:\n- gte: ${startISO}\n- lt: ${endISOExclusive}\n👤 الموظف: ${selectedEmployeeId === 'all' ? 'الكل' : (employees.find(e => e.id === selectedEmployeeId)?.name || selectedEmployeeId)}\n🏗️ المشروع: ${projectId === 'all' ? 'الكل' : projectId}`
+      `🔄 توليد تقرير العملاء...\n🗓️ الفترة: ${dateRange.start} → ${dateRange.end}\n⏱️ حدود الاستعلام:\n- gte: ${startISO}\n- lt: ${endISOExclusive}\n👤 الموظف: ${
+        selectedEmployeeId === 'all' ? 'الكل' : employees.find((e) => e.id === selectedEmployeeId)?.name || selectedEmployeeId
+      }\n🏗️ المشروع: ${projectId === 'all' ? 'الكل' : projectId}`
     );
 
     try {
@@ -470,20 +491,18 @@ export default function ClientsReportPage() {
         return;
       }
 
-      const allClientIds = allClients.map(c => c.id);
+      const allClientIds = allClients.map((c) => c.id);
 
       // 2) assignments
       const assignmentMap = await fetchAssignmentsForClients(allClientIds);
 
-      // employee filter:
-      // - لو اخترت موظف: هنحصر التقرير على العملاء المعيّنين لهذا الموظف (داخل الفترة)
+      // employee filter: لو اخترت موظف => فقط العملاء المعيّنين له
       let filteredClients = allClients;
       if (selectedEmployeeId !== 'all') {
         filteredClients = allClients.filter((c) => assignmentMap.get(c.id)?.has(selectedEmployeeId));
       }
-      const clientIds = filteredClients.map(c => c.id);
+      const clientIds = filteredClients.map((c) => c.id);
 
-      // Counts assigned/unassigned بالنسبة للمجموعة المختارة
       const assignedClients = filteredClients.filter((c) => (assignmentMap.get(c.id)?.size || 0) > 0).length;
       const unassignedClients = filteredClients.length - assignedClients;
       const distributionRate = filteredClients.length ? Math.round((assignedClients / filteredClients.length) * 1000) / 10 : 0;
@@ -491,7 +510,6 @@ export default function ClientsReportPage() {
       // 3) worked sets (داخل نفس الفترة)
       const worked = await fetchWorkedSets(clientIds, startISO, endISOExclusive);
       setWorkedSets(worked);
-
       const workedClients = worked.union.size;
 
       // 4) edited clients (updated_at داخل الفترة + updated_at > created_at)
@@ -505,23 +523,19 @@ export default function ClientsReportPage() {
 
       // 5) status distribution
       const statusCounts: Record<string, number> = {};
-      for (const c of filteredClients) {
-        statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
-      }
+      for (const c of filteredClients) statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
 
       setMetrics({
         totalClients: filteredClients.length,
         assignedClients,
         unassignedClients,
         distributionRate,
-
         workedClients,
         workedByFollowups: worked.followups.size,
         workedByReservations: worked.reservations.size,
         workedBySales: worked.sales.size,
         workedByReservationNotes: worked.reservationNotes.size,
         workedByVisits: worked.visits.size,
-
         editedClients,
         statusCounts,
       });
@@ -562,7 +576,8 @@ export default function ClientsReportPage() {
       const payload = {
         meta: {
           dateRange,
-          employee: selectedEmployeeId === 'all' ? 'الكل' : (employees.find(e => e.id === selectedEmployeeId)?.name || selectedEmployeeId),
+          employee:
+            selectedEmployeeId === 'all' ? 'الكل' : employees.find((e) => e.id === selectedEmployeeId)?.name || selectedEmployeeId,
           project: projectId,
           generatedAt: new Date().toISOString(),
           generatedBy: currentEmployee?.name,
@@ -611,18 +626,13 @@ export default function ClientsReportPage() {
       'الحالة',
       'مستحق',
       'تاريخ الإضافة',
-      'موزع؟',
       'تم العمل عليه داخل الفترة؟',
       'تم تعديل بياناته داخل الفترة؟',
     ];
 
-    const startISO = buildIsoRange(dateRange.start, dateRange.end).startISO;
-    const endISOExclusive = buildIsoRange(dateRange.start, dateRange.end).endISOExclusive;
+    const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
 
     const rows = clients.map((c) => {
-      const assigned = true; // هنحسبها بسرعة من workedSets؟ لا، هنا نستخدم منطق بسيط:
-      // لتفادي إعادة جلب assignmentMap هنا، نعتبر موزع = (تم اختيار موظف) أو (الموزعين ضمن metrics) غير متاحة فرديًا
-      // الأفضل: لو عايز عمود موزع لكل صف بدقة، قولي وأنا أضيف assignmentMap للـ state.
       const worked = workedSets?.union.has(c.id) ? 'نعم' : 'لا';
 
       const edited =
@@ -639,7 +649,6 @@ export default function ClientsReportPage() {
         translateStatus(c.status),
         c.eligible ? 'مستحق' : 'غير مستحق',
         new Date(c.created_at).toLocaleString('ar-SA'),
-        selectedEmployeeId === 'all' ? '' : 'نعم', // تبسيط
         worked,
         edited,
       ];
@@ -670,13 +679,7 @@ export default function ClientsReportPage() {
     let list = clients;
     const t = searchTerm.trim().toLowerCase();
     if (t) {
-      list = list.filter((c) => {
-        return (
-          (c.name || '').toLowerCase().includes(t) ||
-          (c.mobile || '').toLowerCase().includes(t) ||
-          (c.status || '').toLowerCase().includes(t)
-        );
-      });
+      list = list.filter((c) => (c.name || '').toLowerCase().includes(t) || (c.mobile || '').toLowerCase().includes(t) || (c.status || '').toLowerCase().includes(t));
     }
     return list;
   }, [clients, searchTerm]);
@@ -689,20 +692,9 @@ export default function ClientsReportPage() {
       <RequireAuth>
         <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
           <div style={{ textAlign: 'center', maxWidth: 700 }}>
-            <div style={{ fontSize: '18px', marginBottom: 10 }}>جاري تحميل تقرير العملاء...</div>
+            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري تحميل تقرير العملاء...</div>
             {debugInfo && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#666',
-                  backgroundColor: '#f8f9fa',
-                  padding: 10,
-                  borderRadius: 6,
-                  textAlign: 'left',
-                  whiteSpace: 'pre-line',
-                  border: '1px solid #eee',
-                }}
-              >
+              <div style={{ fontSize: 12, color: '#666', backgroundColor: '#f8f9fa', padding: 10, borderRadius: 6, textAlign: 'left', whiteSpace: 'pre-line', border: '1px solid #eee' }}>
                 {debugInfo}
               </div>
             )}
@@ -737,26 +729,10 @@ export default function ClientsReportPage() {
 
         {/* Debug */}
         {debugInfo && (
-          <div
-            style={{
-              marginBottom: 20,
-              padding: 15,
-              backgroundColor: '#f8f9fa',
-              borderRadius: 8,
-              border: '1px solid #e9ecef',
-              fontSize: 12,
-              color: '#666',
-              whiteSpace: 'pre-line',
-              maxHeight: 220,
-              overflowY: 'auto',
-            }}
-          >
+          <div style={{ marginBottom: 20, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 8, border: '1px solid #e9ecef', fontSize: 12, color: '#666', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <div style={{ fontWeight: 'bold' }}>سجل النظام</div>
-              <button
-                onClick={() => setDebugInfo('')}
-                style={{ fontSize: 11, padding: '2px 8px', backgroundColor: '#e9ecef', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-              >
+              <button onClick={() => setDebugInfo('')} style={{ fontSize: 11, padding: '2px 8px', backgroundColor: '#e9ecef', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
                 مسح
               </button>
             </div>
@@ -769,11 +745,7 @@ export default function ClientsReportPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 15, padding: 15 }}>
             <div>
               <label style={{ display: 'block', marginBottom: 5, fontSize: 14 }}>الموظف</label>
-              <select
-                value={selectedEmployeeId}
-                onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
-              >
+              <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}>
                 <option value="all">الكل</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
@@ -786,11 +758,7 @@ export default function ClientsReportPage() {
 
             <div>
               <label style={{ display: 'block', marginBottom: 5, fontSize: 14 }}>المشروع</label>
-              <select
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
-              >
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}>
                 <option value="all">الكل</option>
                 {filterProjects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -802,22 +770,12 @@ export default function ClientsReportPage() {
 
             <div>
               <label style={{ display: 'block', marginBottom: 5, fontSize: 14 }}>من تاريخ إنشاء العميل *</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
-              />
+              <input type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }} />
             </div>
 
             <div>
               <label style={{ display: 'block', marginBottom: 5, fontSize: 14 }}>إلى تاريخ إنشاء العميل *</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}
-              />
+              <input type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #ddd' }} />
             </div>
 
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
@@ -841,7 +799,6 @@ export default function ClientsReportPage() {
         {/* Result */}
         {!generating && metrics && (
           <>
-            {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginTop: 20, marginBottom: 20 }}>
               <Stat title="إجمالي العملاء" value={metrics.totalClients} />
               <Stat title="موزعين" value={metrics.assignedClients} />
@@ -881,7 +838,6 @@ export default function ClientsReportPage() {
               </div>
             </Card>
 
-            {/* Clients list */}
             <Card title="قائمة العملاء">
               <div style={{ padding: 15, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 260 }}>
@@ -946,9 +902,7 @@ export default function ClientsReportPage() {
                   </table>
 
                   {filteredClients.length > 500 && (
-                    <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
-                      تم عرض أول 500 عميل فقط في الجدول لتقليل الضغط. (التصدير يعكس كل البيانات)
-                    </div>
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>تم عرض أول 500 عميل فقط في الجدول لتقليل الضغط.</div>
                   )}
                 </div>
               ) : (
@@ -976,15 +930,7 @@ export default function ClientsReportPage() {
 ===================== */
 function Stat({ title, value }: { title: string; value: string | number }) {
   return (
-    <div
-      style={{
-        backgroundColor: 'white',
-        borderRadius: 8,
-        padding: 14,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        border: '1px solid #eee',
-      }}
-    >
+    <div style={{ backgroundColor: 'white', borderRadius: 8, padding: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #eee' }}>
       <div style={{ color: '#666', fontSize: 12, marginBottom: 6 }}>{title}</div>
       <div style={{ fontSize: 20, fontWeight: 'bold' }}>{value}</div>
     </div>

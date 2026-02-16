@@ -820,7 +820,7 @@ export default function ClientsPage() {
   }
 
   async function handleEditClient(clientId: string) {
-    if (employee?.role !== 'admin' && employee?.role !== 'sales_manager') {
+    if (employee?.role !== 'admin' && employee?.role !== 'sales_manager' && employee?.role !== 'sales') {
       alert('لا تملك صلاحية تعديل العملاء');
       return;
     }
@@ -1620,7 +1620,7 @@ export default function ClientsPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
 
-                      {(employee?.role === 'admin' || employee?.role === 'sales_manager') && (
+                      {(employee?.role === 'admin' || employee?.role === 'sales_manager' || employee?.role === 'sales') && (
                         <>
                           <Button onClick={() => handleEditClient(c.id)}>تعديل</Button>
                           <Button onClick={() => handleDeleteClient(c.id)} variant="danger">حذف</Button>

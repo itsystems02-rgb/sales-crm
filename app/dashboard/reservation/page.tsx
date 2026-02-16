@@ -248,6 +248,7 @@ export default function ReservationsPage() {
   const [notesReservation, setNotesReservation] = useState<Reservation | null>(null);
 
   const [selectedNote, setSelectedNote] = useState<string>('');
+  const [customNote, setCustomNote] = useState<string>(''); // ✅ NEW
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteError, setNoteError] = useState<string>('');
 
@@ -337,12 +338,14 @@ export default function ReservationsPage() {
 
     setNotesReservation(r);
     setSelectedNote('');
+    setCustomNote(''); // ✅ NEW
     setNoteError('');
     setNotes([]);
     setNotesOpen(true);
     fetchReservationNotes(r.id);
   }
 
+  // ✅ UPDATED: يحفظ الاتنين معًا (كسطرين منفصلين في reservation_notes)
   async function addNote() {
     if (!currentUser) {
       setNoteError('غير مسموح لك.');
@@ -355,25 +358,45 @@ export default function ReservationsPage() {
       return;
     }
 
-    const text = (selectedNote || '').trim();
-    if (!text) {
-      setNoteError('اختار الملاحظة الأول.');
+    const picked = (selectedNote || '').trim();
+    const typed = (customNote || '').trim();
+
+    if (!picked && !typed) {
+      setNoteError('اختار ملاحظة أو اكتب ملاحظة.');
       return;
     }
 
-    if (!NOTE_OPTIONS.includes(text as any)) {
+    if (picked && !NOTE_OPTIONS.includes(picked as any)) {
       setNoteError('الملاحظة المختارة غير صحيحة.');
       return;
+    }
+
+    // حد أقصى (اختياري)
+    if (typed && typed.length > 500) {
+      setNoteError('الملاحظة طويلة جدًا (حد أقصى 500 حرف).');
+      return;
+    }
+
+    const rowsToInsert: any[] = [];
+    if (picked) {
+      rowsToInsert.push({
+        reservation_id: notesReservation.id,
+        note_text: picked,
+        created_by: currentUser.id,
+      });
+    }
+    if (typed) {
+      rowsToInsert.push({
+        reservation_id: notesReservation.id,
+        note_text: typed,
+        created_by: currentUser.id,
+      });
     }
 
     setNoteSaving(true);
     setNoteError('');
 
-    const { error } = await supabase.from('reservation_notes').insert({
-      reservation_id: notesReservation.id,
-      note_text: text,
-      created_by: currentUser.id,
-    });
+    const { error } = await supabase.from('reservation_notes').insert(rowsToInsert);
 
     if (error) {
       setNoteSaving(false);
@@ -383,6 +406,7 @@ export default function ReservationsPage() {
 
     setNoteSaving(false);
     setSelectedNote('');
+    setCustomNote('');
     await fetchReservationNotes(notesReservation.id);
   }
 
@@ -391,6 +415,7 @@ export default function ReservationsPage() {
     setNotesOpen(false);
     setNotesReservation(null);
     setSelectedNote('');
+    setCustomNote(''); // ✅ NEW
     setNoteError('');
     setNotes([]);
   }
@@ -1548,6 +1573,44 @@ export default function ReservationsPage() {
                     </option>
                   ))}
                 </select>
+
+                {/* ✅ NEW: كتابة ملاحظة (مع الاختيار) */}
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#2c3e50' }}>
+                    أو اكتب ملاحظة
+                  </label>
+
+                  <textarea
+                    value={customNote}
+                    onChange={(e) => setCustomNote(e.target.value)}
+                    placeholder="اكتب ملاحظتك هنا..."
+                    style={{
+                      width: '100%',
+                      minHeight: '90px',
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: '1px solid #ddd',
+                      fontSize: '14px',
+                      outline: 'none',
+                      backgroundColor: 'white',
+                      resize: 'vertical',
+                    }}
+                    disabled={!currentUser || !canAddNote(currentUser, notesReservation) || noteSaving}
+                  />
+
+                  <div
+                    style={{
+                      marginTop: '6px',
+                      fontSize: '12px',
+                      color: '#999',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span>ممكن تختار من القائمة وتكتب كمان — الاتنين هيتسجلوا.</span>
+                    <span>{(customNote || '').trim().length}/500</span>
+                  </div>
+                </div>
 
                 {currentUser && !canAddNote(currentUser, notesReservation) && (
                   <div style={{ marginTop: '8px', fontSize: '12px', color: '#999' }}>

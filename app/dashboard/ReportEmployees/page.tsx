@@ -294,133 +294,95 @@ function translateStatus(status: string) {
   }
 }
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function formatMoneyEGP(v?: number) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return '—';
+  return `${Math.round(n).toLocaleString('ar-EG')} ج.م`;
+}
+
 /* =====================
-   Professional UI Kit
+   Premium UI Components (No libs)
 ===================== */
 
-const ui = {
-  page: {
-    maxWidth: 1280,
-    margin: '0 auto',
-    padding: '18px 14px 40px',
-  },
-  headerWrap: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 14,
-    flexWrap: 'wrap' as const,
-    marginBottom: 14,
-  },
-  h1: { margin: 0, fontSize: 22, fontWeight: 900 as const, letterSpacing: '-0.2px' },
-  sub: { margin: '6px 0 0', color: '#6b7280', fontSize: 13, lineHeight: 1.5 },
-  toolbar: { display: 'flex', gap: 10, flexWrap: 'wrap' as const, alignItems: 'center' as const },
-  chip: (bg: string, fg: string, bd: string) => ({
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '6px 10px',
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 800 as const,
-    background: bg,
-    color: fg,
-    border: `1px solid ${bd}`,
-    whiteSpace: 'nowrap' as const,
-  }),
-  grid: (min = 220) => ({
-    display: 'grid',
-    gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`,
-    gap: 12,
-  }),
-  panel: {
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 14,
-    boxShadow: '0 1px 10px rgba(0,0,0,0.04)',
-  },
-  hint: { fontSize: 12, color: '#6b7280' },
-  tableWrap: { overflowX: 'auto' as const, borderRadius: 14, border: '1px solid #eef2f7' },
-  table: { width: '100%', borderCollapse: 'separate' as const, borderSpacing: 0, minWidth: 980 },
-  th: {
-    position: 'sticky' as const,
-    top: 0,
-    background: '#f9fafb',
-    color: '#374151',
-    fontSize: 12,
-    fontWeight: 900 as const,
-    textAlign: 'right' as const,
-    padding: 12,
-    borderBottom: '1px solid #e5e7eb',
-    zIndex: 1,
-  },
-  td: { padding: 12, borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#111827', verticalAlign: 'top' as const },
-  row: { cursor: 'pointer' as const },
-};
+function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger'; children: React.ReactNode }) {
+  return <span className={`r-badge r-badge--${tone}`}>{children}</span>;
+}
+
+function IconDot({ tone = 'neutral' }: { tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }) {
+  return <span className={`r-dot r-dot--${tone}`} aria-hidden />;
+}
 
 function SegTabs({
   value,
   onChange,
-  items,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  items: { key: string; label: string; icon?: string }[];
+  value: TabKey;
+  onChange: (v: TabKey) => void;
 }) {
   return (
-    <div
-      style={{
-        display: 'inline-flex',
-        background: '#fff',
-        border: '1px solid #e5e7eb',
-        borderRadius: 14,
-        padding: 4,
-        boxShadow: '0 1px 10px rgba(0,0,0,0.04)',
-        gap: 4,
-      }}
-    >
-      {items.map((it) => {
-        const active = value === it.key;
-        return (
-          <button
-            key={it.key}
-            onClick={() => onChange(it.key)}
-            style={{
-              border: 'none',
-              cursor: 'pointer',
-              padding: '10px 12px',
-              borderRadius: 12,
-              background: active ? '#111827' : 'transparent',
-              color: active ? '#fff' : '#111827',
-              fontWeight: 900,
-              fontSize: 13,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              minWidth: 150,
-              justifyContent: 'center',
-            }}
-          >
-            <span aria-hidden>{it.icon || ''}</span>
-            {it.label}
-          </button>
-        );
-      })}
+    <div className="r-tabs" role="tablist" aria-label="Reports tabs">
+      <button
+        className={`r-tab ${value === 'employee_activity' ? 'is-active' : ''}`}
+        onClick={() => onChange('employee_activity')}
+        role="tab"
+        aria-selected={value === 'employee_activity'}
+      >
+        <span className="r-tab__icon">📌</span> تقرير الأنشطة
+      </button>
+      <button
+        className={`r-tab ${value === 'clients' ? 'is-active' : ''}`}
+        onClick={() => onChange('clients')}
+        role="tab"
+        aria-selected={value === 'clients'}
+      >
+        <span className="r-tab__icon">👥</span> تقرير العملاء
+      </button>
     </div>
   );
 }
 
-function KpiCard({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
+function Kpi({
+  title,
+  value,
+  sub,
+  tone = 'neutral',
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  icon: string;
+}) {
   return (
-    <div style={{ ...ui.panel, padding: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-        <div>
-          <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 800 }}>{title}</div>
-          <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6, letterSpacing: '-0.3px' }}>{value}</div>
-          {sub && <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>{sub}</div>}
-        </div>
-        <div style={{ width: 38, height: 38, borderRadius: 12, background: '#f3f4f6' }} />
+    <div className="r-kpi">
+      <div className={`r-kpi__icon r-kpi__icon--${tone}`} aria-hidden>
+        {icon}
       </div>
+      <div className="r-kpi__body">
+        <div className="r-kpi__title">{title}</div>
+        <div className="r-kpi__value">{value}</div>
+        {sub ? <div className="r-kpi__sub">{sub}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function Panel({ title, hint, right, children }: { title: string; hint?: string; right?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="r-panel">
+      <div className="r-panel__head">
+        <div>
+          <div className="r-panel__title">{title}</div>
+          {hint ? <div className="r-panel__hint">{hint}</div> : null}
+        </div>
+        {right ? <div className="r-panel__right">{right}</div> : null}
+      </div>
+      <div className="r-panel__body">{children}</div>
     </div>
   );
 }
@@ -438,38 +400,45 @@ function Modal({
 }) {
   if (!open) return null;
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(17,24,39,0.55)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 14,
-        zIndex: 9999,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 'min(820px, 100%)',
-          background: '#fff',
-          borderRadius: 16,
-          border: '1px solid #e5e7eb',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ padding: 14, borderBottom: '1px solid #eef2f7', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-          <div style={{ fontWeight: 900 }}>{title}</div>
-          <button onClick={onClose} style={{ border: 'none', background: '#f3f4f6', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', fontWeight: 900 }}>
+    <div className="r-modal__backdrop" onClick={onClose}>
+      <div className="r-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="r-modal__head">
+          <div className="r-modal__title">{title}</div>
+          <button className="r-modal__close" onClick={onClose}>
             إغلاق ✕
           </button>
         </div>
-        <div style={{ padding: 14 }}>{children}</div>
+        <div className="r-modal__body">{children}</div>
       </div>
+    </div>
+  );
+}
+
+function MiniBars({
+  items,
+  maxLabel = 120,
+}: {
+  items: { label: string; value: number; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }[];
+  maxLabel?: number;
+}) {
+  const max = Math.max(1, ...items.map((x) => x.value));
+  return (
+    <div className="r-bars">
+      {items.map((x) => {
+        const pct = clamp((x.value / max) * 100, 2, 100);
+        const tone = x.tone || 'neutral';
+        return (
+          <div key={x.label} className="r-bars__row">
+            <div className="r-bars__label" style={{ maxWidth: maxLabel }}>
+              <IconDot tone={tone} /> {x.label}
+            </div>
+            <div className="r-bars__track">
+              <div className={`r-bars__fill r-bars__fill--${tone}`} style={{ width: `${pct}%` }} />
+            </div>
+            <div className="r-bars__val">{x.value}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -525,6 +494,8 @@ export default function ReportsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalBody, setModalBody] = useState<React.ReactNode>(null);
+
+  const [filtersOpen, setFiltersOpen] = useState(true);
 
   /* =====================
      INIT
@@ -674,7 +645,6 @@ export default function ReportsPage() {
       alert('تأكد أن تاريخ "من" أقل أو يساوي تاريخ "إلى"');
       return;
     }
-
     if (tab === 'employee_activity' && !selectedEmployeeIdActivity) {
       alert('اختر الموظف (تقرير الأنشطة)');
       return;
@@ -968,7 +938,14 @@ export default function ReportsPage() {
 
     let efficiencyScore = 0;
     if (list.length > 0) {
-      const score = sales * 40 + reservations * 20 + reservationNotes * 8 + reservationFollowUps * 10 + followUps * 10 + visits * 12;
+      const score =
+        sales * 40 +
+        reservations * 20 +
+        reservationNotes * 8 +
+        reservationFollowUps * 10 +
+        followUps * 10 +
+        visits * 12;
+
       const maxScore = list.length * 40;
       efficiencyScore = maxScore > 0 ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
     }
@@ -1170,7 +1147,6 @@ export default function ReportsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      // sales_manager scope
       if (currentEmployee?.role === 'sales_manager') {
         if (myAllowedProjectIds.length === 0) return supabase.from('clients').select('id').limit(0);
         q = q.in('interested_in_project_id', myAllowedProjectIds);
@@ -1599,524 +1575,701 @@ export default function ReportsPage() {
   }, [clients, clientSearch]);
 
   /* =====================
+     Derived (Nice UI insights)
+  ===================== */
+
+  const activityBreakdown = useMemo(() => {
+    if (!activitySummary) return [];
+    const items = [
+      { label: 'متابعات', value: activitySummary.followUps, tone: 'info' as const },
+      { label: 'حجوزات', value: activitySummary.reservations, tone: 'success' as const },
+      { label: 'متابعات حجوزات', value: activitySummary.reservationFollowUps, tone: 'warning' as const },
+      { label: 'ملاحظات', value: activitySummary.reservationNotes, tone: 'neutral' as const },
+      { label: 'مبيعات', value: activitySummary.sales, tone: 'success' as const },
+      { label: 'زيارات', value: activitySummary.visits, tone: 'info' as const },
+    ].filter((x) => x.value > 0);
+
+    return items.sort((a, b) => b.value - a.value);
+  }, [activitySummary]);
+
+  const clientsStatusTop = useMemo(() => {
+    if (!clientMetrics) return [];
+    const entries = Object.entries(clientMetrics.statusCounts || {})
+      .map(([k, v]) => ({ label: translateStatus(k), value: v }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+    return entries;
+  }, [clientMetrics]);
+
+  /* =====================
      Render
   ===================== */
 
   if (loading) {
     return (
       <RequireAuth>
-        <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-          <div style={{ textAlign: 'center', maxWidth: 760 }}>
-            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري تحميل صفحة التقارير...</div>
-            {debugInfo && (
-              <div style={{ fontSize: 12, color: '#666', backgroundColor: '#f8f9fa', padding: 12, borderRadius: 10, textAlign: 'left', whiteSpace: 'pre-line', border: '1px solid #eee' }}>
-                {debugInfo}
-              </div>
-            )}
+        <div className="r-center">
+          <div className="r-skeleton">
+            <div className="r-skeleton__title" />
+            <div className="r-skeleton__line" />
+            <div className="r-skeleton__grid">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="r-skeleton__card" />
+              ))}
+            </div>
+            {debugInfo ? <pre className="r-debug">{debugInfo}</pre> : null}
           </div>
         </div>
+
+        <style jsx global>{globalCss}</style>
       </RequireAuth>
     );
   }
 
-  const headerTitle = tab === 'employee_activity' ? 'تقرير أنشطة الموظف' : 'تقرير العملاء';
+  const headerTitle = tab === 'employee_activity' ? 'تقارير الأداء — أنشطة الموظف' : 'تقارير الأداء — العملاء';
   const headerSubtitle =
     tab === 'employee_activity'
-      ? 'تجميع الأنشطة خلال فترة محددة + ملخص + تحليل زمني + تصدير'
-      : 'إحصائيات العملاء خلال فترة إنشاء + توزيع + نشاط + تعديل بيانات + تصدير';
+      ? 'تحليل شامل لحركة الموظف داخل الفترة: متابعات، حجوزات، ملاحظات، زيارات، ومبيعات.'
+      : 'تحليل العملاء داخل فترة الإنشاء: توزيع، نشاط داخل الفترة، وتعديل بيانات.';
 
   const canSeeProjects = tab === 'clients';
   const canChooseEmployeeModeAll = tab === 'clients';
 
+  const selectedEmpNameActivity = employees.find((e) => e.id === selectedEmployeeIdActivity)?.name || '—';
+  const selectedEmpNameClients =
+    selectedEmployeeIdClients === 'all'
+      ? 'الكل'
+      : employees.find((e) => e.id === selectedEmployeeIdClients)?.name || selectedEmployeeIdClients;
+
+  const heroRightBadge =
+    tab === 'employee_activity'
+      ? `👤 ${selectedEmpNameActivity}`
+      : `👤 ${selectedEmpNameClients}${projectId === 'all' ? ' • 🏗️ كل المشاريع' : ' • 🏗️ مشروع محدد'}`;
+
+  const heroTone =
+    tab === 'employee_activity'
+      ? activitySummary
+        ? activitySummary.efficiencyScore >= 80
+          ? 'success'
+          : activitySummary.efficiencyScore >= 60
+          ? 'warning'
+          : 'danger'
+        : 'neutral'
+      : clientMetrics
+      ? clientMetrics.distributionRate >= 80
+        ? 'success'
+        : clientMetrics.distributionRate >= 50
+        ? 'warning'
+        : 'danger'
+      : 'neutral';
+
   return (
     <RequireAuth>
-      <div className="page" style={ui.page}>
-        {/* Header */}
-        <div style={ui.headerWrap}>
-          <div>
-            <h1 style={ui.h1}>{headerTitle}</h1>
-            <p style={ui.sub}>{headerSubtitle}</p>
+      <div className="r-page">
+        {/* Premium global CSS */}
+        <style jsx global>{globalCss}</style>
 
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-              <span style={ui.chip('#e8f0fe', '#1a73e8', '#c7dbff')}>👤 {currentEmployee?.role}</span>
-              <span style={ui.chip('#f5f5f5', '#374151', '#e5e7eb')}>
-                📅 {dateRange.start} → {dateRange.end}
-              </span>
-              {tab === 'clients' && (
-                <span style={ui.chip('#e6f4ea', '#0d8a3e', '#cdebd8')}>
-                  🏗️ {projectId === 'all' ? 'كل المشاريع' : 'مشروع محدد'}
-                </span>
-              )}
+        {/* HERO HEADER */}
+        <div className="r-hero">
+          <div className="r-hero__inner">
+            <div className="r-crumbs">
+              <span className="r-crumb">Dashboard</span>
+              <span className="r-crumb-sep">/</span>
+              <span className="r-crumb r-crumb--active">Reports</span>
+            </div>
+
+            <div className="r-hero__row">
+              <div className="r-hero__left">
+                <h1 className="r-hero__title">{headerTitle}</h1>
+                <p className="r-hero__sub">{headerSubtitle}</p>
+
+                <div className="r-hero__badges">
+                  <Badge tone="info">🔐 {currentEmployee?.role}</Badge>
+                  <Badge tone="neutral">📅 {dateRange.start} → {dateRange.end}</Badge>
+                  <Badge tone={heroTone as any}>{heroRightBadge}</Badge>
+                </div>
+              </div>
+
+              <div className="r-hero__right">
+                <div className="r-actions">
+                  <Button
+                    onClick={exportJSON}
+                    disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)}
+                    variant="secondary"
+                  >
+                    {exporting ? 'جاري التصدير...' : '⬇️ JSON'}
+                  </Button>
+
+                  <Button
+                    onClick={exportCSV}
+                    disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}
+                    variant="secondary"
+                  >
+                    ⬇️ CSV
+                  </Button>
+
+                  <Button onClick={printReport} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}>
+                    🖨️ طباعة
+                  </Button>
+                </div>
+
+                <div className="r-tabsWrap">
+                  <SegTabs value={tab} onChange={setTab} />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div style={ui.toolbar}>
-            <Button onClick={exportJSON} disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)} variant="secondary">
-              {exporting ? 'جاري التصدير...' : '⬇️ JSON'}
-            </Button>
-            <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
-              ⬇️ CSV
-            </Button>
-            <Button onClick={printReport} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}>
-              🖨️ طباعة
-            </Button>
-          </div>
+          <div className="r-hero__glow" aria-hidden />
         </div>
 
-        {/* Tabs */}
-        <div style={{ marginBottom: 14 }}>
-          <SegTabs
-            value={tab}
-            onChange={(v) => setTab(v as TabKey)}
-            items={[
-              { key: 'employee_activity', label: 'تقرير الأنشطة', icon: '📌' },
-              { key: 'clients', label: 'تقرير العملاء', icon: '👥' },
-            ]}
-          />
-        </div>
+        {/* STICKY FILTER BAR */}
+        <div className="r-sticky">
+          <div className="r-sticky__inner">
+            <div className="r-sticky__left">
+              <button className="r-linkBtn" onClick={() => setFiltersOpen((p) => !p)}>
+                {filtersOpen ? 'إخفاء الفلاتر ▲' : 'عرض الفلاتر ▼'}
+              </button>
 
-        {/* Debug */}
-        {debugInfo && (
-          <div style={{ ...ui.panel, padding: 14, marginBottom: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontWeight: 900 }}>سجل النظام</div>
-              <button onClick={() => setDebugInfo('')} style={{ border: 'none', background: '#f3f4f6', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', fontWeight: 900 }}>
-                مسح ✕
+              {tab === 'employee_activity' && activitySummary ? (
+                <div className="r-mini">
+                  <IconDot tone={heroTone as any} /> الكفاءة: <b>{activitySummary.efficiencyScore}%</b> • التحويل: <b>{activitySummary.conversionRate}%</b>
+                </div>
+              ) : null}
+
+              {tab === 'clients' && clientMetrics ? (
+                <div className="r-mini">
+                  <IconDot tone={heroTone as any} /> نسبة التوزيع: <b>{clientMetrics.distributionRate}%</b> • تم العمل عليهم: <b>{clientMetrics.workedClients}</b>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="r-sticky__right">
+              <button
+                className="r-quick"
+                onClick={() => {
+                  const d = new Date();
+                  const s = d.toISOString().split('T')[0];
+                  setDateRange({ start: s, end: s });
+                }}
+              >
+                اليوم
+              </button>
+
+              <button
+                className="r-quick"
+                onClick={() => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - 1);
+                  const s = d.toISOString().split('T')[0];
+                  setDateRange({ start: s, end: s });
+                }}
+              >
+                أمس
+              </button>
+
+              <button
+                className="r-quick"
+                onClick={() => {
+                  const end = new Date();
+                  const start = new Date();
+                  start.setDate(start.getDate() - 6);
+                  setDateRange({ start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] });
+                }}
+              >
+                آخر 7 أيام
+              </button>
+
+              <button
+                className="r-quick"
+                onClick={() => {
+                  const end = new Date();
+                  const start = new Date();
+                  start.setDate(start.getDate() - 29);
+                  setDateRange({ start: start.toISOString().split('T')[0], end: end.toISOString().split('T')[0] });
+                }}
+              >
+                آخر 30 يوم
               </button>
             </div>
-            <div style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>{debugInfo}</div>
           </div>
-        )}
+        </div>
 
-        {/* Filters */}
-        <Card title="فلترة التقرير">
-          <div style={{ padding: 14 }}>
-            <div style={ui.grid(230)}>
-              <div>
-                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>
-                  {tab === 'employee_activity' ? 'الموظف (إلزامي)' : 'الموظف'}
-                </div>
-                <select
-                  value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
-                  onChange={(e) => (tab === 'employee_activity' ? setSelectedEmployeeIdActivity(e.target.value) : setSelectedEmployeeIdClients(e.target.value))}
-                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
-                >
-                  {canChooseEmployeeModeAll && <option value="all">الكل</option>}
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>{employees.length} موظف</div>
-              </div>
-
-              {canSeeProjects && (
-                <div>
-                  <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>المشروع</div>
-                  <select
-                    value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
-                    style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
-                  >
-                    <option value="all">الكل</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.code ? `${p.name} (${p.code})` : p.name}
-                      </option>
-                    ))}
-                  </select>
-                  {currentEmployee?.role === 'sales_manager' && (
-                    <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
-                      نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div>
-                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>من تاريخ *</div>
-                <input
-                  type="date"
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb' }}
-                />
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>إلى تاريخ *</div>
-                <input
-                  type="date"
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <div style={{ width: '100%' }}>
-                  <Button
-                    onClick={generate}
-                    disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}
-                  >
-                    {generating ? 'جاري التوليد...' : '⚡ توليد التقرير'}
-                  </Button>
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>يفضل تحديد فترة صغيرة للسرعة.</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Sub filters */}
-            <div style={{ marginTop: 12, ...ui.panel, padding: 12 }}>
-              {tab === 'employee_activity' ? (
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ minWidth: 220 }}>
-                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>نوع النشاط</div>
-                    <select
-                      value={activityTypeFilter}
-                      onChange={(e) => setActivityTypeFilter(e.target.value as any)}
-                      style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
+        {/* FILTERS PANEL */}
+        {filtersOpen && (
+          <div className="r-content">
+            <div className="r-grid2">
+              <div className="r-cardLite">
+                <div className="r-cardLite__head">
+                  <div>
+                    <div className="r-cardLite__title">الفلاتر</div>
+                    <div className="r-cardLite__hint">اختار الموظف والفترة، ثم ولّد التقرير</div>
+                  </div>
+                  <div className="r-cardLite__right">
+                    <Button
+                      onClick={generate}
+                      disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}
                     >
-                      <option value="all">الكل</option>
-                      <option value="client_followup">متابعات</option>
-                      <option value="reservation">حجوزات</option>
-                      <option value="reservation_followup">متابعات الحجوزات</option>
-                      <option value="reservation_note">ملاحظات الحجوزات</option>
-                      <option value="sale">مبيعات</option>
-                      <option value="visit">زيارات</option>
-                    </select>
+                      {generating ? 'جاري التوليد...' : '⚡ توليد'}
+                    </Button>
                   </div>
-
-                  <div style={{ flex: 1, minWidth: 260 }}>
-                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>بحث</div>
-                    <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e: any) => setActivitySearch(e.target.value)} />
-                  </div>
-
-                  <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
-                    {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
-                  </Button>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1, minWidth: 260 }}>
-                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>بحث في العملاء</div>
-                    <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
-                  </div>
 
-                  <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
-                    {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </Card>
-
-        {/* Generating */}
-        {generating && (
-          <div style={{ ...ui.panel, padding: 18, marginTop: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>جاري توليد التقرير...</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>قد تستغرق العملية بضع لحظات حسب حجم البيانات</div>
-          </div>
-        )}
-
-        {/* TAB: Employee Activity */}
-        {!generating && tab === 'employee_activity' && activitySummary && (
-          <>
-            <div style={{ marginTop: 14, ...ui.grid(220) }}>
-              <KpiCard title="إجمالي الأنشطة" value={activitySummary.totalActivities} />
-              <KpiCard title="متابعات" value={activitySummary.followUps} />
-              <KpiCard title="حجوزات" value={activitySummary.reservations} />
-              <KpiCard title="ملاحظات حجوزات" value={activitySummary.reservationNotes} />
-              <KpiCard title="مبيعات" value={activitySummary.sales} />
-              <KpiCard title="معدل التحويل" value={`${activitySummary.conversionRate}%`} />
-              <KpiCard title="عملاء تم التعامل معهم" value={activitySummary.uniqueClientsTouched} />
-              <KpiCard title="إجمالي الوقت" value={`${activitySummary.totalDuration} د`} sub={`${Math.round(activitySummary.totalDuration / 60)} ساعة`} />
-            </div>
-
-            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <span style={ui.chip('#e6f4ea', '#0d8a3e', '#cdebd8')}>✅ الكفاءة: {activitySummary.efficiencyScore}%</span>
-                <span style={ui.chip('#f5f5f5', '#374151', '#e5e7eb')}>⏱️ متوسط النشاط: {activitySummary.avgActivityDuration} د</span>
-                <span style={ui.chip('#e8f0fe', '#1a73e8', '#c7dbff')}>📍 Peak: {activitySummary.peakHour}</span>
-                <span style={ui.chip('#fff8e1', '#b7791f', '#f7e3a1')}>🔥 الأكثر: {activitySummary.busiestActivity}</span>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 14, ...ui.panel, padding: 0 }}>
-              <div style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontWeight: 900 }}>تفاصيل الأنشطة</div>
-                  <div style={ui.hint}>{filteredActivities.length} نشاط بعد الفلاتر</div>
-                </div>
-              </div>
-
-              <div style={ui.tableWrap}>
-                <table style={ui.table}>
-                  <thead>
-                    <tr>
-                      <th style={ui.th}>النوع</th>
-                      <th style={ui.th}>النشاط</th>
-                      <th style={ui.th}>التفاصيل</th>
-                      <th style={ui.th}>العميل</th>
-                      <th style={ui.th}>الوحدة</th>
-                      <th style={ui.th}>الوقت</th>
-                      <th style={ui.th}>المدة</th>
-                      <th style={ui.th}>الحالة</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredActivities.length === 0 ? (
-                      <tr>
-                        <td style={{ ...ui.td, textAlign: 'center' }} colSpan={8}>
-                          لا توجد بيانات حسب الفلاتر الحالية
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredActivities.map((a, idx) => (
-                        <tr
-                          key={`${a.type}-${a.id}`}
-                          style={ui.row}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                          onClick={() => {
-                            setModalTitle(`${a.action} • ${a.client_name || ''}`);
-                            setModalBody(
-                              <div style={{ display: 'grid', gap: 10 }}>
-                                <div style={{ ...ui.panel, padding: 12 }}>
-                                  <div style={ui.hint}>التفاصيل</div>
-                                  <div style={{ fontWeight: 800, marginTop: 6 }}>{a.details}</div>
-                                </div>
-                                <div style={{ ...ui.panel, padding: 12 }}>
-                                  <div style={ui.hint}>الملاحظات</div>
-                                  <div style={{ fontWeight: 800, marginTop: 6 }}>{a.notes || 'لا توجد'}</div>
-                                </div>
-                              </div>
-                            );
-                            setModalOpen(true);
-                          }}
-                        >
-                          <td style={ui.td}>{a.type}</td>
-                          <td style={{ ...ui.td, fontWeight: 900 }}>{a.action}</td>
-                          <td style={{ ...ui.td, maxWidth: 420, wordBreak: 'break-word' }}>{a.details}</td>
-                          <td style={ui.td}>{a.client_name || '-'}</td>
-                          <td style={ui.td}>{a.unit_code || '-'}</td>
-                          <td style={ui.td}>{new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                          <td style={ui.td}>{a.duration || 0} د</td>
-                          <td style={ui.td}>{a.status || '—'}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {showDetails && detailedActivity && (
-              <div style={{ marginTop: 14 }}>
-                <Card title="Raw Data (للتدقيق)">
-                  <div style={{ padding: 14, display: 'grid', gap: 14 }}>
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>FollowUps ({detailedActivity.followUps.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedActivity.followUps, null, 2)}
-                      </pre>
-                    </details>
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservations ({detailedActivity.reservations.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedActivity.reservations, null, 2)}
-                      </pre>
-                    </details>
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservation Notes ({detailedActivity.reservationNotes.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedActivity.reservationNotes, null, 2)}
-                      </pre>
-                    </details>
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Sales ({detailedActivity.sales.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedActivity.sales, null, 2)}
-                      </pre>
-                    </details>
-                    <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Visits ({detailedActivity.visits.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedActivity.visits, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
-                </Card>
-              </div>
-            )}
-
-            <div style={{ marginTop: 14 }}>
-              <Card title="التحليل الزمني (حسب الساعة)">
-                <div style={{ padding: 14 }}>
-                  {timeSlots.length ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {timeSlots.map((slot) => (
-                        <div key={slot.hour} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 160, fontSize: 12, fontWeight: 900, color: '#374151' }}>{slot.hour}</div>
-                          <div style={{ flex: 1, height: 18, backgroundColor: '#eef2f7', borderRadius: 999, overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                height: '100%',
-                                backgroundColor: '#111827',
-                                width: `${Math.min((slot.count / Math.max(...timeSlots.map((s) => s.count))) * 100, 100)}%`,
-                              }}
-                            />
-                          </div>
-                          <div style={{ width: 40, textAlign: 'right', fontWeight: 900 }}>{slot.count}</div>
-                        </div>
+                <div className="r-formGrid">
+                  {/* Employee */}
+                  <div className="r-field">
+                    <label className="r-label">{tab === 'employee_activity' ? 'الموظف (إلزامي)' : 'الموظف'}</label>
+                    <select
+                      className="r-select"
+                      value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
+                      onChange={(e) =>
+                        tab === 'employee_activity'
+                          ? setSelectedEmployeeIdActivity(e.target.value)
+                          : setSelectedEmployeeIdClients(e.target.value)
+                      }
+                    >
+                      {canChooseEmployeeModeAll && <option value="all">الكل</option>}
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
+                        </option>
                       ))}
+                    </select>
+                    <div className="r-help">{employees.length} موظف</div>
+                  </div>
+
+                  {/* Project (clients only) */}
+                  {canSeeProjects && (
+                    <div className="r-field">
+                      <label className="r-label">المشروع</label>
+                      <select className="r-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                        <option value="all">الكل</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.code ? `${p.name} (${p.code})` : p.name}
+                          </option>
+                        ))}
+                      </select>
+                      {currentEmployee?.role === 'sales_manager' ? (
+                        <div className="r-help">
+                          نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
+                        </div>
+                      ) : (
+                        <div className="r-help">فلترة اختيارية</div>
+                      )}
                     </div>
+                  )}
+
+                  {/* Dates */}
+                  <div className="r-field">
+                    <label className="r-label">من تاريخ *</label>
+                    <input
+                      className="r-input"
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="r-field">
+                    <label className="r-label">إلى تاريخ *</label>
+                    <input
+                      className="r-input"
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
+                    />
+                  </div>
+
+                  {/* Sub filters */}
+                  {tab === 'employee_activity' ? (
+                    <>
+                      <div className="r-field">
+                        <label className="r-label">نوع النشاط</label>
+                        <select
+                          className="r-select"
+                          value={activityTypeFilter}
+                          onChange={(e) => setActivityTypeFilter(e.target.value as any)}
+                        >
+                          <option value="all">الكل</option>
+                          <option value="client_followup">متابعات</option>
+                          <option value="reservation">حجوزات</option>
+                          <option value="reservation_followup">متابعات الحجوزات</option>
+                          <option value="reservation_note">ملاحظات الحجوزات</option>
+                          <option value="sale">مبيعات</option>
+                          <option value="visit">زيارات</option>
+                        </select>
+                      </div>
+
+                      <div className="r-field r-field--span2">
+                        <label className="r-label">بحث</label>
+                        <Input
+                          placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..."
+                          value={activitySearch}
+                          onChange={(e: any) => setActivitySearch(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="r-field r-field--span2 r-field--row">
+                        <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
+                          {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
+                        </Button>
+                        <div className="r-help">تفاصيل خام للتدقيق عند الحاجة</div>
+                      </div>
+                    </>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>لا توجد بيانات كافية</div>
+                    <>
+                      <div className="r-field r-field--span2">
+                        <label className="r-label">بحث في العملاء</label>
+                        <Input
+                          placeholder="بحث بالاسم/الجوال/الحالة..."
+                          value={clientSearch}
+                          onChange={(e: any) => setClientSearch(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="r-field r-field--span2 r-field--row">
+                        <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
+                          {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
+                        </Button>
+                        <div className="r-help">تقدر تخفي الجدول لو الداتا كبيرة</div>
+                      </div>
+                    </>
                   )}
                 </div>
-              </Card>
-            </div>
-          </>
-        )}
-
-        {/* TAB: Clients */}
-        {!generating && tab === 'clients' && clientMetrics && (
-          <>
-            <div style={{ marginTop: 14, ...ui.grid(220) }}>
-              <KpiCard title="إجمالي العملاء" value={clientMetrics.totalClients} />
-              <KpiCard title="موزعين" value={clientMetrics.assignedClients} />
-              <KpiCard title="غير موزعين" value={clientMetrics.unassignedClients} />
-              <KpiCard title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} />
-              <KpiCard title="تم العمل عليهم" value={clientMetrics.workedClients} />
-              <KpiCard title="تم تعديل بياناتهم" value={clientMetrics.editedClients} />
-            </div>
-
-            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
-              <div style={{ fontWeight: 900, marginBottom: 8 }}>تفصيل (تم العمل عليهم داخل الفترة)</div>
-              <div style={ui.grid(220)}>
-                <KpiCard title="متابعات" value={clientMetrics.workedByFollowups} />
-                <KpiCard title="حجوزات" value={clientMetrics.workedByReservations} />
-                <KpiCard title="ملاحظات حجوزات" value={clientMetrics.workedByReservationNotes} />
-                <KpiCard title="مبيعات" value={clientMetrics.workedBySales} />
-                <KpiCard title="زيارات" value={clientMetrics.workedByVisits} />
               </div>
-              <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
-                “تم العمل عليهم” = عميل ظهر له أي نشاط من (متابعة/حجز/ملاحظة/بيع/زيارة) داخل نفس الفترة.
-              </div>
-            </div>
 
-            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
-              <div style={{ fontWeight: 900, marginBottom: 8 }}>توزيع حالات العملاء</div>
-              <div style={ui.grid(180)}>
-                {Object.entries(clientMetrics.statusCounts).length === 0 ? (
-                  <div style={{ color: '#6b7280' }}>لا توجد بيانات</div>
-                ) : (
-                  Object.entries(clientMetrics.statusCounts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => (
-                      <div key={k} style={{ ...ui.panel, padding: 12 }}>
-                        <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900 }}>{translateStatus(k)}</div>
-                        <div style={{ fontSize: 20, fontWeight: 900, marginTop: 6 }}>{v}</div>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-
-            <div style={{ marginTop: 14, ...ui.panel, padding: 0 }}>
-              <div style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontWeight: 900 }}>قائمة العملاء</div>
-                  <div style={ui.hint}>
-                    {filteredClients.length} عميل بعد البحث • {showClients ? 'معروضة' : 'مخفية'}
+              <div className="r-cardLite">
+                <div className="r-cardLite__head">
+                  <div>
+                    <div className="r-cardLite__title">معلومات التشغيل</div>
+                    <div className="r-cardLite__hint">يوضح آخر خطوة أثناء التحميل</div>
                   </div>
                 </div>
-                <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'}>
-                  {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
-                </Button>
+
+                <div className="r-log">
+                  {debugInfo ? <pre className="r-debug">{debugInfo}</pre> : <div className="r-emptyTiny">لا يوجد سجل بعد.</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESULTS */}
+        <div className="r-content">
+          {tab === 'employee_activity' && activitySummary ? (
+            <>
+              <div className="r-kpis">
+                <Kpi title="إجمالي الأنشطة" value={activitySummary.totalActivities} sub="Total events" tone="info" icon="📊" />
+                <Kpi title="الكفاءة" value={`${activitySummary.efficiencyScore}%`} sub={`Peak: ${activitySummary.peakHour}`} tone={heroTone as any} icon="⚡" />
+                <Kpi title="معدل التحويل" value={`${activitySummary.conversionRate}%`} sub="Sales / Followups" tone="success" icon="📈" />
+                <Kpi title="الوقت" value={`${activitySummary.totalDuration} د`} sub={`${Math.round(activitySummary.totalDuration / 60)} ساعة • متوسط ${activitySummary.avgActivityDuration} د`} tone="neutral" icon="⏱️" />
               </div>
 
-              {!showClients ? (
-                <div style={{ padding: 18, color: '#6b7280' }}>تم إخفاء القائمة.</div>
-              ) : (
-                <div style={ui.tableWrap}>
-                  <table style={ui.table}>
+              <div className="r-grid2">
+                <Panel
+                  title="تفصيل الأنشطة"
+                  hint="أكثر الأنشطة تنفيذًا داخل الفترة"
+                  right={<Badge tone="neutral">Top mix</Badge>}
+                >
+                  <MiniBars items={activityBreakdown as any} />
+                </Panel>
+
+                <Panel
+                  title="Insights"
+                  hint="ملخص سريع للمخرجات"
+                  right={<Badge tone={heroTone as any}>{selectedEmpNameActivity}</Badge>}
+                >
+                  <div className="r-ins">
+                    <div className="r-ins__item">
+                      <div className="r-ins__k">🔥 الأكثر تنفيذًا</div>
+                      <div className="r-ins__v">{activitySummary.busiestActivity}</div>
+                    </div>
+                    <div className="r-ins__item">
+                      <div className="r-ins__k">👥 عملاء تم لمسهم</div>
+                      <div className="r-ins__v">{activitySummary.uniqueClientsTouched}</div>
+                    </div>
+                    <div className="r-ins__item">
+                      <div className="r-ins__k">⏱️ متوسط النشاط</div>
+                      <div className="r-ins__v">{activitySummary.avgActivityDuration} د</div>
+                    </div>
+                    <div className="r-ins__item">
+                      <div className="r-ins__k">💰 إجمالي قيمة مبيعات</div>
+                      <div className="r-ins__v">
+                        {formatMoneyEGP(
+                          activities.filter((x) => x.type === 'sale').reduce((s, x) => s + Number(x.amount || 0), 0)
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Panel>
+              </div>
+
+              <Panel
+                title="سجل الأنشطة"
+                hint={`${filteredActivities.length} نشاط بعد الفلاتر • اضغط على أي صف لعرض التفاصيل`}
+                right={<Badge tone="info">DataGrid</Badge>}
+              >
+                <div className="r-tableWrap">
+                  <table className="r-table">
                     <thead>
                       <tr>
-                        <th style={ui.th}>العميل</th>
-                        <th style={ui.th}>الجوال</th>
-                        <th style={ui.th}>الحالة</th>
-                        <th style={ui.th}>مستحق</th>
-                        <th style={ui.th}>تاريخ الإضافة</th>
-                        <th style={ui.th}>تم العمل عليه؟</th>
-                        <th style={ui.th}>تم تعديله؟</th>
-                        <th style={ui.th}>فتح</th>
+                        <th>النوع</th>
+                        <th>النشاط</th>
+                        <th>التفاصيل</th>
+                        <th>العميل</th>
+                        <th>الوحدة</th>
+                        <th>الوقت</th>
+                        <th>المدة</th>
+                        <th>الحالة</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredClients.length === 0 ? (
+                      {filteredActivities.length === 0 ? (
                         <tr>
-                          <td colSpan={8} style={{ ...ui.td, textAlign: 'center' }}>
-                            لا توجد نتائج
+                          <td colSpan={8} className="r-tdEmpty">
+                            لا توجد بيانات حسب الفلاتر الحالية
                           </td>
                         </tr>
                       ) : (
-                        filteredClients.slice(0, 500).map((c, idx) => {
-                          const worked = workedSets?.union.has(c.id);
-                          const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
-                          const edited =
-                            !!c.updated_at &&
-                            new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
-                            new Date(c.updated_at).getTime() < new Date(endISOExclusive).getTime() &&
-                            new Date(c.updated_at).getTime() > new Date(c.created_at).getTime();
-
-                          return (
-                            <tr key={c.id} style={ui.row} onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
-                              <td style={{ ...ui.td, fontWeight: 900 }}>{c.name}</td>
-                              <td style={ui.td}>{c.mobile || '-'}</td>
-                              <td style={ui.td}>{translateStatus(c.status)}</td>
-                              <td style={ui.td}>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                              <td style={ui.td}>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                              <td style={ui.td}>{worked ? 'نعم' : 'لا'}</td>
-                              <td style={ui.td}>{edited ? 'نعم' : 'لا'}</td>
-                              <td style={ui.td}>
-                                <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
-                              </td>
-                            </tr>
-                          );
-                        })
+                        filteredActivities.map((a) => (
+                          <tr
+                            key={`${a.type}-${a.id}`}
+                            className="r-tr"
+                            onClick={() => {
+                              setModalTitle(`${a.action} • ${a.client_name || ''}`);
+                              setModalBody(
+                                <div className="r-modalGrid">
+                                  <div className="r-box">
+                                    <div className="r-box__k">التفاصيل</div>
+                                    <div className="r-box__v">{a.details}</div>
+                                  </div>
+                                  <div className="r-box">
+                                    <div className="r-box__k">الملاحظات</div>
+                                    <div className="r-box__v">{a.notes || 'لا توجد'}</div>
+                                  </div>
+                                  <div className="r-box">
+                                    <div className="r-box__k">معلومات</div>
+                                    <div className="r-box__v">
+                                      <div>النوع: <b>{a.type}</b></div>
+                                      <div>الوقت: <b>{new Date(a.timestamp).toLocaleString('ar-SA')}</b></div>
+                                      <div>المدة: <b>{a.duration || 0} د</b></div>
+                                      {a.amount ? <div>المبلغ: <b>{formatMoneyEGP(a.amount)}</b></div> : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                              setModalOpen(true);
+                            }}
+                          >
+                            <td><Badge tone="neutral">{a.type}</Badge></td>
+                            <td className="r-strong">{a.action}</td>
+                            <td className="r-wrap">{a.details}</td>
+                            <td>{a.client_name || '-'}</td>
+                            <td>{a.unit_code || '-'}</td>
+                            <td>{new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                            <td>{a.duration || 0} د</td>
+                            <td>{a.status || '—'}</td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
-
-                  {filteredClients.length > 500 && (
-                    <div style={{ padding: 12, fontSize: 12, color: '#6b7280' }}>تم عرض أول 500 عميل فقط لتقليل الضغط.</div>
-                  )}
                 </div>
-              )}
+              </Panel>
+
+              <Panel
+                title="تحليل زمني"
+                hint="توزيع الأنشطة حسب الساعة (أعلى نشاط يظهر بطول أعلى)"
+                right={<Badge tone="neutral">Timeline</Badge>}
+              >
+                {timeSlots.length ? (
+                  <MiniBars
+                    items={timeSlots
+                      .slice()
+                      .sort((a, b) => b.count - a.count)
+                      .slice(0, 12)
+                      .map((x, i) => ({
+                        label: x.hour,
+                        value: x.count,
+                        tone: i < 3 ? ('success' as const) : i < 7 ? ('info' as const) : ('neutral' as const),
+                      }))}
+                    maxLabel={160}
+                  />
+                ) : (
+                  <div className="r-emptyTiny">لا توجد بيانات كافية</div>
+                )}
+              </Panel>
+
+              {showDetails && detailedActivity ? (
+                <div style={{ marginTop: 14 }}>
+                  <Card title="Raw Data (للتدقيق)">
+                    <div style={{ padding: 14, display: 'grid', gap: 14 }}>
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 900 }}>FollowUps ({detailedActivity.followUps.length})</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                          {JSON.stringify(detailedActivity.followUps, null, 2)}
+                        </pre>
+                      </details>
+
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservations ({detailedActivity.reservations.length})</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                          {JSON.stringify(detailedActivity.reservations, null, 2)}
+                        </pre>
+                      </details>
+
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservation Notes ({detailedActivity.reservationNotes.length})</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                          {JSON.stringify(detailedActivity.reservationNotes, null, 2)}
+                        </pre>
+                      </details>
+
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Sales ({detailedActivity.sales.length})</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                          {JSON.stringify(detailedActivity.sales, null, 2)}
+                        </pre>
+                      </details>
+
+                      <details>
+                        <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Visits ({detailedActivity.visits.length})</summary>
+                        <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                          {JSON.stringify(detailedActivity.visits, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  </Card>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {tab === 'clients' && clientMetrics ? (
+            <>
+              <div className="r-kpis">
+                <Kpi title="إجمالي العملاء" value={clientMetrics.totalClients} sub="Clients created in range" tone="info" icon="👥" />
+                <Kpi title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} sub={`${clientMetrics.assignedClients} موزعين • ${clientMetrics.unassignedClients} غير موزعين`} tone={heroTone as any} icon="🎯" />
+                <Kpi title="تم العمل عليهم" value={clientMetrics.workedClients} sub="Any activity in range" tone="success" icon="🛠️" />
+                <Kpi title="تم تعديلهم" value={clientMetrics.editedClients} sub="Updated within range" tone="warning" icon="✍️" />
+              </div>
+
+              <div className="r-grid2">
+                <Panel title="تفصيل النشاط داخل الفترة" hint="Clients touched by activity type" right={<Badge tone="neutral">Worked Sets</Badge>}>
+                  <MiniBars
+                    items={[
+                      { label: 'متابعات', value: clientMetrics.workedByFollowups, tone: 'info' as const },
+                      { label: 'حجوزات', value: clientMetrics.workedByReservations, tone: 'success' as const },
+                      { label: 'ملاحظات', value: clientMetrics.workedByReservationNotes, tone: 'neutral' as const },
+                      { label: 'مبيعات', value: clientMetrics.workedBySales, tone: 'success' as const },
+                      { label: 'زيارات', value: clientMetrics.workedByVisits, tone: 'info' as const },
+                    ].filter((x) => x.value > 0)}
+                  />
+                </Panel>
+
+                <Panel title="توزيع حالات العملاء" hint="Top statuses" right={<Badge tone="info">Top 8</Badge>}>
+                  <MiniBars
+                    items={clientsStatusTop.map((x, i) => ({
+                      label: x.label,
+                      value: x.value,
+                      tone: i < 2 ? ('success' as const) : i < 5 ? ('info' as const) : ('neutral' as const),
+                    }))}
+                    maxLabel={160}
+                  />
+                </Panel>
+              </div>
+
+              <Panel
+                title="قائمة العملاء"
+                hint={`${filteredClients.length} عميل بعد البحث • ${showClients ? 'معروضة' : 'مخفية'} • يتم عرض أول 500 فقط`}
+                right={
+                  <div className="r-rowActions">
+                    <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'}>
+                      {showClients ? 'إخفاء' : 'عرض'}
+                    </Button>
+                  </div>
+                }
+              >
+                {!showClients ? (
+                  <div className="r-emptyTiny">تم إخفاء القائمة.</div>
+                ) : (
+                  <div className="r-tableWrap">
+                    <table className="r-table">
+                      <thead>
+                        <tr>
+                          <th>العميل</th>
+                          <th>الجوال</th>
+                          <th>الحالة</th>
+                          <th>مستحق</th>
+                          <th>تاريخ الإضافة</th>
+                          <th>تم العمل عليه؟</th>
+                          <th>تم تعديله؟</th>
+                          <th>فتح</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredClients.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="r-tdEmpty">
+                              لا توجد نتائج
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredClients.slice(0, 500).map((c) => {
+                            const worked = workedSets?.union.has(c.id);
+                            const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+                            const edited =
+                              !!c.updated_at &&
+                              new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
+                              new Date(c.updated_at).getTime() < new Date(endISOExclusive).getTime() &&
+                              new Date(c.updated_at).getTime() > new Date(c.created_at).getTime();
+
+                            return (
+                              <tr key={c.id} className="r-tr">
+                                <td className="r-strong">{c.name}</td>
+                                <td>{c.mobile || '-'}</td>
+                                <td><Badge tone="neutral">{translateStatus(c.status)}</Badge></td>
+                                <td>{c.eligible ? <Badge tone="success">مستحق</Badge> : <Badge tone="danger">غير مستحق</Badge>}</td>
+                                <td>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                <td>{worked ? <Badge tone="success">نعم</Badge> : <Badge tone="neutral">لا</Badge>}</td>
+                                <td>{edited ? <Badge tone="warning">نعم</Badge> : <Badge tone="neutral">لا</Badge>}</td>
+                                <td>
+                                  <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+
+                    {filteredClients.length > 500 ? (
+                      <div className="r-footNote">تم عرض أول 500 عميل فقط لتقليل الضغط.</div>
+                    ) : null}
+                  </div>
+                )}
+              </Panel>
+            </>
+          ) : null}
+
+          {/* Empty states */}
+          {!generating && tab === 'employee_activity' && !activitySummary ? (
+            <div className="r-empty">
+              <div className="r-empty__icon">📊</div>
+              <div className="r-empty__title">جاهزين للتقرير</div>
+              <div className="r-empty__sub">اختار الموظف والفترة ثم اضغط “توليد”</div>
             </div>
-          </>
-        )}
+          ) : null}
 
-        {/* Empty states */}
-        {!generating && tab === 'employee_activity' && !activitySummary && (
-          <div style={{ ...ui.panel, padding: 26, marginTop: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 26, color: '#9ca3af', marginBottom: 12 }}>📊</div>
-            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>اختر الموظف والفترة ثم اضغط “توليد التقرير”</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>سيتم عرض ملخص + تفاصيل الأنشطة + تحليل زمني</div>
-          </div>
-        )}
-
-        {!generating && tab === 'clients' && !clientMetrics && (
-          <div style={{ ...ui.panel, padding: 26, marginTop: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 26, color: '#9ca3af', marginBottom: 12 }}>📊</div>
-            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>اختر الفلاتر ثم اضغط “توليد التقرير”</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>سيتم عرض إحصائيات العملاء + النشاط + التعديل + توزيع الحالات</div>
-          </div>
-        )}
+          {!generating && tab === 'clients' && !clientMetrics ? (
+            <div className="r-empty">
+              <div className="r-empty__icon">👥</div>
+              <div className="r-empty__title">جاهزين لتقرير العملاء</div>
+              <div className="r-empty__sub">اختار الفترة والفلترة ثم اضغط “توليد”</div>
+            </div>
+          ) : null}
+        </div>
 
         {/* Modal */}
         <Modal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
@@ -2126,3 +2279,593 @@ export default function ReportsPage() {
     </RequireAuth>
   );
 }
+
+/* =====================
+   Global CSS (Premium)
+===================== */
+
+const globalCss = `
+  :root{
+    --bg: #0b1220;
+    --card: rgba(255,255,255,0.92);
+    --card2: rgba(255,255,255,0.86);
+    --line: rgba(226,232,240,0.9);
+    --text: #0f172a;
+    --muted: #64748b;
+    --muted2: #94a3b8;
+    --shadow: 0 18px 60px rgba(2,6,23,.18);
+    --shadow2: 0 8px 22px rgba(2,6,23,.10);
+    --radius: 16px;
+  }
+
+  /* page */
+  .r-page{
+    background: #f6f7fb;
+    min-height: 100vh;
+  }
+
+  .r-content{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 14px 14px 44px;
+  }
+
+  /* HERO */
+  .r-hero{
+    position: relative;
+    overflow: hidden;
+    padding: 18px 0 14px;
+    background: radial-gradient(1200px 600px at 70% -10%, rgba(99,102,241,.18), transparent 60%),
+                radial-gradient(900px 500px at 10% 0%, rgba(14,165,233,.14), transparent 60%),
+                linear-gradient(180deg, #0b1220 0%, #0b1220 60%, rgba(246,247,251,0) 100%);
+  }
+
+  .r-hero__inner{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 14px 8px;
+    color: #fff;
+  }
+
+  .r-hero__glow{
+    position:absolute;
+    inset: -40% -20% auto -20%;
+    height: 380px;
+    filter: blur(28px);
+    background: radial-gradient(closest-side, rgba(99,102,241,.35), rgba(14,165,233,.18), transparent 70%);
+    pointer-events:none;
+  }
+
+  .r-crumbs{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    color: rgba(226,232,240,.85);
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .r-crumb--active{ color: #fff; font-weight: 900; }
+  .r-crumb-sep{ opacity: .7; }
+
+  .r-hero__row{
+    display:flex;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .r-hero__left{ min-width: 320px; }
+  .r-hero__title{
+    margin: 0;
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -0.3px;
+  }
+  .r-hero__sub{
+    margin: 8px 0 0;
+    color: rgba(226,232,240,.82);
+    max-width: 720px;
+    line-height: 1.6;
+    font-size: 13px;
+  }
+  .r-hero__badges{
+    margin-top: 12px;
+    display:flex;
+    gap:8px;
+    flex-wrap: wrap;
+  }
+
+  .r-hero__right{
+    display:flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-end;
+    min-width: 320px;
+  }
+  .r-actions{
+    display:flex;
+    gap:10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .r-tabsWrap{ display:flex; justify-content: flex-end; width: 100%; }
+
+  /* tabs */
+  .r-tabs{
+    display:inline-flex;
+    gap:4px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(148,163,184,.25);
+    backdrop-filter: blur(8px);
+  }
+  .r-tab{
+    border: none;
+    cursor: pointer;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: transparent;
+    color: rgba(226,232,240,.92);
+    font-weight: 900;
+    font-size: 13px;
+    display:inline-flex;
+    gap:8px;
+    align-items:center;
+    min-width: 170px;
+    justify-content: center;
+    transition: all .15s ease;
+  }
+  .r-tab:hover{ background: rgba(255,255,255,.08); }
+  .r-tab.is-active{
+    background: rgba(255,255,255,.92);
+    color: #0b1220;
+    box-shadow: 0 8px 22px rgba(2,6,23,.18);
+  }
+  .r-tab__icon{ filter: saturate(1.2); }
+
+  /* sticky bar */
+  .r-sticky{
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: rgba(246,247,251,0.86);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(226,232,240,.8);
+  }
+  .r-sticky__inner{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 10px 14px;
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .r-sticky__left{ display:flex; gap: 12px; align-items:center; flex-wrap: wrap; }
+  .r-sticky__right{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; justify-content: flex-end; }
+
+  .r-linkBtn{
+    border:none;
+    background: transparent;
+    cursor:pointer;
+    font-weight: 900;
+    color: #0f172a;
+    font-size: 13px;
+  }
+  .r-mini{
+    font-size: 12px;
+    color: #334155;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.9);
+    border: 1px solid rgba(226,232,240,.9);
+  }
+  .r-quick{
+    border: 1px solid rgba(226,232,240,.9);
+    background: rgba(255,255,255,.9);
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor:pointer;
+    font-weight: 900;
+    font-size: 12px;
+    color: #0f172a;
+    transition: all .12s ease;
+  }
+  .r-quick:hover{
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(2,6,23,.08);
+  }
+
+  /* layout */
+  .r-grid2{
+    display:grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 980px){
+    .r-grid2{ grid-template-columns: 1fr; }
+    .r-hero__right{ align-items: flex-start; }
+    .r-tabsWrap{ justify-content: flex-start; }
+  }
+
+  .r-cardLite{
+    background: rgba(255,255,255,.94);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow2);
+    overflow: hidden;
+  }
+  .r-cardLite__head{
+    padding: 14px;
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(226,232,240,.8);
+    background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
+  }
+  .r-cardLite__title{
+    font-weight: 900;
+    color: #0f172a;
+    font-size: 14px;
+  }
+  .r-cardLite__hint{
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .r-formGrid{
+    padding: 14px;
+    display:grid;
+    grid-template-columns: repeat(2, minmax(220px,1fr));
+    gap: 12px;
+  }
+  @media (max-width: 860px){
+    .r-formGrid{ grid-template-columns: 1fr; }
+  }
+
+  .r-field{ display:flex; flex-direction: column; gap: 6px; }
+  .r-field--span2{ grid-column: span 2; }
+  @media (max-width: 860px){ .r-field--span2{ grid-column: span 1; } }
+  .r-field--row{ flex-direction: row; align-items: center; gap: 12px; }
+
+  .r-label{ font-size: 12px; font-weight: 900; color: #334155; }
+  .r-select, .r-input{
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(226,232,240,.95);
+    background: rgba(255,255,255,.95);
+    font-weight: 800;
+    color: #0f172a;
+    outline: none;
+  }
+  .r-select:focus, .r-input:focus{
+    border-color: rgba(99,102,241,.45);
+    box-shadow: 0 0 0 4px rgba(99,102,241,.12);
+  }
+  .r-help{ font-size: 12px; color: #64748b; }
+
+  .r-log{ padding: 14px; }
+  .r-debug{
+    margin: 0;
+    padding: 12px;
+    background: #0b1220;
+    color: rgba(226,232,240,.95);
+    border-radius: 14px;
+    border: 1px solid rgba(148,163,184,.2);
+    font-size: 12px;
+    white-space: pre-line;
+    max-height: 320px;
+    overflow: auto;
+  }
+  .r-emptyTiny{ padding: 12px; color:#64748b; font-size: 12px; }
+
+  /* KPIs */
+  .r-kpis{
+    display:grid;
+    grid-template-columns: repeat(4, minmax(220px,1fr));
+    gap: 12px;
+    margin-top: 14px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 1100px){ .r-kpis{ grid-template-columns: repeat(2, minmax(220px,1fr)); } }
+  @media (max-width: 620px){ .r-kpis{ grid-template-columns: 1fr; } }
+
+  .r-kpi{
+    background: rgba(255,255,255,.95);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow2);
+    padding: 14px;
+    display:flex;
+    gap: 12px;
+    align-items:flex-start;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .r-kpi:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 18px 40px rgba(2,6,23,.10);
+  }
+  .r-kpi__icon{
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size: 18px;
+    border: 1px solid rgba(226,232,240,.95);
+    background: rgba(248,250,252,.9);
+  }
+  .r-kpi__icon--info{ background: rgba(14,165,233,.12); border-color: rgba(14,165,233,.25); }
+  .r-kpi__icon--success{ background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.25); }
+  .r-kpi__icon--warning{ background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.25); }
+  .r-kpi__icon--danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); }
+  .r-kpi__body{ flex: 1; }
+  .r-kpi__title{ font-size: 12px; color: #64748b; font-weight: 900; }
+  .r-kpi__value{ margin-top: 6px; font-size: 22px; font-weight: 900; color: #0f172a; letter-spacing: -0.3px; }
+  .r-kpi__sub{ margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.4; }
+
+  /* Panel */
+  .r-panel{
+    background: rgba(255,255,255,.95);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow2);
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .r-panel__head{
+    padding: 14px;
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(226,232,240,.8);
+    background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
+  }
+  .r-panel__title{ font-weight: 900; color: #0f172a; font-size: 14px; }
+  .r-panel__hint{ margin-top: 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
+  .r-panel__body{ padding: 14px; }
+  .r-rowActions{ display:flex; gap: 8px; align-items:center; }
+
+  /* Bars */
+  .r-bars{ display:flex; flex-direction: column; gap: 10px; }
+  .r-bars__row{ display:flex; gap: 10px; align-items: center; }
+  .r-bars__label{
+    width: 190px;
+    font-size: 12px;
+    font-weight: 900;
+    color: #334155;
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .r-bars__track{
+    flex: 1;
+    height: 12px;
+    border-radius: 999px;
+    background: #eef2f7;
+    overflow:hidden;
+    border: 1px solid rgba(226,232,240,.9);
+  }
+  .r-bars__fill{ height: 100%; border-radius: 999px; }
+  .r-bars__fill--neutral{ background: #111827; }
+  .r-bars__fill--info{ background: linear-gradient(90deg, #0ea5e9, #6366f1); }
+  .r-bars__fill--success{ background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .r-bars__fill--warning{ background: linear-gradient(90deg, #f59e0b, #f97316); }
+  .r-bars__fill--danger{ background: linear-gradient(90deg, #ef4444, #f43f5e); }
+  .r-bars__val{ width: 44px; text-align: left; font-weight: 900; color: #0f172a; font-size: 12px; }
+
+  /* table */
+  .r-tableWrap{
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: var(--radius);
+    overflow: auto;
+  }
+  .r-table{
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 980px;
+    background: #fff;
+  }
+  .r-table thead th{
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8fafc;
+    border-bottom: 1px solid rgba(226,232,240,.95);
+    font-size: 12px;
+    font-weight: 900;
+    color: #334155;
+    text-align: right;
+    padding: 12px;
+  }
+  .r-table tbody td{
+    border-bottom: 1px solid rgba(241,245,249,.95);
+    font-size: 13px;
+    color: #0f172a;
+    padding: 12px;
+    vertical-align: top;
+  }
+  .r-tr{
+    cursor: pointer;
+    transition: background .12s ease;
+  }
+  .r-tr:hover{
+    background: #f8fafc;
+  }
+  .r-strong{ font-weight: 900; }
+  .r-wrap{ max-width: 460px; word-break: break-word; }
+  .r-tdEmpty{
+    padding: 24px !important;
+    text-align: center;
+    color: #64748b !important;
+    font-weight: 800;
+  }
+  .r-footNote{
+    padding: 12px;
+    font-size: 12px;
+    color: #64748b;
+    background: #f8fafc;
+    border-top: 1px solid rgba(226,232,240,.85);
+  }
+
+  /* badges & dots */
+  .r-badge{
+    display:inline-flex;
+    align-items:center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid rgba(226,232,240,.85);
+    background: rgba(255,255,255,.9);
+    color: #0f172a;
+    white-space: nowrap;
+  }
+  .r-badge--neutral{ background: rgba(255,255,255,.92); }
+  .r-badge--info{ background: rgba(14,165,233,.12); border-color: rgba(14,165,233,.25); color: #075985; }
+  .r-badge--success{ background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.25); color: #14532d; }
+  .r-badge--warning{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); color: #7c2d12; }
+  .r-badge--danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #7f1d1d; }
+
+  .r-dot{
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #111827;
+    display:inline-block;
+    box-shadow: 0 0 0 3px rgba(17,24,39,.10);
+  }
+  .r-dot--info{ background:#0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.12); }
+  .r-dot--success{ background:#22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
+  .r-dot--warning{ background:#f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
+  .r-dot--danger{ background:#ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
+
+  /* insights */
+  .r-ins{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 820px){
+    .r-ins{ grid-template-columns: 1fr; }
+  }
+  .r-ins__item{
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: 14px;
+    padding: 12px;
+    background: rgba(248,250,252,.75);
+  }
+  .r-ins__k{ font-size: 12px; color: #64748b; font-weight: 900; }
+  .r-ins__v{ margin-top: 6px; font-weight: 900; color: #0f172a; }
+
+  /* modal */
+  .r-modal__backdrop{
+    position: fixed;
+    inset: 0;
+    background: rgba(2,6,23,.55);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding: 14px;
+    z-index: 9999;
+  }
+  .r-modal{
+    width: min(880px, 100%);
+    background: rgba(255,255,255,.98);
+    border-radius: 18px;
+    border: 1px solid rgba(226,232,240,.95);
+    box-shadow: 0 30px 90px rgba(2,6,23,.35);
+    overflow:hidden;
+  }
+  .r-modal__head{
+    padding: 14px;
+    border-bottom: 1px solid rgba(226,232,240,.85);
+    display:flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items:center;
+    background: #fff;
+  }
+  .r-modal__title{ font-weight: 900; color: #0f172a; }
+  .r-modal__close{
+    border: none;
+    background: #f1f5f9;
+    border-radius: 12px;
+    padding: 10px 12px;
+    cursor:pointer;
+    font-weight: 900;
+    color: #0f172a;
+  }
+  .r-modal__body{ padding: 14px; }
+  .r-modalGrid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 860px){ .r-modalGrid{ grid-template-columns: 1fr; } }
+  .r-box{
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: 14px;
+    padding: 12px;
+    background: rgba(248,250,252,.7);
+  }
+  .r-box__k{ font-size: 12px; color: #64748b; font-weight: 900; }
+  .r-box__v{ margin-top: 6px; color: #0f172a; font-weight: 800; line-height: 1.6; }
+
+  /* empty */
+  .r-empty{
+    margin-top: 14px;
+    background: rgba(255,255,255,.95);
+    border: 1px dashed rgba(148,163,184,.6);
+    border-radius: var(--radius);
+    padding: 28px;
+    text-align:center;
+    box-shadow: var(--shadow2);
+  }
+  .r-empty__icon{ font-size: 30px; margin-bottom: 10px; }
+  .r-empty__title{ font-weight: 900; color: #0f172a; font-size: 16px; }
+  .r-empty__sub{ margin-top: 6px; color: #64748b; font-size: 12px; }
+
+  /* loading center */
+  .r-center{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height: 80vh;
+    background: #f6f7fb;
+    padding: 14px;
+  }
+  .r-skeleton{
+    width: min(980px, 100%);
+    background: rgba(255,255,255,.95);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: var(--shadow2);
+  }
+  .r-skeleton__title{ height: 22px; width: 320px; border-radius: 10px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
+  .r-skeleton__line{ height: 12px; width: 520px; border-radius: 10px; margin-top: 10px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
+  .r-skeleton__grid{ display:grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 14px; }
+  @media (max-width: 860px){ .r-skeleton__grid{ grid-template-columns: 1fr; } }
+  .r-skeleton__card{ height: 88px; border-radius: 14px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
+  @keyframes sk{
+    0%{ background-position: 0% 0; }
+    100%{ background-position: 200% 0; }
+  }
+` as const;

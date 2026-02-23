@@ -306,7 +306,7 @@ function formatMoneyEGP(v?: number) {
 }
 
 /* =====================
-   Followup Status Buckets (NEW)
+   Followup Status Buckets (FIXED)
 ===================== */
 
 // حالات المتابعة (من كود followups NOTE_OPTIONS)
@@ -340,16 +340,34 @@ function normalizeArabic(s: string) {
     .toLowerCase();
 }
 
+/**
+ * ✅ استخراج الحالة من النص (يدعم: "الحالة - ملاحظة" و "|" و "—")
+ * لأن غالبًا الحالة عندك بتتخزن داخل notes وليس type
+ */
 function extractFollowupStatus(text: string): FollowupStatusLabel {
-  const t = normalizeArabic(text);
+  const raw = (text || '').toString();
+  const t = normalizeArabic(raw);
   if (!t) return 'غير محدد';
 
+  // direct / startsWith / contains
   for (const opt of FOLLOWUP_STATUS_OPTIONS) {
     const o = normalizeArabic(opt);
     if (!o) continue;
-    if (t === o) return opt;
-    if (t.startsWith(o)) return opt;
-    if (t.includes(o)) return opt;
+    if (t === o || t.startsWith(o) || t.includes(o)) return opt;
+  }
+
+  // split parts (لو النص: "جاري رفع الطلب - العميل قال ..." أو "جاري رفع الطلب | ..." إلخ)
+  const parts = raw
+    .split(/[-|—–]/g)
+    .map((p) => normalizeArabic(p))
+    .filter(Boolean);
+
+  for (const part of parts) {
+    for (const opt of FOLLOWUP_STATUS_OPTIONS) {
+      const o = normalizeArabic(opt);
+      if (!o) continue;
+      if (part === o || part.startsWith(o) || part.includes(o)) return opt;
+    }
   }
 
   return 'غير محدد';
@@ -557,11 +575,9 @@ export default function ReportsPage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
   const [showDetails, setShowDetails] = useState(false);
 
-  // ✅ NEW: breakdowns for followup statuses
+  // ✅ breakdowns for followup statuses
   const [followupStatusBreakdown, setFollowupStatusBreakdown] = useState<{ label: string; value: number }[]>([]);
-  const [reservationFollowupStatusBreakdown, setReservationFollowupStatusBreakdown] = useState<
-    { label: string; value: number }[]
-  >([]);
+  const [reservationFollowupStatusBreakdown, setReservationFollowupStatusBreakdown] = useState<{ label: string; value: number }[]>([]);
 
   // clients states
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
@@ -1066,7 +1082,7 @@ export default function ReportsPage() {
     setTimeSlots([]);
     setDetailedActivity(null);
 
-    // ✅ reset breakdowns
+    // reset breakdowns
     setFollowupStatusBreakdown([]);
     setReservationFollowupStatusBreakdown([]);
 
@@ -1085,15 +1101,14 @@ export default function ReportsPage() {
       fetchReservationNotes(selectedEmployeeIdActivity, startISO, endISOExclusive),
     ]);
 
-    // ✅ NEW: breakdowns (حالات المتابعات + حالات متابعات الحجوزات)
-    // ملاحظة: لو الحالة عندك متخزنة غالبًا في notes، بدّل الترتيب: (f.notes || f.type)
-    const followupLabels: FollowupStatusLabel[] = followUps.map((f) => extractFollowupStatus(f.type || f.notes || ''));
+    // ✅ FIX #1: client_followups الحالة عندك غالباً في notes (مش type)
+    const followupLabels: FollowupStatusLabel[] = followUps.map((f) => extractFollowupStatus(f.notes || f.type || ''));
     setFollowupStatusBreakdown(countByLabel(followupLabels));
 
+    // ✅ FIX #2: reservation followups حاول follow_up_details ولو فاضي خُد notes
     const reservationFollowupLabels: FollowupStatusLabel[] = reservations
       .filter((r) => r.follow_employee_id === selectedEmployeeIdActivity && r.last_follow_up_at)
-      .map((r) => extractFollowupStatus(r.follow_up_details || ''));
-
+      .map((r) => extractFollowupStatus(r.follow_up_details || r.notes || ''));
     setReservationFollowupStatusBreakdown(countByLabel(reservationFollowupLabels));
 
     const all: EmployeeActivity[] = [];
@@ -1148,7 +1163,7 @@ export default function ReportsPage() {
           reference_id: r.id,
           duration: 10,
           status: r.status,
-          notes: r.follow_up_details || '',
+          notes: r.follow_up_details || r.notes || '',
         });
       }
     }
@@ -1499,8 +1514,6 @@ export default function ReportsPage() {
           summary: activitySummary,
           activities,
           timeSlots,
-
-          // ✅ NEW: include breakdowns
           followupStatusBreakdown,
           reservationFollowupStatusBreakdown,
         };
@@ -1557,19 +1570,7 @@ export default function ReportsPage() {
         return;
       }
 
-      const headers = [
-        'النوع',
-        'النشاط',
-        'التفاصيل',
-        'العميل',
-        'كود الوحدة',
-        'المشروع',
-        'المبلغ',
-        'التاريخ',
-        'المدة (دقيقة)',
-        'الحالة',
-        'ملاحظات',
-      ];
+      const headers = ['النوع', 'النشاط', 'التفاصيل', 'العميل', 'كود الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
 
       const rows = activities.map((a) => [
         a.type,
@@ -2107,7 +2108,7 @@ export default function ReportsPage() {
                 </Panel>
               </div>
 
-              {/* ✅ NEW: Followup Status Distributions */}
+              {/* Followup Status Distributions */}
               <div className="r-grid2">
                 <Panel title="حالات المتابعة (العملاء)" hint="توزيع متابعات العملاء حسب الحالة داخل الفترة" right={<Badge tone="info">Followups</Badge>}>
                   {followupStatusBreakdown.length ? (
@@ -2115,14 +2116,7 @@ export default function ReportsPage() {
                       items={followupStatusBreakdown.slice(0, 12).map((x, i) => ({
                         label: x.label,
                         value: x.value,
-                        tone:
-                          x.label === 'غير محدد'
-                            ? ('neutral' as const)
-                            : i < 3
-                            ? ('success' as const)
-                            : i < 7
-                            ? ('info' as const)
-                            : ('neutral' as const),
+                        tone: x.label === 'غير محدد' ? ('neutral' as const) : i < 3 ? ('success' as const) : i < 7 ? ('info' as const) : ('neutral' as const),
                       }))}
                       maxLabel={220}
                     />
@@ -2141,14 +2135,7 @@ export default function ReportsPage() {
                       items={reservationFollowupStatusBreakdown.slice(0, 12).map((x, i) => ({
                         label: x.label,
                         value: x.value,
-                        tone:
-                          x.label === 'غير محدد'
-                            ? ('neutral' as const)
-                            : i < 3
-                            ? ('success' as const)
-                            : i < 7
-                            ? ('warning' as const)
-                            : ('neutral' as const),
+                        tone: x.label === 'غير محدد' ? ('neutral' as const) : i < 3 ? ('success' as const) : i < 7 ? ('warning' as const) : ('neutral' as const),
                       }))}
                       maxLabel={220}
                     />

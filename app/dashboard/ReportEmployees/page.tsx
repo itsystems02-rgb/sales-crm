@@ -8,20 +8,31 @@ import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
 import RequireAuth from '@/components/auth/RequireAuth';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
 
 /* =====================
-   Types
+   Types (Merged)
 ===================== */
+
+type Role = 'admin' | 'sales' | 'sales_manager' | 'manager' | string;
 
 type Employee = {
   id: string;
   name: string;
   email?: string;
-  role: 'admin' | 'sales' | 'sales_manager' | 'manager' | string;
+  role: Role;
   mobile?: string;
   job_title?: string;
   status?: string;
 };
+
+type Project = {
+  id: string;
+  name: string;
+  code: string | null;
+};
+
+/* ===== Employee Activity Report Types ===== */
 
 type EmployeeActivityType =
   | 'client_followup'
@@ -50,7 +61,7 @@ type EmployeeActivity = {
   timestamp: string; // created_at
   reference_id?: string;
 
-  duration?: number; // minutes (estimation)
+  duration?: number;
   status?: string;
   notes?: string;
 };
@@ -81,7 +92,7 @@ type ActivitySummary = {
   busiestActivity: string;
 
   efficiencyScore: number;
-  conversionRate: number; // sales / followups
+  conversionRate: number;
 };
 
 type FollowUp = {
@@ -111,7 +122,7 @@ type ReservationRow = {
   project_name?: string;
   follow_employee_id?: string | null;
   follow_up_details?: string | null;
-  last_follow_up_at?: string | null; // date
+  last_follow_up_at?: string | null;
 };
 
 type SaleRow = {
@@ -173,6 +184,49 @@ type DetailedActivity = {
   reservationNotes: ReservationNoteRow[];
 };
 
+/* ===== Clients Report Types ===== */
+
+type ClientRow = {
+  id: string;
+  name: string;
+  mobile: string | null;
+  eligible: boolean;
+  status: string;
+  interested_in_project_id: string | null;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+type ClientMetrics = {
+  totalClients: number;
+
+  assignedClients: number;
+  unassignedClients: number;
+  distributionRate: number;
+
+  workedClients: number;
+  workedByFollowups: number;
+  workedByReservations: number;
+  workedBySales: number;
+  workedByReservationNotes: number;
+  workedByVisits: number;
+
+  editedClients: number;
+
+  statusCounts: Record<string, number>;
+};
+
+type WorkedSets = {
+  followups: Set<string>;
+  reservations: Set<string>;
+  sales: Set<string>;
+  reservationNotes: Set<string>;
+  visits: Set<string>;
+  union: Set<string>;
+};
+
+type TabKey = 'employee_activity' | 'clients';
+
 /* =====================
    Utils
 ===================== */
@@ -180,12 +234,8 @@ type DetailedActivity = {
 function buildIsoRange(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00.000`);
   const end = new Date(`${endDate}T00:00:00.000`);
-  end.setDate(end.getDate() + 1); // exclusive
-
-  return {
-    startISO: start.toISOString(),
-    endISOExclusive: end.toISOString(),
-  };
+  end.setDate(end.getDate() + 1);
+  return { startISO: start.toISOString(), endISOExclusive: end.toISOString() };
 }
 
 function safeText(v: any) {
@@ -198,11 +248,12 @@ function relOne<T>(rel: any): T | undefined {
   return Array.isArray(rel) ? rel[0] : rel;
 }
 
-/**
- * ✅ Pagination helper
- * مهم: queryFactory ممكن يرجع PostgrestFilterBuilder (thenable) أو Promise
- * عشان كده بنستقبل any ونعمل await جواه
- */
+function chunkArray<T>(arr: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any): Promise<T[]> {
   const pageSize = 1000;
   let from = 0;
@@ -223,45 +274,96 @@ async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any)
     if (batch.length < pageSize) break;
 
     from += pageSize;
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 70));
   }
 
   return all;
+}
+
+function translateStatus(status: string) {
+  switch (status) {
+    case 'lead':
+      return 'متابعة';
+    case 'reserved':
+      return 'محجوز';
+    case 'visited':
+      return 'تمت الزيارة';
+    case 'converted':
+      return 'تم البيع';
+    default:
+      return status;
+  }
+}
+
+function badgeStyle(kind: 'neutral' | 'success' | 'warning' | 'danger' | 'info') {
+  const m: Record<string, { bg: string; fg: string; bd: string }> = {
+    neutral: { bg: '#f5f5f5', fg: '#444', bd: '#e5e5e5' },
+    success: { bg: '#e6f4ea', fg: '#0d8a3e', bd: '#cdebd8' },
+    warning: { bg: '#fff8e1', fg: '#b7791f', bd: '#f7e3a1' },
+    danger: { bg: '#ffebee', fg: '#c62828', bd: '#ffcdd2' },
+    info: { bg: '#e8f0fe', fg: '#1a73e8', bd: '#c7dbff' },
+  };
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '5px 10px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700 as const,
+    backgroundColor: m[kind].bg,
+    color: m[kind].fg,
+    border: `1px solid ${m[kind].bd}`,
+    whiteSpace: 'nowrap' as const,
+  };
 }
 
 /* =====================
    Page
 ===================== */
 
-export default function EmployeeActivityReportPage() {
+export default function ReportsPage() {
   const router = useRouter();
 
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
 
-  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
-
   const todayStr = new Date().toISOString().split('T')[0];
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: todayStr,
-    end: todayStr,
-  });
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: todayStr, end: todayStr });
 
+  const [tab, setTab] = useState<TabKey>('employee_activity');
+
+  // common data
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [myAllowedProjects, setMyAllowedProjects] = useState<Project[]>([]);
+  const myAllowedProjectIds = useMemo(() => myAllowedProjects.map((p) => p.id), [myAllowedProjects]);
+
+  // filters (merged)
+  const [selectedEmployeeIdActivity, setSelectedEmployeeIdActivity] = useState<string>(''); // activity needs single employee
+  const [selectedEmployeeIdClients, setSelectedEmployeeIdClients] = useState<string>('all'); // clients can be all/employee
+  const [projectId, setProjectId] = useState<string>('all');
+
+  // UI states
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-
-  const [activities, setActivities] = useState<EmployeeActivity[]>([]);
-  const [summary, setSummary] = useState<ActivitySummary | null>(null);
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-  const [detailedData, setDetailedData] = useState<DetailedActivity | null>(null);
-
-  const [showDetails, setShowDetails] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [debugInfo, setDebugInfo] = useState('');
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
+  // activity report state
+  const [activities, setActivities] = useState<EmployeeActivity[]>([]);
+  const [activitySummary, setActivitySummary] = useState<ActivitySummary | null>(null);
+  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [detailedActivity, setDetailedActivity] = useState<DetailedActivity | null>(null);
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
+  const [showDetails, setShowDetails] = useState(false);
 
-  const [debugInfo, setDebugInfo] = useState<string>('');
+  // clients report state
+  const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [workedSets, setWorkedSets] = useState<WorkedSets | null>(null);
+  const [showClients, setShowClients] = useState(true);
+  const [clientSearch, setClientSearch] = useState('');
 
   /* =====================
      INIT
@@ -273,84 +375,141 @@ export default function EmployeeActivityReportPage() {
 
   async function init() {
     try {
-      setDebugInfo('🔄 جاري تهيئة الصفحة...');
-
+      setDebugInfo('🔄 جاري تهيئة صفحة التقارير...');
       const emp = await getCurrentEmployee();
       if (!emp) {
         router.push('/login');
         return;
       }
 
-      // ✅ Admin only
-      if (emp.role !== 'admin') {
-        alert('غير مصرح لك بالوصول إلى تقارير الموظفين');
+      // allowed: admin + sales_manager
+      if (emp.role !== 'admin' && emp.role !== 'sales_manager') {
+        alert('غير مصرح لك بالوصول إلى صفحة التقارير');
         router.push('/dashboard');
         return;
       }
 
       setCurrentEmployee(emp);
-      setDebugInfo((p) => p + `\n✅ Admin: ${emp.name}`);
+      setDebugInfo((p) => p + `\n✅ المستخدم: ${emp.name} (${emp.role})`);
 
-      await fetchAllEmployees();
+      // load allowed projects for sales_manager
+      const allowed = await loadMyAllowedProjects(emp);
+      // load employees list scope
+      await loadEmployees(emp, allowed.map((x) => x.id));
+      // load projects dropdown scope
+      await loadProjects(emp, allowed);
 
       setLoading(false);
       setDebugInfo((p) => p + '\n✅ تم تهيئة الصفحة بنجاح');
     } catch (err: any) {
-      console.error('Error in init():', err);
+      console.error(err);
       setDebugInfo(`❌ خطأ غير متوقع: ${err?.message || err}`);
       setLoading(false);
     }
   }
 
-  /* =====================
-     Fetch all employees
-  ===================== */
-  async function fetchAllEmployees() {
-    try {
-      setDebugInfo((p) => p + '\n🔄 جلب قائمة الموظفين...');
+  async function loadMyAllowedProjects(emp: Employee) {
+    if (emp.role === 'admin') {
+      setMyAllowedProjects([]);
+      return [];
+    }
 
+    const { data: rows, error } = await supabase.from('employee_projects').select('project_id').eq('employee_id', emp.id);
+    if (error) throw error;
+
+    const ids = (rows || []).map((r: any) => r.project_id).filter(Boolean);
+    if (ids.length === 0) {
+      setMyAllowedProjects([]);
+      return [];
+    }
+
+    const { data: prj, error: pErr } = await supabase.from('projects').select('id,name,code').in('id', ids).order('name');
+    if (pErr) throw pErr;
+
+    setMyAllowedProjects(prj || []);
+    return prj || [];
+  }
+
+  async function loadEmployees(emp: Employee, allowedProjectIds: string[]) {
+    if (emp.role === 'admin') {
       const { data, error } = await supabase
         .from('employees')
-        .select('id, name, email, role, mobile, job_title, status')
+        .select('id,name,role,email,mobile,job_title,status')
+        .in('role', ['sales', 'sales_manager', 'admin'])
         .order('name', { ascending: true });
 
-      if (error) {
-        console.error('Employees fetch error:', error);
-        setAllEmployees([]);
-        return;
-      }
+      if (error) throw error;
 
-      const employees: Employee[] =
-        (data || []).map((e: any) => ({
-          id: e.id,
-          name: e.name || 'غير معروف',
-          email: e.email || '',
-          role: e.role || 'sales',
-          mobile: e.mobile || '',
-          job_title: e.job_title || '',
-          status: e.status || '',
-        })) || [];
+      const emps = (data || []).map((e: any) => ({
+        id: e.id,
+        name: e.name || 'غير معروف',
+        role: e.role,
+        email: e.email || '',
+        mobile: e.mobile || '',
+        job_title: e.job_title || '',
+        status: e.status || '',
+      })) as Employee[];
 
-      setAllEmployees(employees);
-      setDebugInfo((p) => p + `\n✅ تم جلب ${employees.length} موظف`);
+      setEmployees(emps);
 
-      if (employees.length > 0) {
-        setSelectedEmployeeId((prev) => prev || employees[0].id);
-      }
-    } catch (err: any) {
-      console.error('fetchAllEmployees error:', err);
-      setAllEmployees([]);
+      // default for activity employee selector
+      if (emps.length > 0) setSelectedEmployeeIdActivity((prev) => prev || emps[0].id);
+      return;
     }
+
+    // sales_manager: employees within allowed projects
+    if (allowedProjectIds.length === 0) {
+      setEmployees([]);
+      return;
+    }
+
+    const { data: epRows, error: epErr } = await supabase.from('employee_projects').select('employee_id').in('project_id', allowedProjectIds);
+    if (epErr) throw epErr;
+
+    const employeeIds = Array.from(new Set((epRows || []).map((r: any) => r.employee_id).filter(Boolean)));
+    if (employeeIds.length === 0) {
+      setEmployees([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('employees')
+      .select('id,name,role,email,mobile,job_title,status')
+      .in('id', employeeIds)
+      .in('role', ['sales', 'sales_manager'])
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    const emps = (data || []).map((e: any) => ({
+      id: e.id,
+      name: e.name || 'غير معروف',
+      role: e.role,
+      email: e.email || '',
+      mobile: e.mobile || '',
+      job_title: e.job_title || '',
+      status: e.status || '',
+    })) as Employee[];
+
+    setEmployees(emps);
+    if (emps.length > 0) setSelectedEmployeeIdActivity((prev) => prev || emps[0].id);
+  }
+
+  async function loadProjects(emp: Employee, allowedProjects: Project[]) {
+    if (emp.role === 'admin') {
+      const { data, error } = await supabase.from('projects').select('id,name,code').order('name');
+      if (error) throw error;
+      setProjects(data || []);
+      return;
+    }
+    setProjects(allowedProjects || []);
   }
 
   /* =====================
-     Generate Report
+     Generate (Router)
   ===================== */
-  async function generateReport() {
-    if (!selectedEmployeeId) {
-      alert('الرجاء اختيار الموظف');
-      return;
-    }
+
+  async function generate() {
     if (!dateRange.start || !dateRange.end) {
       alert('الرجاء اختيار الفترة (من / إلى)');
       return;
@@ -361,190 +520,19 @@ export default function EmployeeActivityReportPage() {
     }
 
     setGenerating(true);
-    setActivities([]);
-    setSummary(null);
-    setTimeSlots([]);
-    setDetailedData(null);
-
-    const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
-
-    const emp = allEmployees.find((e) => e.id === selectedEmployeeId);
-    setDebugInfo(
-      `🔄 توليد التقرير...\n👤 الموظف: ${emp?.name || selectedEmployeeId}\n🗓️ الفترة: ${dateRange.start} → ${dateRange.end}\n⏱️ حدود الاستعلام:\n- gte: ${startISO}\n- lt: ${endISOExclusive}`
-    );
-
     try {
-      const [followUps, reservations, sales, visits, reservationNotes] = await Promise.all([
-        fetchFollowUps(selectedEmployeeId, startISO, endISOExclusive),
-        fetchReservations(selectedEmployeeId, startISO, endISOExclusive, dateRange.start, dateRange.end),
-        fetchSales(selectedEmployeeId, startISO, endISOExclusive),
-        fetchVisits(selectedEmployeeId, startISO, endISOExclusive),
-        fetchReservationNotes(selectedEmployeeId, startISO, endISOExclusive),
-      ]);
-
-      setDebugInfo((p) => {
-        return (
-          p +
-          `\n\n📦 نتائج الجلب:` +
-          `\n- FollowUps: ${followUps.length}` +
-          `\n- Reservations: ${reservations.length}` +
-          `\n- Sales: ${sales.length}` +
-          `\n- Visits: ${visits.length}` +
-          `\n- Reservation Notes: ${reservationNotes.length}`
-        );
-      });
-
-      const allActivities: EmployeeActivity[] = [];
-
-      // FollowUps
-      for (const f of followUps) {
-        allActivities.push({
-          id: f.id,
-          type: 'client_followup',
-          action: 'متابعة عميل',
-          details: `${f.type || 'متابعة'}${f.visit_location ? ` - ${f.visit_location}` : ''}${f.notes ? ` - ${f.notes}` : ''}`,
-          client_id: f.client_id,
-          client_name: f.client_name,
-          timestamp: f.created_at,
-          reference_id: f.client_id,
-          duration: 10,
-          status: f.client_status,
-          notes: f.notes,
-        });
+      if (tab === 'employee_activity') {
+        await generateEmployeeActivityReport();
+      } else {
+        await generateClientsReport();
       }
-
-      // Reservations + Reservation FollowUps
-      for (const r of reservations) {
-        allActivities.push({
-          id: r.id,
-          type: 'reservation',
-          action: 'حجز وحدة',
-          details: `حجز الوحدة ${r.unit_code} للعميل ${r.client_name}`,
-          client_id: r.client_id,
-          client_name: r.client_name,
-          unit_id: r.unit_id,
-          unit_code: r.unit_code,
-          project_name: r.project_name,
-          timestamp: r.created_at,
-          reference_id: r.id,
-          duration: 25,
-          status: r.status,
-          notes: r.notes || '',
-        });
-
-        // ✅ متابعة الحجز (لو الموظف متابع الحجز وفيه last_follow_up_at)
-        if (r.follow_employee_id === selectedEmployeeId && r.last_follow_up_at) {
-          const followupTs = new Date(`${r.last_follow_up_at}T12:00:00.000`).toISOString();
-          allActivities.push({
-            id: `${r.id}-followup-${r.last_follow_up_at}`,
-            type: 'reservation_followup',
-            action: 'متابعة حجز',
-            details: r.follow_up_details
-              ? `متابعة على الحجز (${r.unit_code}) - ${r.follow_up_details}`
-              : `متابعة على الحجز (${r.unit_code})`,
-            client_id: r.client_id,
-            client_name: r.client_name,
-            unit_id: r.unit_id,
-            unit_code: r.unit_code,
-            project_name: r.project_name,
-            timestamp: followupTs,
-            reference_id: r.id,
-            duration: 10,
-            status: r.status,
-            notes: r.follow_up_details || '',
-          });
-        }
-      }
-
-      // Sales
-      for (const s of sales) {
-        allActivities.push({
-          id: s.id,
-          type: 'sale',
-          action: 'بيع وحدة',
-          details: `بيع الوحدة ${s.unit_code} للعميل ${s.client_name}`,
-          client_id: s.client_id,
-          client_name: s.client_name,
-          unit_id: s.unit_id,
-          unit_code: s.unit_code,
-          project_name: s.project_name,
-          amount: s.price_before_tax,
-          timestamp: s.created_at,
-          reference_id: s.id,
-          duration: 45,
-          status: 'مكتمل',
-          notes: `عقد: ${s.contract_type || 'غير محدد'} | تمويل: ${s.finance_type || 'غير محدد'}${s.finance_entity ? ` | جهة: ${s.finance_entity}` : ''}`,
-        });
-      }
-
-      // Visits
-      for (const v of visits) {
-        const extra = [
-          v.visit_location ? `المكان: ${v.visit_location}` : '',
-          v.salary != null ? `الراتب: ${v.salary}` : '',
-          v.commitments != null ? `الالتزامات: ${v.commitments}` : '',
-          v.bank ? `البنك: ${v.bank}` : '',
-          v.job_sector ? `القطاع: ${v.job_sector}` : '',
-        ]
-          .filter(Boolean)
-          .join(' | ');
-
-        allActivities.push({
-          id: v.id,
-          type: 'visit',
-          action: 'زيارة',
-          details: `زيارة للعميل ${v.client_name}${extra ? ` — ${extra}` : ''}${v.details ? ` — ${v.details}` : ''}`,
-          client_id: v.client_id,
-          client_name: v.client_name,
-          timestamp: v.created_at,
-          reference_id: v.client_id,
-          duration: 35,
-          status: 'تمت',
-          notes: v.details || '',
-        });
-      }
-
-      // Reservation Notes
-      for (const n of reservationNotes) {
-        allActivities.push({
-          id: n.id,
-          type: 'reservation_note',
-          action: 'ملاحظة على الحجز',
-          details: `ملاحظة: ${n.note_text}`,
-          client_id: n.client_id,
-          client_name: n.client_name,
-          unit_id: n.unit_id,
-          unit_code: n.unit_code,
-          project_name: n.project_name,
-          timestamp: n.created_at,
-          reference_id: n.reservation_id,
-          duration: 5,
-          status: n.reservation_status || '',
-          notes: n.note_text,
-        });
-      }
-
-      // Sort desc
-      allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-      setActivities(allActivities);
-      setDetailedData({ followUps, reservations, sales, visits, reservationNotes });
-
-      generateSummary(allActivities);
-      generateTimeSlots(allActivities);
-
-      setDebugInfo((p) => p + `\n\n✅ تم توليد ${allActivities.length} نشاط`);
-    } catch (err: any) {
-      console.error('generateReport error:', err);
-      alert(`حدث خطأ أثناء توليد التقرير: ${err?.message || err}`);
-      setDebugInfo((p) => p + `\n❌ خطأ: ${err?.message || err}`);
     } finally {
       setGenerating(false);
     }
   }
 
   /* =====================
-     Fetchers
+     Employee Activity Report
   ===================== */
 
   async function fetchFollowUps(employeeId: string, startISO: string, endISOExclusive: string): Promise<FollowUp[]> {
@@ -559,7 +547,7 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((f) => {
+    return rows.map((f: any) => {
       const c = relOne<{ name: string; status: string }>(f.clients);
       return {
         id: f.id,
@@ -624,7 +612,7 @@ export default function EmployeeActivityReportPage() {
 
     const merged = Array.from(map.values());
 
-    return merged.map((r) => {
+    return merged.map((r: any) => {
       const client = relOne<{ name: string }>(r.clients);
       const unit = relOne<any>(r.units);
       const project = relOne<{ name: string }>(unit?.projects);
@@ -679,7 +667,7 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((s) => {
+    return rows.map((s: any) => {
       const client = relOne<{ name: string }>(s.clients);
       const unit = relOne<{ unit_code: string }>(s.units);
       const project = relOne<{ name: string }>(s.projects);
@@ -716,7 +704,7 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((v) => {
+    return rows.map((v: any) => {
       const client = relOne<{ name: string }>(v.clients);
 
       return {
@@ -764,7 +752,7 @@ export default function EmployeeActivityReportPage() {
         .range(from, to)
     );
 
-    return rows.map((n) => {
+    return rows.map((n: any) => {
       const res = relOne<any>(n.reservations);
       const client = relOne<{ name: string }>(res?.clients);
       const unit = relOne<any>(res?.units);
@@ -790,11 +778,7 @@ export default function EmployeeActivityReportPage() {
     });
   }
 
-  /* =====================
-     Summary helpers
-  ===================== */
-
-  function generateSummary(list: EmployeeActivity[]) {
+  function generateActivitySummary(list: EmployeeActivity[]) {
     const followUps = list.filter((a) => a.type === 'client_followup').length;
     const reservations = list.filter((a) => a.type === 'reservation').length;
     const reservationNotes = list.filter((a) => a.type === 'reservation_note').length;
@@ -820,24 +804,16 @@ export default function EmployeeActivityReportPage() {
     for (const a of list) activityCounts[a.action] = (activityCounts[a.action] || 0) + 1;
     const busiestActivity = Object.entries(activityCounts).sort((x, y) => y[1] - x[1])[0]?.[0] || 'لا توجد بيانات';
 
-    // Efficiency score (موزون حسب CRM عندك)
     let efficiencyScore = 0;
     if (list.length > 0) {
-      const score =
-        sales * 40 +
-        reservations * 20 +
-        reservationNotes * 8 +
-        reservationFollowUps * 10 +
-        followUps * 10 +
-        visits * 12;
-
+      const score = sales * 40 + reservations * 20 + reservationNotes * 8 + reservationFollowUps * 10 + followUps * 10 + visits * 12;
       const maxScore = list.length * 40;
       efficiencyScore = maxScore > 0 ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
     }
 
     const conversionRate = followUps > 0 ? Math.round((sales / followUps) * 100) : 0;
 
-    setSummary({
+    setActivitySummary({
       totalActivities: list.length,
       followUps,
       reservations,
@@ -860,95 +836,514 @@ export default function EmployeeActivityReportPage() {
     for (let i = 0; i < 24; i++) {
       const hourStr = `${i.toString().padStart(2, '0')}:00 - ${(i + 1).toString().padStart(2, '0')}:00`;
       const slotActivities = list.filter((a) => new Date(a.timestamp).getHours() === i);
-      if (slotActivities.length > 0) {
-        slots.push({ hour: hourStr, activities: slotActivities, count: slotActivities.length });
-      }
+      if (slotActivities.length > 0) slots.push({ hour: hourStr, activities: slotActivities, count: slotActivities.length });
     }
     setTimeSlots(slots);
   }
 
+  async function generateEmployeeActivityReport() {
+    if (!selectedEmployeeIdActivity) {
+      alert('اختر الموظف (تقرير الأنشطة)');
+      return;
+    }
+
+    // reset
+    setActivities([]);
+    setActivitySummary(null);
+    setTimeSlots([]);
+    setDetailedActivity(null);
+
+    const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+    const emp = employees.find((e) => e.id === selectedEmployeeIdActivity);
+
+    setDebugInfo(
+      `🔄 توليد تقرير الأنشطة...\n👤 الموظف: ${emp?.name || selectedEmployeeIdActivity}\n🗓️ الفترة: ${dateRange.start} → ${dateRange.end}\n- gte: ${startISO}\n- lt: ${endISOExclusive}`
+    );
+
+    const [followUps, reservations, sales, visits, reservationNotes] = await Promise.all([
+      fetchFollowUps(selectedEmployeeIdActivity, startISO, endISOExclusive),
+      fetchReservations(selectedEmployeeIdActivity, startISO, endISOExclusive, dateRange.start, dateRange.end),
+      fetchSales(selectedEmployeeIdActivity, startISO, endISOExclusive),
+      fetchVisits(selectedEmployeeIdActivity, startISO, endISOExclusive),
+      fetchReservationNotes(selectedEmployeeIdActivity, startISO, endISOExclusive),
+    ]);
+
+    const all: EmployeeActivity[] = [];
+
+    // Followups
+    for (const f of followUps) {
+      all.push({
+        id: f.id,
+        type: 'client_followup',
+        action: 'متابعة عميل',
+        details: `${f.type || 'متابعة'}${f.visit_location ? ` - ${f.visit_location}` : ''}${f.notes ? ` - ${f.notes}` : ''}`,
+        client_id: f.client_id,
+        client_name: f.client_name,
+        timestamp: f.created_at,
+        reference_id: f.client_id,
+        duration: 10,
+        status: f.client_status,
+        notes: f.notes,
+      });
+    }
+
+    // Reservations + reservation followup
+    for (const r of reservations) {
+      all.push({
+        id: r.id,
+        type: 'reservation',
+        action: 'حجز وحدة',
+        details: `حجز الوحدة ${r.unit_code} للعميل ${r.client_name}`,
+        client_id: r.client_id,
+        client_name: r.client_name,
+        unit_id: r.unit_id,
+        unit_code: r.unit_code,
+        project_name: r.project_name,
+        timestamp: r.created_at,
+        reference_id: r.id,
+        duration: 25,
+        status: r.status,
+        notes: r.notes || '',
+      });
+
+      if (r.follow_employee_id === selectedEmployeeIdActivity && r.last_follow_up_at) {
+        const followupTs = new Date(`${r.last_follow_up_at}T12:00:00.000`).toISOString();
+        all.push({
+          id: `${r.id}-followup-${r.last_follow_up_at}`,
+          type: 'reservation_followup',
+          action: 'متابعة حجز',
+          details: r.follow_up_details ? `متابعة على الحجز (${r.unit_code}) - ${r.follow_up_details}` : `متابعة على الحجز (${r.unit_code})`,
+          client_id: r.client_id,
+          client_name: r.client_name,
+          unit_id: r.unit_id,
+          unit_code: r.unit_code,
+          project_name: r.project_name,
+          timestamp: followupTs,
+          reference_id: r.id,
+          duration: 10,
+          status: r.status,
+          notes: r.follow_up_details || '',
+        });
+      }
+    }
+
+    // Sales
+    for (const s of sales) {
+      all.push({
+        id: s.id,
+        type: 'sale',
+        action: 'بيع وحدة',
+        details: `بيع الوحدة ${s.unit_code} للعميل ${s.client_name}`,
+        client_id: s.client_id,
+        client_name: s.client_name,
+        unit_id: s.unit_id,
+        unit_code: s.unit_code,
+        project_name: s.project_name,
+        amount: s.price_before_tax,
+        timestamp: s.created_at,
+        reference_id: s.id,
+        duration: 45,
+        status: 'مكتمل',
+        notes: `عقد: ${s.contract_type || 'غير محدد'} | تمويل: ${s.finance_type || 'غير محدد'}${s.finance_entity ? ` | جهة: ${s.finance_entity}` : ''}`,
+      });
+    }
+
+    // Visits
+    for (const v of visits) {
+      const extra = [
+        v.visit_location ? `المكان: ${v.visit_location}` : '',
+        v.salary != null ? `الراتب: ${v.salary}` : '',
+        v.commitments != null ? `الالتزامات: ${v.commitments}` : '',
+        v.bank ? `البنك: ${v.bank}` : '',
+        v.job_sector ? `القطاع: ${v.job_sector}` : '',
+      ]
+        .filter(Boolean)
+        .join(' | ');
+
+      all.push({
+        id: v.id,
+        type: 'visit',
+        action: 'زيارة',
+        details: `زيارة للعميل ${v.client_name}${extra ? ` — ${extra}` : ''}${v.details ? ` — ${v.details}` : ''}`,
+        client_id: v.client_id,
+        client_name: v.client_name,
+        timestamp: v.created_at,
+        reference_id: v.client_id,
+        duration: 35,
+        status: 'تمت',
+        notes: v.details || '',
+      });
+    }
+
+    // Notes
+    for (const n of reservationNotes) {
+      all.push({
+        id: n.id,
+        type: 'reservation_note',
+        action: 'ملاحظة على الحجز',
+        details: `ملاحظة: ${n.note_text}`,
+        client_id: n.client_id,
+        client_name: n.client_name,
+        unit_id: n.unit_id,
+        unit_code: n.unit_code,
+        project_name: n.project_name,
+        timestamp: n.created_at,
+        reference_id: n.reservation_id,
+        duration: 5,
+        status: n.reservation_status || '',
+        notes: n.note_text,
+      });
+    }
+
+    all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    setActivities(all);
+    setDetailedActivity({ followUps, reservations, sales, visits, reservationNotes });
+    generateActivitySummary(all);
+    generateTimeSlots(all);
+
+    setDebugInfo((p) => p + `\n✅ تم توليد ${all.length} نشاط`);
+  }
+
   /* =====================
-     Export
+     Clients Report
   ===================== */
 
-  async function exportToJSON() {
-    setExporting(true);
-    try {
-      if (!activities.length || !summary) {
-        alert('لا توجد بيانات للتصدير');
-        return;
+  async function fetchClientsInRange(startISO: string, endISOExclusive: string): Promise<ClientRow[]> {
+    const rows = await fetchAllPaged<any>((from, to) => {
+      let q = supabase
+        .from('clients')
+        .select('id,name,mobile,eligible,status,interested_in_project_id,created_at,updated_at')
+        .gte('created_at', startISO)
+        .lt('created_at', endISOExclusive)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      // sales_manager scope
+      if (currentEmployee?.role === 'sales_manager') {
+        if (myAllowedProjectIds.length === 0) return supabase.from('clients').select('id').limit(0);
+        q = q.in('interested_in_project_id', myAllowedProjectIds);
       }
 
-      const reportData = {
+      if (projectId !== 'all') q = q.eq('interested_in_project_id', projectId);
+
+      return q;
+    });
+
+    return (rows || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      mobile: c.mobile ?? null,
+      eligible: !!c.eligible,
+      status: c.status,
+      interested_in_project_id: c.interested_in_project_id ?? null,
+      created_at: c.created_at,
+      updated_at: c.updated_at ?? null,
+    }));
+  }
+
+  async function fetchAssignmentsForClients(clientIds: string[]) {
+    const map = new Map<string, Set<string>>();
+    const chunks = chunkArray(clientIds, 500);
+
+    for (const ch of chunks) {
+      const { data, error } = await supabase.from('client_assignments').select('client_id, employee_id').in('client_id', ch);
+      if (error) throw error;
+
+      for (const r of data || []) {
+        const cid = (r as any).client_id as string;
+        const eid = (r as any).employee_id as string;
+        if (!map.has(cid)) map.set(cid, new Set());
+        map.get(cid)!.add(eid);
+      }
+    }
+    return map;
+  }
+
+  async function distinctClientIdsFromTableInRange(table: string, clientIds: string[], startISO: string, endISOExclusive: string, clientCol = 'client_id') {
+    const out = new Set<string>();
+    const chunks = chunkArray(clientIds, 500);
+
+    for (const ch of chunks) {
+      const { data, error } = await supabase.from(table).select(`${clientCol},created_at`).in(clientCol, ch).gte('created_at', startISO).lt('created_at', endISOExclusive);
+      if (error) throw error;
+      (data || []).forEach((r: any) => out.add(r[clientCol]));
+    }
+
+    return out;
+  }
+
+  async function distinctClientsFromReservationNotesInRange(clientIds: string[], startISO: string, endISOExclusive: string) {
+    const resIdToClientId = new Map<string, string>();
+    const reservationIds: string[] = [];
+
+    const clientChunks = chunkArray(clientIds, 500);
+    for (const ch of clientChunks) {
+      const { data, error } = await supabase.from('reservations').select('id, client_id').in('client_id', ch);
+      if (error) throw error;
+
+      (data || []).forEach((r: any) => {
+        if (!r?.id || !r?.client_id) return;
+        reservationIds.push(r.id);
+        resIdToClientId.set(r.id, r.client_id);
+      });
+    }
+
+    if (reservationIds.length === 0) return new Set<string>();
+
+    const out = new Set<string>();
+    const resChunks = chunkArray(reservationIds, 500);
+
+    for (const rch of resChunks) {
+      let q = supabase.from('reservation_notes').select('reservation_id, created_at').in('reservation_id', rch).gte('created_at', startISO).lt('created_at', endISOExclusive);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      (data || []).forEach((n: any) => {
+        const cid = resIdToClientId.get(n.reservation_id);
+        if (cid) out.add(cid);
+      });
+    }
+
+    return out;
+  }
+
+  async function fetchWorkedSets(clientIds: string[], startISO: string, endISOExclusive: string): Promise<WorkedSets> {
+    const [followups, sales, visits] = await Promise.all([
+      distinctClientIdsFromTableInRange('client_followups', clientIds, startISO, endISOExclusive, 'client_id'),
+      distinctClientIdsFromTableInRange('sales', clientIds, startISO, endISOExclusive, 'client_id'),
+      distinctClientIdsFromTableInRange('visits', clientIds, startISO, endISOExclusive, 'client_id'),
+    ]);
+
+    const reservations = await distinctClientIdsFromTableInRange('reservations', clientIds, startISO, endISOExclusive, 'client_id');
+    const reservationNotes = await distinctClientsFromReservationNotesInRange(clientIds, startISO, endISOExclusive);
+
+    const union = new Set<string>();
+    [followups, sales, visits, reservations, reservationNotes].forEach((s) => s.forEach((id) => union.add(id)));
+
+    return { followups, reservations, reservationNotes, sales, visits, union };
+  }
+
+  async function generateClientsReport() {
+    setClientMetrics(null);
+    setClients([]);
+    setWorkedSets(null);
+
+    const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+
+    setDebugInfo(
+      `🔄 توليد تقرير العملاء...\n🗓️ الفترة: ${dateRange.start} → ${dateRange.end}\n- gte: ${startISO}\n- lt: ${endISOExclusive}\n👤 الموظف: ${
+        selectedEmployeeIdClients === 'all' ? 'الكل' : employees.find((e) => e.id === selectedEmployeeIdClients)?.name || selectedEmployeeIdClients
+      }\n🏗️ المشروع: ${projectId === 'all' ? 'الكل' : projectId}`
+    );
+
+    const allClients = await fetchClientsInRange(startISO, endISOExclusive);
+
+    if (allClients.length === 0) {
+      setClientMetrics({
+        totalClients: 0,
+        assignedClients: 0,
+        unassignedClients: 0,
+        distributionRate: 0,
+        workedClients: 0,
+        workedByFollowups: 0,
+        workedByReservations: 0,
+        workedBySales: 0,
+        workedByReservationNotes: 0,
+        workedByVisits: 0,
+        editedClients: 0,
+        statusCounts: {},
+      });
+      setDebugInfo((p) => p + '\n✅ لا يوجد عملاء في الفترة المحددة');
+      return;
+    }
+
+    const allClientIds = allClients.map((c) => c.id);
+    const assignmentMap = await fetchAssignmentsForClients(allClientIds);
+
+    let filteredClients = allClients;
+    if (selectedEmployeeIdClients !== 'all') {
+      filteredClients = allClients.filter((c) => assignmentMap.get(c.id)?.has(selectedEmployeeIdClients));
+    }
+
+    const clientIds = filteredClients.map((c) => c.id);
+
+    const assignedClients = filteredClients.filter((c) => (assignmentMap.get(c.id)?.size || 0) > 0).length;
+    const unassignedClients = filteredClients.length - assignedClients;
+    const distributionRate = filteredClients.length ? Math.round((assignedClients / filteredClients.length) * 1000) / 10 : 0;
+
+    const worked = await fetchWorkedSets(clientIds, startISO, endISOExclusive);
+    setWorkedSets(worked);
+
+    const editedClients = filteredClients.filter((c) => {
+      if (!c.updated_at) return false;
+      const u = new Date(c.updated_at).getTime();
+      const cr = new Date(c.created_at).getTime();
+      const inRange = u >= new Date(startISO).getTime() && u < new Date(endISOExclusive).getTime();
+      return inRange && u > cr;
+    }).length;
+
+    const statusCounts: Record<string, number> = {};
+    for (const c of filteredClients) statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
+
+    setClientMetrics({
+      totalClients: filteredClients.length,
+      assignedClients,
+      unassignedClients,
+      distributionRate,
+      workedClients: worked.union.size,
+      workedByFollowups: worked.followups.size,
+      workedByReservations: worked.reservations.size,
+      workedBySales: worked.sales.size,
+      workedByReservationNotes: worked.reservationNotes.size,
+      workedByVisits: worked.visits.size,
+      editedClients,
+      statusCounts,
+    });
+
+    setClients(filteredClients);
+
+    setDebugInfo((p) => p + `\n✅ Clients: ${filteredClients.length} | Worked: ${worked.union.size} | Edited: ${editedClients}`);
+  }
+
+  /* =====================
+     Export (Tab-based)
+  ===================== */
+
+  async function exportJSON() {
+    setExporting(true);
+    try {
+      const payload: any = {
         meta: {
-          employee: allEmployees.find((e) => e.id === selectedEmployeeId)?.name,
+          tab,
           dateRange,
           generatedAt: new Date().toISOString(),
           generatedBy: currentEmployee?.name,
         },
-        summary,
-        activities,
-        timeSlots,
       };
 
-      const dataStr = JSON.stringify(reportData, null, 2);
+      if (tab === 'employee_activity') {
+        if (!activities.length || !activitySummary) {
+          alert('لا توجد بيانات للتصدير');
+          return;
+        }
+        payload.activity = {
+          employee: employees.find((e) => e.id === selectedEmployeeIdActivity)?.name || selectedEmployeeIdActivity,
+          summary: activitySummary,
+          activities,
+          timeSlots,
+        };
+      } else {
+        if (!clientMetrics) {
+          alert('لا توجد بيانات للتصدير');
+          return;
+        }
+        payload.clients = {
+          employee:
+            selectedEmployeeIdClients === 'all'
+              ? 'الكل'
+              : employees.find((e) => e.id === selectedEmployeeIdClients)?.name || selectedEmployeeIdClients,
+          project: projectId,
+          metrics: clientMetrics,
+          clients,
+          workedSets: workedSets
+            ? {
+                followups: Array.from(workedSets.followups),
+                reservations: Array.from(workedSets.reservations),
+                reservationNotes: Array.from(workedSets.reservationNotes),
+                sales: Array.from(workedSets.sales),
+                visits: Array.from(workedSets.visits),
+              }
+            : null,
+        };
+      }
+
+      const dataStr = JSON.stringify(payload, null, 2);
       const blob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement('a');
       a.href = url;
-
-      const employeeName =
-        allEmployees.find((e) => e.id === selectedEmployeeId)?.name?.replace(/\s+/g, '_') || 'employee';
-      a.download = `تقرير_انشطة_${employeeName}_${dateRange.start}_الى_${dateRange.end}.json`;
-
+      a.download = tab === 'employee_activity' ? `تقرير_الانشطة_${dateRange.start}_الى_${dateRange.end}.json` : `تقرير_العملاء_${dateRange.start}_الى_${dateRange.end}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
       alert('تم تصدير التقرير بنجاح');
-    } catch (err: any) {
-      console.error('exportToJSON error:', err);
-      alert('حدث خطأ أثناء التصدير');
     } finally {
       setExporting(false);
     }
   }
 
-  function exportToCSV() {
-    if (!activities.length) {
+  function exportCSV() {
+    if (tab === 'employee_activity') {
+      if (!activities.length) {
+        alert('لا توجد بيانات للتصدير');
+        return;
+      }
+
+      const headers = ['النوع', 'النشاط', 'التفاصيل', 'العميل', 'كود الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
+      const rows = activities.map((a) => [
+        a.type,
+        safeText(a.action),
+        `"${safeText(a.details).replace(/"/g, '""')}"`,
+        safeText(a.client_name),
+        safeText(a.unit_code),
+        safeText(a.project_name),
+        a.amount ?? '',
+        new Date(a.timestamp).toLocaleString('ar-SA'),
+        a.duration ?? '',
+        safeText(a.status),
+        `"${safeText(a.notes).replace(/"/g, '""')}"`,
+      ]);
+
+      const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `تقرير_الانشطة_${dateRange.start}_الى_${dateRange.end}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // clients csv
+    if (!clients.length || !clientMetrics) {
       alert('لا توجد بيانات للتصدير');
       return;
     }
 
-    const headers = [
-      'النوع',
-      'النشاط',
-      'التفاصيل',
-      'العميل',
-      'كود الوحدة',
-      'المشروع',
-      'المبلغ',
-      'التاريخ',
-      'المدة (دقيقة)',
-      'الحالة',
-      'ملاحظات',
-    ];
+    const headers = ['اسم العميل', 'الجوال', 'الحالة', 'مستحق', 'تاريخ الإضافة', 'تم العمل عليه داخل الفترة؟', 'تم تعديل بياناته داخل الفترة؟'];
 
-    const rows = activities.map((a) => [
-      a.type,
-      safeText(a.action),
-      `"${safeText(a.details).replace(/"/g, '""')}"`,
-      safeText(a.client_name),
-      safeText(a.unit_code),
-      safeText(a.project_name),
-      a.amount ?? '',
-      new Date(a.timestamp).toLocaleString('ar-SA'),
-      a.duration ?? '',
-      safeText(a.status),
-      `"${safeText(a.notes).replace(/"/g, '""')}"`,
-    ]);
+    const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+
+    const rows = clients.map((c) => {
+      const worked = workedSets?.union.has(c.id) ? 'نعم' : 'لا';
+
+      const edited =
+        !!c.updated_at &&
+        new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
+        new Date(c.updated_at).getTime() < new Date(endISOExclusive).getTime() &&
+        new Date(c.updated_at).getTime() > new Date(c.created_at).getTime()
+          ? 'نعم'
+          : 'لا';
+
+      return [
+        `"${safeText(c.name).replace(/"/g, '""')}"`,
+        safeText(c.mobile),
+        translateStatus(c.status),
+        c.eligible ? 'مستحق' : 'غير مستحق',
+        new Date(c.created_at).toLocaleString('ar-SA'),
+        worked,
+        edited,
+      ];
+    });
 
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -956,11 +1351,7 @@ export default function EmployeeActivityReportPage() {
 
     const a = document.createElement('a');
     a.href = url;
-
-    const employeeName =
-      allEmployees.find((e) => e.id === selectedEmployeeId)?.name?.replace(/\s+/g, '_') || 'employee';
-    a.download = `تقرير_انشطة_${employeeName}_${dateRange.start}_الى_${dateRange.end}.csv`;
-
+    a.download = `تقرير_العملاء_${dateRange.start}_الى_${dateRange.end}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -972,18 +1363,16 @@ export default function EmployeeActivityReportPage() {
   }
 
   /* =====================
-     Filtering
+     Filtering UI helpers
   ===================== */
 
   const filteredActivities = useMemo(() => {
     let list = activities;
 
-    if (typeFilter !== 'all') {
-      list = list.filter((a) => a.type === typeFilter);
-    }
+    if (activityTypeFilter !== 'all') list = list.filter((a) => a.type === activityTypeFilter);
 
-    if (searchTerm.trim()) {
-      const t = searchTerm.toLowerCase();
+    if (activitySearch.trim()) {
+      const t = activitySearch.toLowerCase();
       list = list.filter((a) => {
         return (
           a.action.toLowerCase().includes(t) ||
@@ -997,85 +1386,29 @@ export default function EmployeeActivityReportPage() {
     }
 
     return list;
-  }, [activities, searchTerm, typeFilter]);
+  }, [activities, activitySearch, activityTypeFilter]);
+
+  const filteredClients = useMemo(() => {
+    let list = clients;
+    const t = clientSearch.trim().toLowerCase();
+    if (t) {
+      list = list.filter((c) => (c.name || '').toLowerCase().includes(t) || (c.mobile || '').toLowerCase().includes(t) || (c.status || '').toLowerCase().includes(t));
+    }
+    return list;
+  }, [clients, clientSearch]);
 
   /* =====================
-     UI components
-  ===================== */
-
-  function StatCard({
-    title,
-    value,
-    icon,
-    color,
-    subtitle,
-  }: {
-    title: string;
-    value: string | number;
-    icon: string;
-    color: string;
-    subtitle?: string;
-  }) {
-    return (
-      <div
-        style={{
-          backgroundColor: 'white',
-          borderRadius: '8px',
-          padding: '15px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-          border: `1px solid ${color}20`,
-          borderLeft: `4px solid ${color}`,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ color: '#666', fontSize: '12px', marginBottom: '4px' }}>{title}</div>
-            <div style={{ fontSize: '20px', fontWeight: 'bold', color }}>{value}</div>
-            {subtitle && <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>{subtitle}</div>}
-          </div>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '8px',
-              backgroundColor: `${color}20`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <span style={{ fontSize: '20px' }}>{icon}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* =====================
-     Loading
+     Render
   ===================== */
 
   if (loading) {
     return (
       <RequireAuth>
         <div className="page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-          <div style={{ textAlign: 'center', maxWidth: 700 }}>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري تحميل تقرير أنشطة الموظفين...</div>
-            <div style={{ color: '#666', marginBottom: '20px' }}>يرجى الانتظار</div>
-
+          <div style={{ textAlign: 'center', maxWidth: 760 }}>
+            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري تحميل صفحة التقارير...</div>
             {debugInfo && (
-              <div
-                style={{
-                  fontSize: '12px',
-                  color: '#666',
-                  backgroundColor: '#f8f9fa',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  textAlign: 'left',
-                  whiteSpace: 'pre-line',
-                  border: '1px solid #eee',
-                }}
-              >
+              <div style={{ fontSize: 12, color: '#666', backgroundColor: '#f8f9fa', padding: 12, borderRadius: 10, textAlign: 'left', whiteSpace: 'pre-line', border: '1px solid #eee' }}>
                 {debugInfo}
               </div>
             )}
@@ -1085,68 +1418,99 @@ export default function EmployeeActivityReportPage() {
     );
   }
 
-  const selectedEmp = allEmployees.find((e) => e.id === selectedEmployeeId);
+  const selectedActivityEmp = employees.find((e) => e.id === selectedEmployeeIdActivity);
+
+  const headerTitle = tab === 'employee_activity' ? 'تقرير أنشطة الموظف' : 'تقرير العملاء';
+  const headerSubtitle =
+    tab === 'employee_activity'
+      ? 'تجميع الأنشطة خلال فترة محددة + ملخص + تحليل زمني + تصدير'
+      : 'إحصائيات العملاء خلال فترة إنشاء + توزيع + نشاط + تعديل بيانات + تصدير';
+
+  const canSeeProjects = tab === 'clients'; // only clients tab uses project filter
+  const canChooseEmployeeModeAll = tab === 'clients'; // clients can be all
+
+  const canGenerate =
+    !!dateRange.start && !!dateRange.end && (tab === 'clients' ? true : !!selectedEmployeeIdActivity);
 
   return (
     <RequireAuth>
       <div className="page">
-        {/* Header */}
+        {/* Top Header */}
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: '20px',
+            alignItems: 'flex-start',
+            gap: 14,
+            marginBottom: 16,
             flexWrap: 'wrap',
-            gap: '15px',
           }}
         >
           <div>
-            <h1 style={{ margin: 0 }}>تقرير أنشطة الموظف</h1>
-            <p style={{ color: '#666', marginTop: '5px' }}>Admin فقط — أنشطة الموظف خلال فترة محددة</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h1 style={{ margin: 0 }}>{headerTitle}</h1>
+              <span style={badgeStyle(currentEmployee?.role === 'admin' ? 'success' : 'info')}>{currentEmployee?.role}</span>
+              <span style={badgeStyle('neutral')}>
+                {dateRange.start} → {dateRange.end}
+              </span>
+            </div>
+            <p style={{ color: '#666', marginTop: 6 }}>{headerSubtitle}</p>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <Button onClick={exportToJSON} disabled={exporting || !activities.length} variant="secondary">
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button onClick={exportJSON} disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)} variant="secondary">
               {exporting ? 'جاري التصدير...' : 'تصدير JSON'}
             </Button>
-            <Button onClick={exportToCSV} disabled={!activities.length} variant="secondary">
+            <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
               تصدير CSV
             </Button>
-            <Button onClick={printReport} disabled={!activities.length}>
+            <Button onClick={printReport} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}>
               طباعة
             </Button>
           </div>
         </div>
 
-        {/* Debug */}
-        {debugInfo && (
-          <div
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setTab('employee_activity')}
             style={{
-              marginBottom: '20px',
-              padding: '15px',
-              backgroundColor: '#f8f9fa',
-              borderRadius: '8px',
-              border: '1px solid #e9ecef',
-              fontSize: '12px',
-              color: '#666',
-              whiteSpace: 'pre-line',
-              maxHeight: '220px',
-              overflowY: 'auto',
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: tab === 'employee_activity' ? '1px solid #1a73e8' : '1px solid #e5e5e5',
+              background: tab === 'employee_activity' ? '#e8f0fe' : '#fff',
+              color: '#222',
+              fontWeight: 800,
+              cursor: 'pointer',
             }}
           >
+            تقرير الأنشطة
+          </button>
+
+          <button
+            onClick={() => setTab('clients')}
+            style={{
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: tab === 'clients' ? '1px solid #1a73e8' : '1px solid #e5e5e5',
+              background: tab === 'clients' ? '#e8f0fe' : '#fff',
+              color: '#222',
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+          >
+            تقرير العملاء
+          </button>
+        </div>
+
+        {/* Debug */}
+        {debugInfo && (
+          <div style={{ marginBottom: 14, padding: 14, backgroundColor: '#f8f9fa', borderRadius: 12, border: '1px solid #e9ecef', fontSize: 12, color: '#666', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <div style={{ fontWeight: 'bold' }}>سجل النظام</div>
               <button
                 onClick={() => setDebugInfo('')}
-                style={{
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                  backgroundColor: '#e9ecef',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
+                style={{ fontSize: 11, padding: '2px 8px', backgroundColor: '#e9ecef', border: 'none', borderRadius: 6, cursor: 'pointer' }}
               >
                 مسح
               </button>
@@ -1157,238 +1521,189 @@ export default function EmployeeActivityReportPage() {
 
         {/* Filters */}
         <Card title="فلترة التقرير">
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '15px',
-              padding: '15px',
-            }}
-          >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, padding: 14 }}>
+            {/* Employee */}
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>اختر الموظف *</label>
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 700 }}>
+                {tab === 'employee_activity' ? 'اختر الموظف (إلزامي)' : 'الموظف'}
+              </label>
+
               <select
-                value={selectedEmployeeId}
-                onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
+                value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
+                onChange={(e) => (tab === 'employee_activity' ? setSelectedEmployeeIdActivity(e.target.value) : setSelectedEmployeeIdClients(e.target.value))}
+                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}
               >
-                {allEmployees.map((emp) => (
+                {canChooseEmployeeModeAll && <option value="all">الكل</option>}
+                {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.name} {emp.role === 'admin' ? '(مدير)' : emp.role === 'sales' ? '(مبيعات)' : ''}
+                    {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
                   </option>
                 ))}
               </select>
-              <div style={{ fontSize: '11px', color: '#666', marginTop: '5px' }}>{allEmployees.length} موظف</div>
+
+              <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>{employees.length} موظف</div>
             </div>
 
+            {/* Project (clients only) */}
+            {canSeeProjects && (
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 700 }}>المشروع</label>
+                <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
+                  <option value="all">الكل</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.code ? `${p.name} (${p.code})` : p.name}
+                    </option>
+                  ))}
+                </select>
+                {currentEmployee?.role === 'sales_manager' && (
+                  <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>
+                    نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Date start */}
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>من تاريخ *</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              />
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 700 }}>من تاريخ *</label>
+              <input type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
             </div>
 
+            {/* Date end */}
             <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>إلى تاريخ *</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              />
+              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 700 }}>إلى تاريخ *</label>
+              <input type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
             </div>
 
-            <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>نوع النشاط</label>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value as any)}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              >
-                <option value="all">الكل</option>
-                <option value="client_followup">متابعات</option>
-                <option value="reservation">حجوزات</option>
-                <option value="reservation_followup">متابعات الحجوزات</option>
-                <option value="reservation_note">ملاحظات الحجوزات</option>
-                <option value="sale">مبيعات</option>
-                <option value="visit">زيارات</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px' }}>بحث</label>
-              <input
-                type="text"
-                placeholder="ابحث في النشاط، العميل، الوحدة..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ddd' }}
-              />
-            </div>
-
+            {/* Generate */}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%' }}>
-                <Button onClick={generateReport} disabled={generating || !selectedEmployeeId || !dateRange.start || !dateRange.end}>
+                <Button onClick={generate} disabled={generating || !canGenerate}>
                   {generating ? 'جاري التوليد...' : 'توليد التقرير'}
                 </Button>
               </div>
             </div>
           </div>
 
-          {/* Quick ranges */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '10px',
-              padding: '10px 15px',
-              backgroundColor: '#f8f9fa',
-              borderTop: '1px solid #eee',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-            }}
-          >
-            <span style={{ fontSize: '13px', color: '#666' }}>فترات سريعة:</span>
+          {/* Sub-filters per tab */}
+          {tab === 'employee_activity' && (
+            <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
+              <div style={{ minWidth: 220 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 700 }}>نوع النشاط</label>
+                <select value={activityTypeFilter} onChange={(e) => setActivityTypeFilter(e.target.value as any)} style={{ width: '100%', padding: 9, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
+                  <option value="all">الكل</option>
+                  <option value="client_followup">متابعات</option>
+                  <option value="reservation">حجوزات</option>
+                  <option value="reservation_followup">متابعات الحجوزات</option>
+                  <option value="reservation_note">ملاحظات الحجوزات</option>
+                  <option value="sale">مبيعات</option>
+                  <option value="visit">زيارات</option>
+                </select>
+              </div>
 
-            {[
-              { label: 'اليوم', days: 0 },
-              { label: 'أمس', days: 1 },
-              { label: 'آخر 7 أيام', days: 7 },
-              { label: 'آخر 30 يوم', days: 30 },
-            ].map((x) => {
-              const now = new Date();
-              const end = new Date(now);
-              const start = new Date(now);
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 700 }}>بحث</label>
+                <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e) => setActivitySearch((e.target as any).value)} />
+              </div>
 
-              if (x.label === 'أمس') {
-                start.setDate(start.getDate() - 1);
-                end.setDate(end.getDate() - 1);
-              } else if (x.label.startsWith('آخر')) {
-                start.setDate(start.getDate() - (x.days - 1));
-              }
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
+                  {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
+                </Button>
+              </div>
+            </div>
+          )}
 
-              const startStr = start.toISOString().split('T')[0];
-              const endStr = end.toISOString().split('T')[0];
+          {tab === 'clients' && (
+            <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 700 }}>بحث في العملاء</label>
+                <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e) => setClientSearch((e.target as any).value)} />
+              </div>
 
-              return (
-                <button
-                  key={x.label}
-                  onClick={() => setDateRange({ start: startStr, end: endStr })}
-                  style={{
-                    padding: '4px 12px',
-                    backgroundColor: 'white',
-                    color: '#666',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {x.label}
-                </button>
-              );
-            })}
-          </div>
+              <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
+                {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* Generating */}
         {generating && (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '40px',
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              marginBottom: '20px',
-              border: '1px solid #e9ecef',
-              marginTop: 20,
-            }}
-          >
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>جاري توليد التقرير...</div>
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, marginBottom: 16, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري توليد التقرير...</div>
             <div style={{ color: '#666' }}>قد تستغرق العملية بضع لحظات</div>
           </div>
         )}
 
-        {/* Content */}
-        {!generating && activities.length > 0 && summary && (
+        {/* =====================
+            TAB: Employee Activity
+        ====================== */}
+        {!generating && tab === 'employee_activity' && activitySummary && (
           <>
-            {/* Selected info */}
+            {/* Summary strip */}
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '15px 20px',
+                padding: '14px 18px',
                 backgroundColor: 'white',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                borderRadius: 12,
+                marginTop: 14,
+                marginBottom: 14,
+                boxShadow: '0 2px 10px rgba(0,0,0,0.06)',
                 flexWrap: 'wrap',
-                gap: '15px',
+                gap: 10,
                 border: '1px solid #e9ecef',
-                marginTop: 20,
               }}
             >
               <div>
-                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{selectedEmp?.name}</div>
-                <div style={{ fontSize: '14px', color: '#666' }}>
-                  الفترة: {dateRange.start} → {dateRange.end}
+                <div style={{ fontSize: 16, fontWeight: 900 }}>{selectedActivityEmp?.name || '—'}</div>
+                <div style={{ fontSize: 13, color: '#666' }}>
+                  الفترة: {dateRange.start} → {dateRange.end} • إجمالي: {activitySummary.totalActivities}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div
-                  style={{
-                    padding: '5px 15px',
-                    backgroundColor:
-                      summary.efficiencyScore >= 80 ? '#e6f4ea' : summary.efficiencyScore >= 60 ? '#fff8e1' : '#ffebee',
-                    color: summary.efficiencyScore >= 80 ? '#0d8a3e' : summary.efficiencyScore >= 60 ? '#fbbc04' : '#ea4335',
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  درجة الكفاءة: {summary.efficiencyScore}%
-                </div>
-
-                <Button onClick={() => setShowDetails(!showDetails)} variant={showDetails ? 'primary' : 'secondary'}>
-                  {showDetails ? 'إخفاء التفاصيل' : 'عرض التفاصيل الكاملة'}
-                </Button>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={badgeStyle(activitySummary.efficiencyScore >= 80 ? 'success' : activitySummary.efficiencyScore >= 60 ? 'warning' : 'danger')}>
+                  الكفاءة: {activitySummary.efficiencyScore}%
+                </span>
+                <span style={badgeStyle('info')}>التحويل: {activitySummary.conversionRate}%</span>
+                <span style={badgeStyle('neutral')}>Peak: {activitySummary.peakHour}</span>
               </div>
             </div>
 
-            {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
-              <StatCard title="إجمالي الأنشطة" value={summary.totalActivities} icon="📊" color="#1a73e8" />
-              <StatCard title="متابعات" value={summary.followUps} icon="📞" color="#fbbc04" />
-              <StatCard title="حجوزات" value={summary.reservations} icon="📅" color="#34a853" />
-              <StatCard title="متابعات حجوزات" value={summary.reservationFollowUps} icon="🔁" color="#6c5ce7" />
-              <StatCard title="ملاحظات حجوزات" value={summary.reservationNotes} icon="📝" color="#00b894" />
-              <StatCard title="مبيعات" value={summary.sales} icon="💰" color="#0d8a3e" />
-              <StatCard title="زيارات" value={summary.visits} icon="🚗" color="#16a085" />
-              <StatCard title="معدل التحويل" value={`${summary.conversionRate}%`} icon="📈" color="#8e44ad" />
-              <StatCard title="عملاء تم التعامل معهم" value={summary.uniqueClientsTouched} icon="👥" color="#e17055" subtitle="Distinct clients" />
-              <StatCard title="إجمالي الوقت" value={`${summary.totalDuration} دقيقة`} icon="⏱️" color="#2d3436" subtitle={`${Math.round(summary.totalDuration / 60)} ساعة`} />
-              <StatCard title="متوسط النشاط" value={`${summary.avgActivityDuration} دقيقة`} icon="⚡" color="#d63031" />
+            {/* Stats grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 14 }}>
+              <Stat title="إجمالي الأنشطة" value={activitySummary.totalActivities} />
+              <Stat title="متابعات" value={activitySummary.followUps} />
+              <Stat title="حجوزات" value={activitySummary.reservations} />
+              <Stat title="متابعات حجوزات" value={activitySummary.reservationFollowUps} />
+              <Stat title="ملاحظات حجوزات" value={activitySummary.reservationNotes} />
+              <Stat title="مبيعات" value={activitySummary.sales} />
+              <Stat title="زيارات" value={activitySummary.visits} />
+              <Stat title="عملاء تم التعامل معهم" value={activitySummary.uniqueClientsTouched} />
+              <Stat title="إجمالي الوقت" value={`${activitySummary.totalDuration} د`} />
+              <Stat title="متوسط النشاط" value={`${activitySummary.avgActivityDuration} د`} />
             </div>
 
-            {/* Table */}
+            {/* Activities table */}
             <Card title="تفاصيل الأنشطة">
-              {filteredActivities.length > 0 ? (
-                <div className="table-container" style={{ overflowX: 'auto', padding: 15 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+              {filteredActivities.length ? (
+                <div style={{ overflowX: 'auto', padding: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                     <thead>
                       <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>النوع</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>النشاط</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>التفاصيل</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>العميل</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>الوحدة</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>الوقت</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>المدة</th>
-                        <th style={{ padding: '12px', textAlign: 'right' }}>الحالة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>النوع</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>النشاط</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>التفاصيل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الوحدة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الوقت</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>المدة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1399,66 +1714,66 @@ export default function EmployeeActivityReportPage() {
                           style={{
                             borderBottom: '1px solid #e9ecef',
                             cursor: 'pointer',
-                            backgroundColor: idx % 2 === 0 ? '#fff' : '#f8f9fa',
+                            backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb',
                           }}
                         >
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.type}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.action}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', maxWidth: 380, wordWrap: 'break-word' }}>{a.details}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.client_name || '-'}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.unit_code || '-'}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>
+                          <td style={{ padding: 12 }}>{a.type}</td>
+                          <td style={{ padding: 12, fontWeight: 800 }}>{a.action}</td>
+                          <td style={{ padding: 12, maxWidth: 420, wordWrap: 'break-word' }}>{a.details}</td>
+                          <td style={{ padding: 12 }}>{a.client_name || '-'}</td>
+                          <td style={{ padding: 12 }}>{a.unit_code || '-'}</td>
+                          <td style={{ padding: 12 }}>
                             {new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.duration || 0} د</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{a.status || '—'}</td>
+                          <td style={{ padding: 12 }}>{a.duration || 0} د</td>
+                          <td style={{ padding: 12 }}>{a.status || '—'}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>لا توجد بيانات حسب الفلاتر الحالية</div>
+                <div style={{ textAlign: 'center', padding: 26, color: '#666' }}>لا توجد بيانات حسب الفلاتر الحالية</div>
               )}
             </Card>
 
-            {/* Details */}
-            {showDetails && detailedData && (
-              <div style={{ marginTop: 20 }}>
-                <Card title="التفاصيل الكاملة (Raw Data)">
-                  <div style={{ padding: 15, display: 'grid', gap: 16 }}>
+            {/* Raw details */}
+            {showDetails && detailedActivity && (
+              <div style={{ marginTop: 14 }}>
+                <Card title="Raw Data (للتدقيق)">
+                  <div style={{ padding: 14, display: 'grid', gap: 14 }}>
                     <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>FollowUps ({detailedData.followUps.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedData.followUps, null, 2)}
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>FollowUps ({detailedActivity.followUps.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.followUps, null, 2)}
                       </pre>
                     </details>
 
                     <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Reservations ({detailedData.reservations.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedData.reservations, null, 2)}
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservations ({detailedActivity.reservations.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.reservations, null, 2)}
                       </pre>
                     </details>
 
                     <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Reservation Notes ({detailedData.reservationNotes.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedData.reservationNotes, null, 2)}
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservation Notes ({detailedActivity.reservationNotes.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.reservationNotes, null, 2)}
                       </pre>
                     </details>
 
                     <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Sales ({detailedData.sales.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedData.sales, null, 2)}
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Sales ({detailedActivity.sales.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.sales, null, 2)}
                       </pre>
                     </details>
 
                     <details>
-                      <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>Visits ({detailedData.visits.length})</summary>
-                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 10, borderRadius: 6, overflowX: 'auto' }}>
-                        {JSON.stringify(detailedData.visits, null, 2)}
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Visits ({detailedActivity.visits.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.visits, null, 2)}
                       </pre>
                     </details>
                   </div>
@@ -1467,15 +1782,15 @@ export default function EmployeeActivityReportPage() {
             )}
 
             {/* Time slots */}
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginTop: 14 }}>
               <Card title="التحليل الزمني (حسب الساعة)">
-                <div style={{ padding: 15 }}>
-                  {timeSlots.length > 0 ? (
+                <div style={{ padding: 14 }}>
+                  {timeSlots.length ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {timeSlots.map((slot) => (
                         <div key={slot.hour} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 140, fontSize: 13 }}>{slot.hour}</div>
-                          <div style={{ flex: 1, height: 18, backgroundColor: '#e9ecef', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ width: 150, fontSize: 13, color: '#444' }}>{slot.hour}</div>
+                          <div style={{ flex: 1, height: 18, backgroundColor: '#e9ecef', borderRadius: 999, overflow: 'hidden' }}>
                             <div
                               style={{
                                 height: '100%',
@@ -1484,7 +1799,7 @@ export default function EmployeeActivityReportPage() {
                               }}
                             />
                           </div>
-                          <div style={{ width: 40, textAlign: 'right', fontWeight: 'bold' }}>{slot.count}</div>
+                          <div style={{ width: 40, textAlign: 'right', fontWeight: 900 }}>{slot.count}</div>
                         </div>
                       ))}
                     </div>
@@ -1497,28 +1812,141 @@ export default function EmployeeActivityReportPage() {
           </>
         )}
 
-        {/* Empty */}
-        {!generating && activities.length === 0 && (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '40px',
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-              border: '1px solid #e9ecef',
-              marginTop: 20,
-            }}
-          >
-            <div style={{ fontSize: '24px', color: '#999', marginBottom: '20px' }}>📊</div>
-            <div style={{ fontSize: '18px', marginBottom: '10px' }}>لا توجد أنشطة في الفترة المحددة</div>
-            <div style={{ color: '#666', marginBottom: '20px' }}>
-              الموظف: <b>{selectedEmp?.name}</b> — الفترة: <b>{dateRange.start}</b> إلى <b>{dateRange.end}</b>
+        {/* =====================
+            TAB: Clients
+        ====================== */}
+        {!generating && tab === 'clients' && clientMetrics && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginTop: 14, marginBottom: 14 }}>
+              <Stat title="إجمالي العملاء" value={clientMetrics.totalClients} />
+              <Stat title="موزعين" value={clientMetrics.assignedClients} />
+              <Stat title="غير موزعين" value={clientMetrics.unassignedClients} />
+              <Stat title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} />
+              <Stat title="عملاء تم العمل عليهم" value={clientMetrics.workedClients} />
+              <Stat title="عملاء تم تعديل بياناتهم" value={clientMetrics.editedClients} />
             </div>
-            <Button onClick={generateReport}>توليد التقرير</Button>
+
+            <Card title="تفصيل (تم العمل عليهم داخل الفترة)">
+              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <Stat title="متابعات" value={clientMetrics.workedByFollowups} />
+                <Stat title="حجوزات" value={clientMetrics.workedByReservations} />
+                <Stat title="ملاحظات حجوزات" value={clientMetrics.workedByReservationNotes} />
+                <Stat title="مبيعات" value={clientMetrics.workedBySales} />
+                <Stat title="زيارات" value={clientMetrics.workedByVisits} />
+              </div>
+              <p style={{ padding: '0 14px 14px', color: '#666', fontSize: 13 }}>
+                “تم العمل عليهم” = عميل ظهر له أي نشاط من (متابعة/حجز/ملاحظة/بيع/زيارة) داخل نفس الفترة.
+              </p>
+            </Card>
+
+            <Card title="توزيع حالات العملاء">
+              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                {Object.entries(clientMetrics.statusCounts).length === 0 ? (
+                  <div style={{ color: '#666' }}>لا توجد بيانات</div>
+                ) : (
+                  Object.entries(clientMetrics.statusCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => (
+                      <div key={k} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
+                        <div style={{ color: '#666', fontSize: 12, fontWeight: 800 }}>{translateStatus(k)}</div>
+                        <div style={{ fontSize: 20, fontWeight: 900 }}>{v}</div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </Card>
+
+            <Card title="قائمة العملاء">
+              {!showClients ? (
+                <div style={{ padding: 18, color: '#666' }}>تم إخفاء القائمة.</div>
+              ) : (
+                <div style={{ overflowX: 'auto', padding: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الجوال</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>مستحق</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تاريخ الإضافة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تم العمل عليه؟</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تم تعديله؟</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>فتح</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredClients.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                            لا توجد نتائج
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredClients.slice(0, 500).map((c, idx) => {
+                          const worked = workedSets?.union.has(c.id);
+                          const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+                          const edited =
+                            !!c.updated_at &&
+                            new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
+                            new Date(c.updated_at).getTime() < new Date(endISOExclusive).getTime() &&
+                            new Date(c.updated_at).getTime() > new Date(c.created_at).getTime();
+
+                          return (
+                            <tr key={c.id} style={{ borderBottom: '1px solid #e9ecef', backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb' }}>
+                              <td style={{ padding: 12, fontWeight: 900 }}>{c.name}</td>
+                              <td style={{ padding: 12 }}>{c.mobile || '-'}</td>
+                              <td style={{ padding: 12 }}>{translateStatus(c.status)}</td>
+                              <td style={{ padding: 12 }}>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                              <td style={{ padding: 12 }}>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                              <td style={{ padding: 12 }}>{worked ? 'نعم' : 'لا'}</td>
+                              <td style={{ padding: 12 }}>{edited ? 'نعم' : 'لا'}</td>
+                              <td style={{ padding: 12 }}>
+                                <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+
+                  {filteredClients.length > 500 && <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>تم عرض أول 500 عميل فقط لتقليل الضغط.</div>}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Empty states */}
+        {!generating && tab === 'employee_activity' && !activitySummary && (
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الموظف والفترة ثم اضغط “توليد التقرير”</div>
+            <div style={{ color: '#666' }}>سيتم عرض ملخص + تفاصيل الأنشطة + تحليل زمني</div>
+          </div>
+        )}
+
+        {!generating && tab === 'clients' && !clientMetrics && (
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الفلاتر ثم اضغط “توليد التقرير”</div>
+            <div style={{ color: '#666' }}>سيتم عرض إحصائيات العملاء + النشاط + التعديل + توزيع الحالات</div>
           </div>
         )}
       </div>
     </RequireAuth>
+  );
+}
+
+/* =====================
+   Small Stat component
+===================== */
+function Stat({ title, value }: { title: string; value: string | number }) {
+  return (
+    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #eee' }}>
+      <div style={{ color: '#666', fontSize: 12, marginBottom: 6, fontWeight: 800 }}>{title}</div>
+      <div style={{ fontSize: 20, fontWeight: 900 }}>{value}</div>
+    </div>
   );
 }

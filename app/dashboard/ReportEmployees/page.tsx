@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -305,10 +306,79 @@ function formatMoneyEGP(v?: number) {
 }
 
 /* =====================
+   Followup Status Buckets (NEW)
+===================== */
+
+// حالات المتابعة (من كود followups NOTE_OPTIONS)
+const FOLLOWUP_STATUS_OPTIONS = [
+  'حجز قائم - المستفيد يرغب في الإلغاء',
+  'جاري رفع الطلب',
+  'لم يتم الرد',
+  'تحويل راتب - تغيير الجهة التمويلية',
+  'جديد - جاري المتابعة',
+  'توفير دفعة أولى',
+  'انتظار موافقة البنك',
+  'البحث عن نسبة',
+  'البحث عن جهة تمويلية',
+  'تم التنفيذ',
+  'تأخير من قبل الجهة التمويلية',
+  'سداد التزامات',
+  'العميل غير جاد',
+  'فترة انتظار البنك',
+  'في انتظار نزول الراتب',
+  'تم الرفض من الجهة التمويلية',
+  'لا يمكن تمويل العميل',
+] as const;
+
+type FollowupStatusLabel = (typeof FOLLOWUP_STATUS_OPTIONS)[number] | 'غير محدد';
+
+function normalizeArabic(s: string) {
+  return (s || '')
+    .toString()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function extractFollowupStatus(text: string): FollowupStatusLabel {
+  const t = normalizeArabic(text);
+  if (!t) return 'غير محدد';
+
+  for (const opt of FOLLOWUP_STATUS_OPTIONS) {
+    const o = normalizeArabic(opt);
+    if (!o) continue;
+    if (t === o) return opt;
+    if (t.startsWith(o)) return opt;
+    if (t.includes(o)) return opt;
+  }
+
+  return 'غير محدد';
+}
+
+function countByLabel(labels: FollowupStatusLabel[]) {
+  const map = new Map<FollowupStatusLabel, number>();
+  for (const l of labels) map.set(l, (map.get(l) || 0) + 1);
+
+  return Array.from(map.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => {
+      if (a.label === 'غير محدد') return 1;
+      if (b.label === 'غير محدد') return -1;
+      return b.value - a.value;
+    });
+}
+
+/* =====================
    Premium UI Components (No libs)
 ===================== */
 
-function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger'; children: React.ReactNode }) {
+function Badge({
+  tone = 'neutral',
+  children,
+}: {
+  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  children: React.ReactNode;
+}) {
   return <span className={`r-badge r-badge--${tone}`}>{children}</span>;
 }
 
@@ -316,13 +386,7 @@ function IconDot({ tone = 'neutral' }: { tone?: 'neutral' | 'info' | 'success' |
   return <span className={`r-dot r-dot--${tone}`} aria-hidden />;
 }
 
-function SegTabs({
-  value,
-  onChange,
-}: {
-  value: TabKey;
-  onChange: (v: TabKey) => void;
-}) {
+function SegTabs({ value, onChange }: { value: TabKey; onChange: (v: TabKey) => void }) {
   return (
     <div className="r-tabs" role="tablist" aria-label="Reports tabs">
       <button
@@ -372,7 +436,17 @@ function Kpi({
   );
 }
 
-function Panel({ title, hint, right, children }: { title: string; hint?: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Panel({
+  title,
+  hint,
+  right,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="r-panel">
       <div className="r-panel__head">
@@ -482,6 +556,12 @@ export default function ReportsPage() {
   const [activitySearch, setActivitySearch] = useState('');
   const [activityTypeFilter, setActivityTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
   const [showDetails, setShowDetails] = useState(false);
+
+  // ✅ NEW: breakdowns for followup statuses
+  const [followupStatusBreakdown, setFollowupStatusBreakdown] = useState<{ label: string; value: number }[]>([]);
+  const [reservationFollowupStatusBreakdown, setReservationFollowupStatusBreakdown] = useState<
+    { label: string; value: number }[]
+  >([]);
 
   // clients states
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
@@ -986,6 +1066,10 @@ export default function ReportsPage() {
     setTimeSlots([]);
     setDetailedActivity(null);
 
+    // ✅ reset breakdowns
+    setFollowupStatusBreakdown([]);
+    setReservationFollowupStatusBreakdown([]);
+
     const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
     const emp = employees.find((e) => e.id === selectedEmployeeIdActivity);
 
@@ -1000,6 +1084,17 @@ export default function ReportsPage() {
       fetchVisits(selectedEmployeeIdActivity, startISO, endISOExclusive),
       fetchReservationNotes(selectedEmployeeIdActivity, startISO, endISOExclusive),
     ]);
+
+    // ✅ NEW: breakdowns (حالات المتابعات + حالات متابعات الحجوزات)
+    // ملاحظة: لو الحالة عندك متخزنة غالبًا في notes، بدّل الترتيب: (f.notes || f.type)
+    const followupLabels: FollowupStatusLabel[] = followUps.map((f) => extractFollowupStatus(f.type || f.notes || ''));
+    setFollowupStatusBreakdown(countByLabel(followupLabels));
+
+    const reservationFollowupLabels: FollowupStatusLabel[] = reservations
+      .filter((r) => r.follow_employee_id === selectedEmployeeIdActivity && r.last_follow_up_at)
+      .map((r) => extractFollowupStatus(r.follow_up_details || ''));
+
+    setReservationFollowupStatusBreakdown(countByLabel(reservationFollowupLabels));
 
     const all: EmployeeActivity[] = [];
 
@@ -1404,6 +1499,10 @@ export default function ReportsPage() {
           summary: activitySummary,
           activities,
           timeSlots,
+
+          // ✅ NEW: include breakdowns
+          followupStatusBreakdown,
+          reservationFollowupStatusBreakdown,
         };
       } else {
         if (!clientMetrics) {
@@ -1458,7 +1557,19 @@ export default function ReportsPage() {
         return;
       }
 
-      const headers = ['النوع', 'النشاط', 'التفاصيل', 'العميل', 'كود الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
+      const headers = [
+        'النوع',
+        'النشاط',
+        'التفاصيل',
+        'العميل',
+        'كود الوحدة',
+        'المشروع',
+        'المبلغ',
+        'التاريخ',
+        'المدة (دقيقة)',
+        'الحالة',
+        'ملاحظات',
+      ];
 
       const rows = activities.map((a) => [
         a.type,
@@ -1685,7 +1796,9 @@ export default function ReportsPage() {
 
                 <div className="r-hero__badges">
                   <Badge tone="info">🔐 {currentEmployee?.role}</Badge>
-                  <Badge tone="neutral">📅 {dateRange.start} → {dateRange.end}</Badge>
+                  <Badge tone="neutral">
+                    📅 {dateRange.start} → {dateRange.end}
+                  </Badge>
                   <Badge tone={heroTone as any}>{heroRightBadge}</Badge>
                 </div>
               </div>
@@ -1700,11 +1813,7 @@ export default function ReportsPage() {
                     {exporting ? 'جاري التصدير...' : '⬇️ JSON'}
                   </Button>
 
-                  <Button
-                    onClick={exportCSV}
-                    disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}
-                    variant="secondary"
-                  >
+                  <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
                     ⬇️ CSV
                   </Button>
 
@@ -1831,7 +1940,14 @@ export default function ReportsPage() {
                       {canChooseEmployeeModeAll && <option value="all">الكل</option>}
                       {employees.map((emp) => (
                         <option key={emp.id} value={emp.id}>
-                          {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
+                          {emp.name}{' '}
+                          {emp.role === 'sales_manager'
+                            ? '(مشرف)'
+                            : emp.role === 'sales'
+                            ? '(مبيعات)'
+                            : emp.role === 'admin'
+                            ? '(Admin)'
+                            : ''}
                         </option>
                       ))}
                     </select>
@@ -1886,11 +2002,7 @@ export default function ReportsPage() {
                     <>
                       <div className="r-field">
                         <label className="r-label">نوع النشاط</label>
-                        <select
-                          className="r-select"
-                          value={activityTypeFilter}
-                          onChange={(e) => setActivityTypeFilter(e.target.value as any)}
-                        >
+                        <select className="r-select" value={activityTypeFilter} onChange={(e) => setActivityTypeFilter(e.target.value as any)}>
                           <option value="all">الكل</option>
                           <option value="client_followup">متابعات</option>
                           <option value="reservation">حجوزات</option>
@@ -1921,11 +2033,7 @@ export default function ReportsPage() {
                     <>
                       <div className="r-field r-field--span2">
                         <label className="r-label">بحث في العملاء</label>
-                        <Input
-                          placeholder="بحث بالاسم/الجوال/الحالة..."
-                          value={clientSearch}
-                          onChange={(e: any) => setClientSearch(e.target.value)}
-                        />
+                        <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
                       </div>
 
                       <div className="r-field r-field--span2 r-field--row">
@@ -1947,9 +2055,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="r-log">
-                  {debugInfo ? <pre className="r-debug">{debugInfo}</pre> : <div className="r-emptyTiny">لا يوجد سجل بعد.</div>}
-                </div>
+                <div className="r-log">{debugInfo ? <pre className="r-debug">{debugInfo}</pre> : <div className="r-emptyTiny">لا يوجد سجل بعد.</div>}</div>
               </div>
             </div>
           </div>
@@ -1963,23 +2069,21 @@ export default function ReportsPage() {
                 <Kpi title="إجمالي الأنشطة" value={activitySummary.totalActivities} sub="Total events" tone="info" icon="📊" />
                 <Kpi title="الكفاءة" value={`${activitySummary.efficiencyScore}%`} sub={`Peak: ${activitySummary.peakHour}`} tone={heroTone as any} icon="⚡" />
                 <Kpi title="معدل التحويل" value={`${activitySummary.conversionRate}%`} sub="Sales / Followups" tone="success" icon="📈" />
-                <Kpi title="الوقت" value={`${activitySummary.totalDuration} د`} sub={`${Math.round(activitySummary.totalDuration / 60)} ساعة • متوسط ${activitySummary.avgActivityDuration} د`} tone="neutral" icon="⏱️" />
+                <Kpi
+                  title="الوقت"
+                  value={`${activitySummary.totalDuration} د`}
+                  sub={`${Math.round(activitySummary.totalDuration / 60)} ساعة • متوسط ${activitySummary.avgActivityDuration} د`}
+                  tone="neutral"
+                  icon="⏱️"
+                />
               </div>
 
               <div className="r-grid2">
-                <Panel
-                  title="تفصيل الأنشطة"
-                  hint="أكثر الأنشطة تنفيذًا داخل الفترة"
-                  right={<Badge tone="neutral">Top mix</Badge>}
-                >
+                <Panel title="تفصيل الأنشطة" hint="أكثر الأنشطة تنفيذًا داخل الفترة" right={<Badge tone="neutral">Top mix</Badge>}>
                   <MiniBars items={activityBreakdown as any} />
                 </Panel>
 
-                <Panel
-                  title="Insights"
-                  hint="ملخص سريع للمخرجات"
-                  right={<Badge tone={heroTone as any}>{selectedEmpNameActivity}</Badge>}
-                >
+                <Panel title="Insights" hint="ملخص سريع للمخرجات" right={<Badge tone={heroTone as any}>{selectedEmpNameActivity}</Badge>}>
                   <div className="r-ins">
                     <div className="r-ins__item">
                       <div className="r-ins__k">🔥 الأكثر تنفيذًا</div>
@@ -1996,20 +2100,65 @@ export default function ReportsPage() {
                     <div className="r-ins__item">
                       <div className="r-ins__k">💰 إجمالي قيمة مبيعات</div>
                       <div className="r-ins__v">
-                        {formatMoneyEGP(
-                          activities.filter((x) => x.type === 'sale').reduce((s, x) => s + Number(x.amount || 0), 0)
-                        )}
+                        {formatMoneyEGP(activities.filter((x) => x.type === 'sale').reduce((s, x) => s + Number(x.amount || 0), 0))}
                       </div>
                     </div>
                   </div>
                 </Panel>
               </div>
 
-              <Panel
-                title="سجل الأنشطة"
-                hint={`${filteredActivities.length} نشاط بعد الفلاتر • اضغط على أي صف لعرض التفاصيل`}
-                right={<Badge tone="info">DataGrid</Badge>}
-              >
+              {/* ✅ NEW: Followup Status Distributions */}
+              <div className="r-grid2">
+                <Panel title="حالات المتابعة (العملاء)" hint="توزيع متابعات العملاء حسب الحالة داخل الفترة" right={<Badge tone="info">Followups</Badge>}>
+                  {followupStatusBreakdown.length ? (
+                    <MiniBars
+                      items={followupStatusBreakdown.slice(0, 12).map((x, i) => ({
+                        label: x.label,
+                        value: x.value,
+                        tone:
+                          x.label === 'غير محدد'
+                            ? ('neutral' as const)
+                            : i < 3
+                            ? ('success' as const)
+                            : i < 7
+                            ? ('info' as const)
+                            : ('neutral' as const),
+                      }))}
+                      maxLabel={220}
+                    />
+                  ) : (
+                    <div className="r-emptyTiny">لا توجد متابعات عملاء داخل الفترة.</div>
+                  )}
+                </Panel>
+
+                <Panel
+                  title="حالات متابعات الحجوزات"
+                  hint="توزيع متابعات الحجوزات حسب الحالة داخل الفترة"
+                  right={<Badge tone="warning">Reservation Followups</Badge>}
+                >
+                  {reservationFollowupStatusBreakdown.length ? (
+                    <MiniBars
+                      items={reservationFollowupStatusBreakdown.slice(0, 12).map((x, i) => ({
+                        label: x.label,
+                        value: x.value,
+                        tone:
+                          x.label === 'غير محدد'
+                            ? ('neutral' as const)
+                            : i < 3
+                            ? ('success' as const)
+                            : i < 7
+                            ? ('warning' as const)
+                            : ('neutral' as const),
+                      }))}
+                      maxLabel={220}
+                    />
+                  ) : (
+                    <div className="r-emptyTiny">لا توجد متابعات حجوزات داخل الفترة.</div>
+                  )}
+                </Panel>
+              </div>
+
+              <Panel title="سجل الأنشطة" hint={`${filteredActivities.length} نشاط بعد الفلاتر • اضغط على أي صف لعرض التفاصيل`} right={<Badge tone="info">DataGrid</Badge>}>
                 <div className="r-tableWrap">
                   <table className="r-table">
                     <thead>
@@ -2051,10 +2200,20 @@ export default function ReportsPage() {
                                   <div className="r-box">
                                     <div className="r-box__k">معلومات</div>
                                     <div className="r-box__v">
-                                      <div>النوع: <b>{a.type}</b></div>
-                                      <div>الوقت: <b>{new Date(a.timestamp).toLocaleString('ar-SA')}</b></div>
-                                      <div>المدة: <b>{a.duration || 0} د</b></div>
-                                      {a.amount ? <div>المبلغ: <b>{formatMoneyEGP(a.amount)}</b></div> : null}
+                                      <div>
+                                        النوع: <b>{a.type}</b>
+                                      </div>
+                                      <div>
+                                        الوقت: <b>{new Date(a.timestamp).toLocaleString('ar-SA')}</b>
+                                      </div>
+                                      <div>
+                                        المدة: <b>{a.duration || 0} د</b>
+                                      </div>
+                                      {a.amount ? (
+                                        <div>
+                                          المبلغ: <b>{formatMoneyEGP(a.amount)}</b>
+                                        </div>
+                                      ) : null}
                                     </div>
                                   </div>
                                 </div>
@@ -2062,7 +2221,9 @@ export default function ReportsPage() {
                               setModalOpen(true);
                             }}
                           >
-                            <td><Badge tone="neutral">{a.type}</Badge></td>
+                            <td>
+                              <Badge tone="neutral">{a.type}</Badge>
+                            </td>
                             <td className="r-strong">{a.action}</td>
                             <td className="r-wrap">{a.details}</td>
                             <td>{a.client_name || '-'}</td>
@@ -2078,11 +2239,7 @@ export default function ReportsPage() {
                 </div>
               </Panel>
 
-              <Panel
-                title="تحليل زمني"
-                hint="توزيع الأنشطة حسب الساعة (أعلى نشاط يظهر بطول أعلى)"
-                right={<Badge tone="neutral">Timeline</Badge>}
-              >
+              <Panel title="تحليل زمني" hint="توزيع الأنشطة حسب الساعة (أعلى نشاط يظهر بطول أعلى)" right={<Badge tone="neutral">Timeline</Badge>}>
                 {timeSlots.length ? (
                   <MiniBars
                     items={timeSlots
@@ -2150,7 +2307,13 @@ export default function ReportsPage() {
             <>
               <div className="r-kpis">
                 <Kpi title="إجمالي العملاء" value={clientMetrics.totalClients} sub="Clients created in range" tone="info" icon="👥" />
-                <Kpi title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} sub={`${clientMetrics.assignedClients} موزعين • ${clientMetrics.unassignedClients} غير موزعين`} tone={heroTone as any} icon="🎯" />
+                <Kpi
+                  title="نسبة التوزيع"
+                  value={`${clientMetrics.distributionRate}%`}
+                  sub={`${clientMetrics.assignedClients} موزعين • ${clientMetrics.unassignedClients} غير موزعين`}
+                  tone={heroTone as any}
+                  icon="🎯"
+                />
                 <Kpi title="تم العمل عليهم" value={clientMetrics.workedClients} sub="Any activity in range" tone="success" icon="🛠️" />
                 <Kpi title="تم تعديلهم" value={clientMetrics.editedClients} sub="Updated within range" tone="warning" icon="✍️" />
               </div>
@@ -2229,7 +2392,9 @@ export default function ReportsPage() {
                               <tr key={c.id} className="r-tr">
                                 <td className="r-strong">{c.name}</td>
                                 <td>{c.mobile || '-'}</td>
-                                <td><Badge tone="neutral">{translateStatus(c.status)}</Badge></td>
+                                <td>
+                                  <Badge tone="neutral">{translateStatus(c.status)}</Badge>
+                                </td>
                                 <td>{c.eligible ? <Badge tone="success">مستحق</Badge> : <Badge tone="danger">غير مستحق</Badge>}</td>
                                 <td>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
                                 <td>{worked ? <Badge tone="success">نعم</Badge> : <Badge tone="neutral">لا</Badge>}</td>
@@ -2244,9 +2409,7 @@ export default function ReportsPage() {
                       </tbody>
                     </table>
 
-                    {filteredClients.length > 500 ? (
-                      <div className="r-footNote">تم عرض أول 500 عميل فقط لتقليل الضغط.</div>
-                    ) : null}
+                    {filteredClients.length > 500 ? <div className="r-footNote">تم عرض أول 500 عميل فقط لتقليل الضغط.</div> : null}
                   </div>
                 )}
               </Panel>

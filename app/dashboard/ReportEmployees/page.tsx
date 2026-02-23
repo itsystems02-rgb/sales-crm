@@ -306,7 +306,7 @@ function formatMoneyEGP(v?: number) {
 }
 
 /* =====================
-   Followup Status Buckets (NEW)
+   Followup Status Buckets (UPDATED)
 ===================== */
 
 // حالات المتابعة (من كود followups NOTE_OPTIONS)
@@ -340,16 +340,31 @@ function normalizeArabic(s: string) {
     .toLowerCase();
 }
 
+// ✅ نسخة أقوى: تدعم "الحالة - ملاحظة" و "|" و "—"
 function extractFollowupStatus(text: string): FollowupStatusLabel {
-  const t = normalizeArabic(text);
+  const raw = (text || '').toString();
+  const t = normalizeArabic(raw);
   if (!t) return 'غير محدد';
 
+  // match direct/contains
   for (const opt of FOLLOWUP_STATUS_OPTIONS) {
     const o = normalizeArabic(opt);
     if (!o) continue;
-    if (t === o) return opt;
-    if (t.startsWith(o)) return opt;
-    if (t.includes(o)) return opt;
+    if (t === o || t.startsWith(o) || t.includes(o)) return opt;
+  }
+
+  // match by parts
+  const parts = raw
+    .split(/[-|—–]/g)
+    .map((p) => normalizeArabic(p))
+    .filter(Boolean);
+
+  for (const part of parts) {
+    for (const opt of FOLLOWUP_STATUS_OPTIONS) {
+      const o = normalizeArabic(opt);
+      if (!o) continue;
+      if (part === o || part.startsWith(o) || part.includes(o)) return opt;
+    }
   }
 
   return 'غير محدد';
@@ -557,11 +572,9 @@ export default function ReportsPage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
   const [showDetails, setShowDetails] = useState(false);
 
-  // ✅ NEW: breakdowns for followup statuses
+  // ✅ breakdowns
   const [followupStatusBreakdown, setFollowupStatusBreakdown] = useState<{ label: string; value: number }[]>([]);
-  const [reservationFollowupStatusBreakdown, setReservationFollowupStatusBreakdown] = useState<
-    { label: string; value: number }[]
-  >([]);
+  const [reservationFollowupStatusBreakdown, setReservationFollowupStatusBreakdown] = useState<{ label: string; value: number }[]>([]);
 
   // clients states
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
@@ -1066,7 +1079,6 @@ export default function ReportsPage() {
     setTimeSlots([]);
     setDetailedActivity(null);
 
-    // ✅ reset breakdowns
     setFollowupStatusBreakdown([]);
     setReservationFollowupStatusBreakdown([]);
 
@@ -1085,15 +1097,17 @@ export default function ReportsPage() {
       fetchReservationNotes(selectedEmployeeIdActivity, startISO, endISOExclusive),
     ]);
 
-    // ✅ NEW: breakdowns (حالات المتابعات + حالات متابعات الحجوزات)
-    // ملاحظة: لو الحالة عندك متخزنة غالبًا في notes، بدّل الترتيب: (f.notes || f.type)
-    const followupLabels: FollowupStatusLabel[] = followUps.map((f) => extractFollowupStatus(f.type || f.notes || ''));
+    // ✅ IMPORTANT FIX:
+    // - client_followups: الحالة غالباً في notes (مش type)
+    // - reservation followups: حاول follow_up_details ولو فاضي استخدم notes
+    const followupLabels: FollowupStatusLabel[] = followUps.map((f) =>
+      extractFollowupStatus(f.notes || f.type || '')
+    );
     setFollowupStatusBreakdown(countByLabel(followupLabels));
 
     const reservationFollowupLabels: FollowupStatusLabel[] = reservations
       .filter((r) => r.follow_employee_id === selectedEmployeeIdActivity && r.last_follow_up_at)
-      .map((r) => extractFollowupStatus(r.follow_up_details || ''));
-
+      .map((r) => extractFollowupStatus(r.follow_up_details || r.notes || ''));
     setReservationFollowupStatusBreakdown(countByLabel(reservationFollowupLabels));
 
     const all: EmployeeActivity[] = [];
@@ -1148,7 +1162,7 @@ export default function ReportsPage() {
           reference_id: r.id,
           duration: 10,
           status: r.status,
-          notes: r.follow_up_details || '',
+          notes: r.follow_up_details || r.notes || '',
         });
       }
     }
@@ -1229,8 +1243,8 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Clients Report (FIXED)
-  ===================== */
+     Clients Report (UNCHANGED)
+===================== */
 
   async function fetchClientsInRange(startISO: string, endISOExclusive: string): Promise<ClientRow[]> {
     const rows = await fetchAllPaged<any>((from, to) => {
@@ -1500,7 +1514,6 @@ export default function ReportsPage() {
           activities,
           timeSlots,
 
-          // ✅ NEW: include breakdowns
           followupStatusBreakdown,
           reservationFollowupStatusBreakdown,
         };
@@ -1557,19 +1570,7 @@ export default function ReportsPage() {
         return;
       }
 
-      const headers = [
-        'النوع',
-        'النشاط',
-        'التفاصيل',
-        'العميل',
-        'كود الوحدة',
-        'المشروع',
-        'المبلغ',
-        'التاريخ',
-        'المدة (دقيقة)',
-        'الحالة',
-        'ملاحظات',
-      ];
+      const headers = ['النوع', 'النشاط', 'التفاصيل', 'العميل', 'كود الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
 
       const rows = activities.map((a) => [
         a.type,
@@ -1777,10 +1778,8 @@ export default function ReportsPage() {
   return (
     <RequireAuth>
       <div className="r-page">
-        {/* Premium global CSS */}
         <style jsx global>{globalCss}</style>
 
-        {/* HERO HEADER */}
         <div className="r-hero">
           <div className="r-hero__inner">
             <div className="r-crumbs">
@@ -1832,7 +1831,6 @@ export default function ReportsPage() {
           <div className="r-hero__glow" aria-hidden />
         </div>
 
-        {/* STICKY FILTER BAR */}
         <div className="r-sticky">
           <div className="r-sticky__inner">
             <div className="r-sticky__left">
@@ -1904,7 +1902,6 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* FILTERS PANEL */}
         {filtersOpen && (
           <div className="r-content">
             <div className="r-grid2">
@@ -1925,7 +1922,6 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="r-formGrid">
-                  {/* Employee */}
                   <div className="r-field">
                     <label className="r-label">{tab === 'employee_activity' ? 'الموظف (إلزامي)' : 'الموظف'}</label>
                     <select
@@ -1954,7 +1950,6 @@ export default function ReportsPage() {
                     <div className="r-help">{employees.length} موظف</div>
                   </div>
 
-                  {/* Project (clients only) */}
                   {canSeeProjects && (
                     <div className="r-field">
                       <label className="r-label">المشروع</label>
@@ -1976,7 +1971,6 @@ export default function ReportsPage() {
                     </div>
                   )}
 
-                  {/* Dates */}
                   <div className="r-field">
                     <label className="r-label">من تاريخ *</label>
                     <input
@@ -1997,7 +1991,6 @@ export default function ReportsPage() {
                     />
                   </div>
 
-                  {/* Sub filters */}
                   {tab === 'employee_activity' ? (
                     <>
                       <div className="r-field">
@@ -2061,7 +2054,6 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* RESULTS */}
         <div className="r-content">
           {tab === 'employee_activity' && activitySummary ? (
             <>
@@ -2131,11 +2123,7 @@ export default function ReportsPage() {
                   )}
                 </Panel>
 
-                <Panel
-                  title="حالات متابعات الحجوزات"
-                  hint="توزيع متابعات الحجوزات حسب الحالة داخل الفترة"
-                  right={<Badge tone="warning">Reservation Followups</Badge>}
-                >
+                <Panel title="حالات متابعات الحجوزات" hint="توزيع متابعات الحجوزات حسب الحالة داخل الفترة" right={<Badge tone="warning">Reservation Followups</Badge>}>
                   {reservationFollowupStatusBreakdown.length ? (
                     <MiniBars
                       items={reservationFollowupStatusBreakdown.slice(0, 12).map((x, i) => ({
@@ -2307,13 +2295,7 @@ export default function ReportsPage() {
             <>
               <div className="r-kpis">
                 <Kpi title="إجمالي العملاء" value={clientMetrics.totalClients} sub="Clients created in range" tone="info" icon="👥" />
-                <Kpi
-                  title="نسبة التوزيع"
-                  value={`${clientMetrics.distributionRate}%`}
-                  sub={`${clientMetrics.assignedClients} موزعين • ${clientMetrics.unassignedClients} غير موزعين`}
-                  tone={heroTone as any}
-                  icon="🎯"
-                />
+                <Kpi title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} sub={`${clientMetrics.assignedClients} موزعين • ${clientMetrics.unassignedClients} غير موزعين`} tone={heroTone as any} icon="🎯" />
                 <Kpi title="تم العمل عليهم" value={clientMetrics.workedClients} sub="Any activity in range" tone="success" icon="🛠️" />
                 <Kpi title="تم تعديلهم" value={clientMetrics.editedClients} sub="Updated within range" tone="warning" icon="✍️" />
               </div>
@@ -2416,7 +2398,6 @@ export default function ReportsPage() {
             </>
           ) : null}
 
-          {/* Empty states */}
           {!generating && tab === 'employee_activity' && !activitySummary ? (
             <div className="r-empty">
               <div className="r-empty__icon">📊</div>
@@ -2434,7 +2415,6 @@ export default function ReportsPage() {
           ) : null}
         </div>
 
-        {/* Modal */}
         <Modal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
           {modalBody}
         </Modal>
@@ -2461,19 +2441,9 @@ const globalCss = `
     --radius: 16px;
   }
 
-  /* page */
-  .r-page{
-    background: #f6f7fb;
-    min-height: 100vh;
-  }
+  .r-page{ background: #f6f7fb; min-height: 100vh; }
+  .r-content{ max-width: 1280px; margin: 0 auto; padding: 14px 14px 44px; }
 
-  .r-content{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 14px 14px 44px;
-  }
-
-  /* HERO */
   .r-hero{
     position: relative;
     overflow: hidden;
@@ -2482,101 +2452,41 @@ const globalCss = `
                 radial-gradient(900px 500px at 10% 0%, rgba(14,165,233,.14), transparent 60%),
                 linear-gradient(180deg, #0b1220 0%, #0b1220 60%, rgba(246,247,251,0) 100%);
   }
-
-  .r-hero__inner{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 14px 8px;
-    color: #fff;
-  }
-
+  .r-hero__inner{ max-width: 1280px; margin: 0 auto; padding: 0 14px 8px; color: #fff; }
   .r-hero__glow{
-    position:absolute;
-    inset: -40% -20% auto -20%;
-    height: 380px;
+    position:absolute; inset: -40% -20% auto -20%; height: 380px;
     filter: blur(28px);
     background: radial-gradient(closest-side, rgba(99,102,241,.35), rgba(14,165,233,.18), transparent 70%);
     pointer-events:none;
   }
 
-  .r-crumbs{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    color: rgba(226,232,240,.85);
-    font-size: 12px;
-    margin-bottom: 10px;
-  }
+  .r-crumbs{ display:flex; align-items:center; gap:10px; color: rgba(226,232,240,.85); font-size: 12px; margin-bottom: 10px; }
   .r-crumb--active{ color: #fff; font-weight: 900; }
   .r-crumb-sep{ opacity: .7; }
 
-  .r-hero__row{
-    display:flex;
-    justify-content: space-between;
-    gap: 18px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
+  .r-hero__row{ display:flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
   .r-hero__left{ min-width: 320px; }
-  .r-hero__title{
-    margin: 0;
-    font-size: 24px;
-    font-weight: 900;
-    letter-spacing: -0.3px;
-  }
-  .r-hero__sub{
-    margin: 8px 0 0;
-    color: rgba(226,232,240,.82);
-    max-width: 720px;
-    line-height: 1.6;
-    font-size: 13px;
-  }
-  .r-hero__badges{
-    margin-top: 12px;
-    display:flex;
-    gap:8px;
-    flex-wrap: wrap;
-  }
+  .r-hero__title{ margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.3px; }
+  .r-hero__sub{ margin: 8px 0 0; color: rgba(226,232,240,.82); max-width: 720px; line-height: 1.6; font-size: 13px; }
+  .r-hero__badges{ margin-top: 12px; display:flex; gap:8px; flex-wrap: wrap; }
 
-  .r-hero__right{
-    display:flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: flex-end;
-    min-width: 320px;
-  }
-  .r-actions{
-    display:flex;
-    gap:10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
+  .r-hero__right{ display:flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 320px; }
+  .r-actions{ display:flex; gap:10px; flex-wrap: wrap; justify-content: flex-end; }
   .r-tabsWrap{ display:flex; justify-content: flex-end; width: 100%; }
 
-  /* tabs */
   .r-tabs{
-    display:inline-flex;
-    gap:4px;
-    padding: 4px;
-    border-radius: 14px;
+    display:inline-flex; gap:4px; padding: 4px; border-radius: 14px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(148,163,184,.25);
     backdrop-filter: blur(8px);
   }
   .r-tab{
-    border: none;
-    cursor: pointer;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: transparent;
-    color: rgba(226,232,240,.92);
-    font-weight: 900;
-    font-size: 13px;
-    display:inline-flex;
-    gap:8px;
-    align-items:center;
-    min-width: 170px;
-    justify-content: center;
+    border: none; cursor: pointer;
+    padding: 10px 12px; border-radius: 12px;
+    background: transparent; color: rgba(226,232,240,.92);
+    font-weight: 900; font-size: 13px;
+    display:inline-flex; gap:8px; align-items:center;
+    min-width: 170px; justify-content: center;
     transition: all .15s ease;
   }
   .r-tab:hover{ background: rgba(255,255,255,.08); }
@@ -2585,71 +2495,38 @@ const globalCss = `
     color: #0b1220;
     box-shadow: 0 8px 22px rgba(2,6,23,.18);
   }
-  .r-tab__icon{ filter: saturate(1.2); }
 
-  /* sticky bar */
   .r-sticky{
-    position: sticky;
-    top: 0;
-    z-index: 30;
+    position: sticky; top: 0; z-index: 30;
     background: rgba(246,247,251,0.86);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(226,232,240,.8);
   }
   .r-sticky__inner{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 10px 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    align-items: center;
+    max-width: 1280px; margin: 0 auto; padding: 10px 14px;
+    display:flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center;
   }
   .r-sticky__left{ display:flex; gap: 12px; align-items:center; flex-wrap: wrap; }
   .r-sticky__right{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; justify-content: flex-end; }
 
-  .r-linkBtn{
-    border:none;
-    background: transparent;
-    cursor:pointer;
-    font-weight: 900;
-    color: #0f172a;
-    font-size: 13px;
-  }
+  .r-linkBtn{ border:none; background: transparent; cursor:pointer; font-weight: 900; color: #0f172a; font-size: 13px; }
   .r-mini{
-    font-size: 12px;
-    color: #334155;
-    display:flex;
-    align-items:center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 999px;
+    font-size: 12px; color: #334155;
+    display:flex; align-items:center; gap: 8px;
+    padding: 6px 10px; border-radius: 999px;
     background: rgba(255,255,255,.9);
     border: 1px solid rgba(226,232,240,.9);
   }
   .r-quick{
     border: 1px solid rgba(226,232,240,.9);
     background: rgba(255,255,255,.9);
-    padding: 6px 10px;
-    border-radius: 999px;
-    cursor:pointer;
-    font-weight: 900;
-    font-size: 12px;
-    color: #0f172a;
+    padding: 6px 10px; border-radius: 999px;
+    cursor:pointer; font-weight: 900; font-size: 12px; color: #0f172a;
     transition: all .12s ease;
   }
-  .r-quick:hover{
-    transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(2,6,23,.08);
-  }
+  .r-quick:hover{ transform: translateY(-1px); box-shadow: 0 10px 24px rgba(2,6,23,.08); }
 
-  /* layout */
-  .r-grid2{
-    display:grid;
-    grid-template-columns: 1.4fr 1fr;
-    gap: 12px;
-  }
+  .r-grid2{ display:grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
   @media (max-width: 980px){
     .r-grid2{ grid-template-columns: 1fr; }
     .r-hero__right{ align-items: flex-start; }
@@ -2660,29 +2537,17 @@ const globalCss = `
     background: rgba(255,255,255,.94);
     border: 1px solid rgba(226,232,240,.95);
     border-radius: var(--radius);
-    box-shadow: var(--shadow2);
+    box-shadow: 0 8px 22px rgba(2,6,23,.10);
     overflow: hidden;
   }
   .r-cardLite__head{
     padding: 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: flex-start;
+    display:flex; justify-content: space-between; gap: 10px; align-items: flex-start;
     border-bottom: 1px solid rgba(226,232,240,.8);
     background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
   }
-  .r-cardLite__title{
-    font-weight: 900;
-    color: #0f172a;
-    font-size: 14px;
-  }
-  .r-cardLite__hint{
-    margin-top: 4px;
-    color: #64748b;
-    font-size: 12px;
-    line-height: 1.5;
-  }
+  .r-cardLite__title{ font-weight: 900; color: #0f172a; font-size: 14px; }
+  .r-cardLite__hint{ margin-top: 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
 
   .r-formGrid{
     padding: 14px;
@@ -2690,9 +2555,7 @@ const globalCss = `
     grid-template-columns: repeat(2, minmax(220px,1fr));
     gap: 12px;
   }
-  @media (max-width: 860px){
-    .r-formGrid{ grid-template-columns: 1fr; }
-  }
+  @media (max-width: 860px){ .r-formGrid{ grid-template-columns: 1fr; } }
 
   .r-field{ display:flex; flex-direction: column; gap: 6px; }
   .r-field--span2{ grid-column: span 2; }
@@ -2731,7 +2594,6 @@ const globalCss = `
   }
   .r-emptyTiny{ padding: 12px; color:#64748b; font-size: 12px; }
 
-  /* KPIs */
   .r-kpis{
     display:grid;
     grid-template-columns: repeat(4, minmax(220px,1fr));
@@ -2746,24 +2608,15 @@ const globalCss = `
     background: rgba(255,255,255,.95);
     border: 1px solid rgba(226,232,240,.95);
     border-radius: var(--radius);
-    box-shadow: var(--shadow2);
+    box-shadow: 0 8px 22px rgba(2,6,23,.10);
     padding: 14px;
-    display:flex;
-    gap: 12px;
-    align-items:flex-start;
+    display:flex; gap: 12px; align-items:flex-start;
     transition: transform .12s ease, box-shadow .12s ease;
   }
-  .r-kpi:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 18px 40px rgba(2,6,23,.10);
-  }
+  .r-kpi:hover{ transform: translateY(-2px); box-shadow: 0 18px 40px rgba(2,6,23,.10); }
   .r-kpi__icon{
-    width: 42px;
-    height: 42px;
-    border-radius: 14px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
+    width: 42px; height: 42px; border-radius: 14px;
+    display:flex; align-items:center; justify-content:center;
     font-size: 18px;
     border: 1px solid rgba(226,232,240,.95);
     background: rgba(248,250,252,.9);
@@ -2777,50 +2630,34 @@ const globalCss = `
   .r-kpi__value{ margin-top: 6px; font-size: 22px; font-weight: 900; color: #0f172a; letter-spacing: -0.3px; }
   .r-kpi__sub{ margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.4; }
 
-  /* Panel */
   .r-panel{
     background: rgba(255,255,255,.95);
     border: 1px solid rgba(226,232,240,.95);
     border-radius: var(--radius);
-    box-shadow: var(--shadow2);
+    box-shadow: 0 8px 22px rgba(2,6,23,.10);
     overflow: hidden;
     margin-top: 12px;
   }
   .r-panel__head{
     padding: 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: flex-start;
+    display:flex; justify-content: space-between; gap: 10px; align-items: flex-start;
     border-bottom: 1px solid rgba(226,232,240,.8);
     background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
   }
   .r-panel__title{ font-weight: 900; color: #0f172a; font-size: 14px; }
   .r-panel__hint{ margin-top: 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
   .r-panel__body{ padding: 14px; }
-  .r-rowActions{ display:flex; gap: 8px; align-items:center; }
 
-  /* Bars */
   .r-bars{ display:flex; flex-direction: column; gap: 10px; }
   .r-bars__row{ display:flex; gap: 10px; align-items: center; }
   .r-bars__label{
-    width: 190px;
-    font-size: 12px;
-    font-weight: 900;
-    color: #334155;
-    display:flex;
-    align-items:center;
-    gap: 8px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: 190px; font-size: 12px; font-weight: 900; color: #334155;
+    display:flex; align-items:center; gap: 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .r-bars__track{
-    flex: 1;
-    height: 12px;
-    border-radius: 999px;
-    background: #eef2f7;
-    overflow:hidden;
+    flex: 1; height: 12px; border-radius: 999px;
+    background: #eef2f7; overflow:hidden;
     border: 1px solid rgba(226,232,240,.9);
   }
   .r-bars__fill{ height: 100%; border-radius: 999px; }
@@ -2831,74 +2668,37 @@ const globalCss = `
   .r-bars__fill--danger{ background: linear-gradient(90deg, #ef4444, #f43f5e); }
   .r-bars__val{ width: 44px; text-align: left; font-weight: 900; color: #0f172a; font-size: 12px; }
 
-  /* table */
-  .r-tableWrap{
-    border: 1px solid rgba(226,232,240,.95);
-    border-radius: var(--radius);
-    overflow: auto;
-  }
-  .r-table{
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    min-width: 980px;
-    background: #fff;
-  }
+  .r-tableWrap{ border: 1px solid rgba(226,232,240,.95); border-radius: var(--radius); overflow: auto; }
+  .r-table{ width: 100%; border-collapse: separate; border-spacing: 0; min-width: 980px; background: #fff; }
   .r-table thead th{
-    position: sticky;
-    top: 0;
-    z-index: 1;
+    position: sticky; top: 0; z-index: 1;
     background: #f8fafc;
     border-bottom: 1px solid rgba(226,232,240,.95);
-    font-size: 12px;
-    font-weight: 900;
-    color: #334155;
-    text-align: right;
-    padding: 12px;
+    font-size: 12px; font-weight: 900; color: #334155;
+    text-align: right; padding: 12px;
   }
   .r-table tbody td{
     border-bottom: 1px solid rgba(241,245,249,.95);
-    font-size: 13px;
-    color: #0f172a;
-    padding: 12px;
-    vertical-align: top;
+    font-size: 13px; color: #0f172a;
+    padding: 12px; vertical-align: top;
   }
-  .r-tr{
-    cursor: pointer;
-    transition: background .12s ease;
-  }
-  .r-tr:hover{
-    background: #f8fafc;
-  }
+  .r-tr{ cursor: pointer; transition: background .12s ease; }
+  .r-tr:hover{ background: #f8fafc; }
   .r-strong{ font-weight: 900; }
   .r-wrap{ max-width: 460px; word-break: break-word; }
-  .r-tdEmpty{
-    padding: 24px !important;
-    text-align: center;
-    color: #64748b !important;
-    font-weight: 800;
-  }
+  .r-tdEmpty{ padding: 24px !important; text-align: center; color: #64748b !important; font-weight: 800; }
   .r-footNote{
-    padding: 12px;
-    font-size: 12px;
-    color: #64748b;
-    background: #f8fafc;
-    border-top: 1px solid rgba(226,232,240,.85);
+    padding: 12px; font-size: 12px; color: #64748b;
+    background: #f8fafc; border-top: 1px solid rgba(226,232,240,.85);
   }
 
-  /* badges & dots */
   .r-badge{
-    display:inline-flex;
-    align-items:center;
-    gap: 6px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 900;
+    display:inline-flex; align-items:center; gap: 6px;
+    padding: 6px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 900;
     border: 1px solid rgba(226,232,240,.85);
     background: rgba(255,255,255,.9);
-    color: #0f172a;
-    white-space: nowrap;
+    color: #0f172a; white-space: nowrap;
   }
   .r-badge--neutral{ background: rgba(255,255,255,.92); }
   .r-badge--info{ background: rgba(14,165,233,.12); border-color: rgba(14,165,233,.25); color: #075985; }
@@ -2907,11 +2707,8 @@ const globalCss = `
   .r-badge--danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #7f1d1d; }
 
   .r-dot{
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: #111827;
-    display:inline-block;
+    width: 8px; height: 8px; border-radius: 999px;
+    background: #111827; display:inline-block;
     box-shadow: 0 0 0 3px rgba(17,24,39,.10);
   }
   .r-dot--info{ background:#0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.12); }
@@ -2919,15 +2716,8 @@ const globalCss = `
   .r-dot--warning{ background:#f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
   .r-dot--danger{ background:#ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
 
-  /* insights */
-  .r-ins{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  @media (max-width: 820px){
-    .r-ins{ grid-template-columns: 1fr; }
-  }
+  .r-ins{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 820px){ .r-ins{ grid-template-columns: 1fr; } }
   .r-ins__item{
     border: 1px solid rgba(226,232,240,.95);
     border-radius: 14px;
@@ -2937,16 +2727,11 @@ const globalCss = `
   .r-ins__k{ font-size: 12px; color: #64748b; font-weight: 900; }
   .r-ins__v{ margin-top: 6px; font-weight: 900; color: #0f172a; }
 
-  /* modal */
   .r-modal__backdrop{
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background: rgba(2,6,23,.55);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    padding: 14px;
-    z-index: 9999;
+    display:flex; justify-content:center; align-items:center;
+    padding: 14px; z-index: 9999;
   }
   .r-modal{
     width: min(880px, 100%);
@@ -2959,28 +2744,17 @@ const globalCss = `
   .r-modal__head{
     padding: 14px;
     border-bottom: 1px solid rgba(226,232,240,.85);
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items:center;
+    display:flex; justify-content: space-between; gap: 10px; align-items:center;
     background: #fff;
   }
   .r-modal__title{ font-weight: 900; color: #0f172a; }
   .r-modal__close{
-    border: none;
-    background: #f1f5f9;
-    border-radius: 12px;
-    padding: 10px 12px;
-    cursor:pointer;
-    font-weight: 900;
-    color: #0f172a;
+    border: none; background: #f1f5f9;
+    border-radius: 12px; padding: 10px 12px;
+    cursor:pointer; font-weight: 900; color: #0f172a;
   }
   .r-modal__body{ padding: 14px; }
-  .r-modalGrid{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
+  .r-modalGrid{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 860px){ .r-modalGrid{ grid-template-columns: 1fr; } }
   .r-box{
     border: 1px solid rgba(226,232,240,.95);
@@ -2991,7 +2765,6 @@ const globalCss = `
   .r-box__k{ font-size: 12px; color: #64748b; font-weight: 900; }
   .r-box__v{ margin-top: 6px; color: #0f172a; font-weight: 800; line-height: 1.6; }
 
-  /* empty */
   .r-empty{
     margin-top: 14px;
     background: rgba(255,255,255,.95);
@@ -2999,20 +2772,15 @@ const globalCss = `
     border-radius: var(--radius);
     padding: 28px;
     text-align:center;
-    box-shadow: var(--shadow2);
+    box-shadow: 0 8px 22px rgba(2,6,23,.10);
   }
   .r-empty__icon{ font-size: 30px; margin-bottom: 10px; }
   .r-empty__title{ font-weight: 900; color: #0f172a; font-size: 16px; }
   .r-empty__sub{ margin-top: 6px; color: #64748b; font-size: 12px; }
 
-  /* loading center */
   .r-center{
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    min-height: 80vh;
-    background: #f6f7fb;
-    padding: 14px;
+    display:flex; justify-content:center; align-items:center;
+    min-height: 80vh; background: #f6f7fb; padding: 14px;
   }
   .r-skeleton{
     width: min(980px, 100%);
@@ -3020,15 +2788,12 @@ const globalCss = `
     border: 1px solid rgba(226,232,240,.95);
     border-radius: var(--radius);
     padding: 16px;
-    box-shadow: var(--shadow2);
+    box-shadow: 0 8px 22px rgba(2,6,23,.10);
   }
   .r-skeleton__title{ height: 22px; width: 320px; border-radius: 10px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
   .r-skeleton__line{ height: 12px; width: 520px; border-radius: 10px; margin-top: 10px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
   .r-skeleton__grid{ display:grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 14px; }
   @media (max-width: 860px){ .r-skeleton__grid{ grid-template-columns: 1fr; } }
   .r-skeleton__card{ height: 88px; border-radius: 14px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
-  @keyframes sk{
-    0%{ background-position: 0% 0; }
-    100%{ background-position: 200% 0; }
-  }
+  @keyframes sk{ 0%{ background-position: 0% 0; } 100%{ background-position: 200% 0; } }
 ` as const;

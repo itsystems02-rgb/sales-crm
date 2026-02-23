@@ -92,7 +92,7 @@ type ActivitySummary = {
   busiestActivity: string;
 
   efficiencyScore: number;
-  conversionRate: number;
+  conversionRate: number; // sales / followups
 };
 
 type FollowUp = {
@@ -202,7 +202,7 @@ type ClientMetrics = {
 
   assignedClients: number;
   unassignedClients: number;
-  distributionRate: number;
+  distributionRate: number; // %
 
   workedClients: number;
   workedByFollowups: number;
@@ -254,6 +254,9 @@ function chunkArray<T>(arr: T[], size: number) {
   return out;
 }
 
+/**
+ * ✅ Pagination helper
+ */
 async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any): Promise<T[]> {
   const pageSize = 1000;
   let from = 0;
@@ -265,7 +268,7 @@ async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any)
 
     if (error) {
       console.error('Paged fetch error:', error);
-      break;
+      throw error;
     }
 
     const batch = (data || []) as T[];
@@ -338,18 +341,18 @@ export default function ReportsPage() {
   const [myAllowedProjects, setMyAllowedProjects] = useState<Project[]>([]);
   const myAllowedProjectIds = useMemo(() => myAllowedProjects.map((p) => p.id), [myAllowedProjects]);
 
-  // filters (merged)
-  const [selectedEmployeeIdActivity, setSelectedEmployeeIdActivity] = useState<string>(''); // activity needs single employee
-  const [selectedEmployeeIdClients, setSelectedEmployeeIdClients] = useState<string>('all'); // clients can be all/employee
+  // filters
+  const [selectedEmployeeIdActivity, setSelectedEmployeeIdActivity] = useState<string>(''); // required for activity
+  const [selectedEmployeeIdClients, setSelectedEmployeeIdClients] = useState<string>('all'); // all or employee
   const [projectId, setProjectId] = useState<string>('all');
 
-  // UI states
+  // UI
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [debugInfo, setDebugInfo] = useState('');
 
-  // activity report state
+  // activity states
   const [activities, setActivities] = useState<EmployeeActivity[]>([]);
   const [activitySummary, setActivitySummary] = useState<ActivitySummary | null>(null);
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
@@ -358,7 +361,7 @@ export default function ReportsPage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState<EmployeeActivityType | 'all'>('all');
   const [showDetails, setShowDetails] = useState(false);
 
-  // clients report state
+  // clients states
   const [clientMetrics, setClientMetrics] = useState<ClientMetrics | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [workedSets, setWorkedSets] = useState<WorkedSets | null>(null);
@@ -376,13 +379,13 @@ export default function ReportsPage() {
   async function init() {
     try {
       setDebugInfo('🔄 جاري تهيئة صفحة التقارير...');
+
       const emp = await getCurrentEmployee();
       if (!emp) {
         router.push('/login');
         return;
       }
 
-      // allowed: admin + sales_manager
       if (emp.role !== 'admin' && emp.role !== 'sales_manager') {
         alert('غير مصرح لك بالوصول إلى صفحة التقارير');
         router.push('/dashboard');
@@ -453,6 +456,7 @@ export default function ReportsPage() {
       return;
     }
 
+    // sales_manager
     if (allowedProjectIds.length === 0) {
       setEmployees([]);
       return;
@@ -501,7 +505,7 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Generate (Router)
+     Generate Router
   ===================== */
 
   async function generate() {
@@ -511,6 +515,11 @@ export default function ReportsPage() {
     }
     if (dateRange.start > dateRange.end) {
       alert('تأكد أن تاريخ "من" أقل أو يساوي تاريخ "إلى"');
+      return;
+    }
+
+    if (tab === 'employee_activity' && !selectedEmployeeIdActivity) {
+      alert('اختر الموظف (تقرير الأنشطة)');
       return;
     }
 
@@ -531,7 +540,7 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Employee Activity Report
+     Employee Activity Report Fetchers
   ===================== */
 
   async function fetchFollowUps(employeeId: string, startISO: string, endISOExclusive: string): Promise<FollowUp[]> {
@@ -609,9 +618,7 @@ export default function ReportsPage() {
     for (const r of createdByMe) map.set(r.id, r);
     for (const r of followedByMe) map.set(r.id, r);
 
-    const merged = Array.from(map.values());
-
-    return merged.map((r: any) => {
+    return Array.from(map.values()).map((r: any) => {
       const client = relOne<{ name: string }>(r.clients);
       const unit = relOne<any>(r.units);
       const project = relOne<{ name: string }>(unit?.projects);
@@ -705,7 +712,6 @@ export default function ReportsPage() {
 
     return rows.map((v: any) => {
       const client = relOne<{ name: string }>(v.clients);
-
       return {
         id: v.id,
         created_at: v.created_at,
@@ -805,14 +811,7 @@ export default function ReportsPage() {
 
     let efficiencyScore = 0;
     if (list.length > 0) {
-      const score =
-        sales * 40 +
-        reservations * 20 +
-        reservationNotes * 8 +
-        reservationFollowUps * 10 +
-        followUps * 10 +
-        visits * 12;
-
+      const score = sales * 40 + reservations * 20 + reservationNotes * 8 + reservationFollowUps * 10 + followUps * 10 + visits * 12;
       const maxScore = list.length * 40;
       efficiencyScore = maxScore > 0 ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
     }
@@ -837,7 +836,7 @@ export default function ReportsPage() {
     });
   }
 
-  function generateTimeSlotsLocal(list: EmployeeActivity[]) {
+  function generateTimeSlots(list: EmployeeActivity[]) {
     const slots: TimeSlot[] = [];
     for (let i = 0; i < 24; i++) {
       const hourStr = `${i.toString().padStart(2, '0')}:00 - ${(i + 1).toString().padStart(2, '0')}:00`;
@@ -848,11 +847,6 @@ export default function ReportsPage() {
   }
 
   async function generateEmployeeActivityReport() {
-    if (!selectedEmployeeIdActivity) {
-      alert('اختر الموظف (تقرير الأنشطة)');
-      return;
-    }
-
     setActivities([]);
     setActivitySummary(null);
     setTimeSlots([]);
@@ -875,6 +869,7 @@ export default function ReportsPage() {
 
     const all: EmployeeActivity[] = [];
 
+    // FollowUps
     for (const f of followUps) {
       all.push({
         id: f.id,
@@ -891,6 +886,7 @@ export default function ReportsPage() {
       });
     }
 
+    // Reservations + Reservation followup
     for (const r of reservations) {
       all.push({
         id: r.id,
@@ -930,6 +926,7 @@ export default function ReportsPage() {
       }
     }
 
+    // Sales
     for (const s of sales) {
       all.push({
         id: s.id,
@@ -946,12 +943,11 @@ export default function ReportsPage() {
         reference_id: s.id,
         duration: 45,
         status: 'مكتمل',
-        notes: `عقد: ${s.contract_type || 'غير محدد'} | تمويل: ${s.finance_type || 'غير محدد'}${
-          s.finance_entity ? ` | جهة: ${s.finance_entity}` : ''
-        }`,
+        notes: `عقد: ${s.contract_type || 'غير محدد'} | تمويل: ${s.finance_type || 'غير محدد'}${s.finance_entity ? ` | جهة: ${s.finance_entity}` : ''}`,
       });
     }
 
+    // Visits
     for (const v of visits) {
       const extra = [
         v.visit_location ? `المكان: ${v.visit_location}` : '',
@@ -978,6 +974,7 @@ export default function ReportsPage() {
       });
     }
 
+    // Reservation Notes
     for (const n of reservationNotes) {
       all.push({
         id: n.id,
@@ -1002,7 +999,7 @@ export default function ReportsPage() {
     setActivities(all);
     setDetailedActivity({ followUps, reservations, sales, visits, reservationNotes });
     generateActivitySummary(all);
-    generateTimeSlotsLocal(all);
+    generateTimeSlots(all);
 
     setDebugInfo((p) => p + `\n✅ تم توليد ${all.length} نشاط`);
   }
@@ -1044,7 +1041,10 @@ export default function ReportsPage() {
     }));
   }
 
-  // ✅ FIX: بدل map تقيل، نجيب sets خفيفة
+  /**
+   * ✅ بديل خفيف لـ assignmentMap
+   * - all: نجيب Set للعملاء اللي عندهم أي assignment
+   */
   async function fetchAssignedClientIds(clientIds: string[]) {
     const out = new Set<string>();
     const chunks = chunkArray(clientIds, 500);
@@ -1054,10 +1054,12 @@ export default function ReportsPage() {
       if (error) throw error;
       (data || []).forEach((r: any) => out.add(r.client_id));
     }
-
     return out;
   }
 
+  /**
+   * ✅ لما نختار موظف: نجيب Set للعملاء المعيّنين لهذا الموظف فقط
+   */
   async function fetchClientIdsAssignedToEmployee(clientIds: string[], employeeId: string) {
     const out = new Set<string>();
     const chunks = chunkArray(clientIds, 500);
@@ -1072,7 +1074,6 @@ export default function ReportsPage() {
       if (error) throw error;
       (data || []).forEach((r: any) => out.add(r.client_id));
     }
-
     return out;
   }
 
@@ -1097,7 +1098,6 @@ export default function ReportsPage() {
       if (error) throw error;
       (data || []).forEach((r: any) => out.add(r[clientCol]));
     }
-
     return out;
   }
 
@@ -1202,7 +1202,7 @@ export default function ReportsPage() {
 
     const allClientIds = allClients.map((c) => c.id);
 
-    // ✅ employee filter: لو اخترت موظف => فقط العملاء المعيّنين له (بدون Map تقيل)
+    // ✅ فلترة العملاء حسب الموظف المختار (بدون Map كبير)
     let filteredClients = allClients;
     if (selectedEmployeeIdClients !== 'all') {
       setDebugInfo((p) => p + '\n🔄 فلترة العملاء حسب تعيين الموظف...');
@@ -1212,7 +1212,7 @@ export default function ReportsPage() {
 
     const clientIds = filteredClients.map((c) => c.id);
 
-    // ✅ حساب التوزيع
+    // ✅ حساب (موزعين / غير موزعين)
     setDebugInfo((p) => p + '\n🔄 حساب (موزعين/غير موزعين)...');
     let assignedClients = 0;
     let unassignedClients = 0;
@@ -1226,9 +1226,7 @@ export default function ReportsPage() {
       unassignedClients = 0;
     }
 
-    const distributionRate = filteredClients.length
-      ? Math.round((assignedClients / filteredClients.length) * 1000) / 10
-      : 0;
+    const distributionRate = filteredClients.length ? Math.round((assignedClients / filteredClients.length) * 1000) / 10 : 0;
 
     // ✅ worked sets
     setDebugInfo((p) => p + '\n🔄 حساب (تم العمل عليهم) من الجداول...');
@@ -1274,7 +1272,7 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Export (Tab-based)
+     Export
   ===================== */
 
   async function exportJSON() {
@@ -1353,19 +1351,8 @@ export default function ReportsPage() {
         return;
       }
 
-      const headers = [
-        'النوع',
-        'النشاط',
-        'التفاصيل',
-        'العميل',
-        'كود الوحدة',
-        'المشروع',
-        'المبلغ',
-        'التاريخ',
-        'المدة (دقيقة)',
-        'الحالة',
-        'ملاحظات',
-      ];
+      const headers = ['النوع', 'النشاط', 'التفاصيل', 'العميل', 'كود الوحدة', 'المشروع', 'المبلغ', 'التاريخ', 'المدة (دقيقة)', 'الحالة', 'ملاحظات'];
+
       const rows = activities.map((a) => [
         a.type,
         safeText(a.action),
@@ -1401,12 +1388,10 @@ export default function ReportsPage() {
     }
 
     const headers = ['اسم العميل', 'الجوال', 'الحالة', 'مستحق', 'تاريخ الإضافة', 'تم العمل عليه داخل الفترة؟', 'تم تعديل بياناته داخل الفترة؟'];
-
     const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
 
     const rows = clients.map((c) => {
       const worked = workedSets?.union.has(c.id) ? 'نعم' : 'لا';
-
       const edited =
         !!c.updated_at &&
         new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
@@ -1444,7 +1429,7 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Filtering UI helpers
+     Filtering UI
   ===================== */
 
   const filteredActivities = useMemo(() => {
@@ -1494,18 +1479,7 @@ export default function ReportsPage() {
           <div style={{ textAlign: 'center', maxWidth: 760 }}>
             <div style={{ fontSize: 18, marginBottom: 10 }}>جاري تحميل صفحة التقارير...</div>
             {debugInfo && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: '#666',
-                  backgroundColor: '#f8f9fa',
-                  padding: 12,
-                  borderRadius: 10,
-                  textAlign: 'left',
-                  whiteSpace: 'pre-line',
-                  border: '1px solid #eee',
-                }}
-              >
+              <div style={{ fontSize: 12, color: '#666', backgroundColor: '#f8f9fa', padding: 12, borderRadius: 10, textAlign: 'left', whiteSpace: 'pre-line', border: '1px solid #eee' }}>
                 {debugInfo}
               </div>
             )}
@@ -1514,8 +1488,6 @@ export default function ReportsPage() {
       </RequireAuth>
     );
   }
-
-  const selectedActivityEmp = employees.find((e) => e.id === selectedEmployeeIdActivity);
 
   const headerTitle = tab === 'employee_activity' ? 'تقرير أنشطة الموظف' : 'تقرير العملاء';
   const headerSubtitle =
@@ -1526,23 +1498,11 @@ export default function ReportsPage() {
   const canSeeProjects = tab === 'clients';
   const canChooseEmployeeModeAll = tab === 'clients';
 
-  const canGenerate =
-    !!dateRange.start && !!dateRange.end && (tab === 'clients' ? true : !!selectedEmployeeIdActivity);
-
   return (
     <RequireAuth>
       <div className="page">
-        {/* Top Header */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-            gap: 14,
-            marginBottom: 16,
-            flexWrap: 'wrap',
-          }}
-        >
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <h1 style={{ margin: 0 }}>{headerTitle}</h1>
@@ -1555,11 +1515,7 @@ export default function ReportsPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Button
-              onClick={exportJSON}
-              disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)}
-              variant="secondary"
-            >
+            <Button onClick={exportJSON} disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)} variant="secondary">
               {exporting ? 'جاري التصدير...' : 'تصدير JSON'}
             </Button>
             <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
@@ -1606,33 +1562,10 @@ export default function ReportsPage() {
 
         {/* Debug */}
         {debugInfo && (
-          <div
-            style={{
-              marginBottom: 14,
-              padding: 14,
-              backgroundColor: '#f8f9fa',
-              borderRadius: 12,
-              border: '1px solid #e9ecef',
-              fontSize: 12,
-              color: '#666',
-              whiteSpace: 'pre-line',
-              maxHeight: 220,
-              overflowY: 'auto',
-            }}
-          >
+          <div style={{ marginBottom: 14, padding: 14, backgroundColor: '#f8f9fa', borderRadius: 12, border: '1px solid #e9ecef', fontSize: 12, color: '#666', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <div style={{ fontWeight: 'bold' }}>سجل النظام</div>
-              <button
-                onClick={() => setDebugInfo('')}
-                style={{
-                  fontSize: 11,
-                  padding: '2px 8px',
-                  backgroundColor: '#e9ecef',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                }}
-              >
+              <button onClick={() => setDebugInfo('')} style={{ fontSize: 11, padding: '2px 8px', backgroundColor: '#e9ecef', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
                 مسح
               </button>
             </div>
@@ -1651,24 +1584,13 @@ export default function ReportsPage() {
 
               <select
                 value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
-                onChange={(e) =>
-                  tab === 'employee_activity'
-                    ? setSelectedEmployeeIdActivity(e.target.value)
-                    : setSelectedEmployeeIdClients(e.target.value)
-                }
+                onChange={(e) => (tab === 'employee_activity' ? setSelectedEmployeeIdActivity(e.target.value) : setSelectedEmployeeIdClients(e.target.value))}
                 style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}
               >
                 {canChooseEmployeeModeAll && <option value="all">الكل</option>}
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.name}{' '}
-                    {emp.role === 'sales_manager'
-                      ? '(مشرف)'
-                      : emp.role === 'sales'
-                      ? '(مبيعات)'
-                      : emp.role === 'admin'
-                      ? '(Admin)'
-                      : ''}
+                    {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
                   </option>
                 ))}
               </select>
@@ -1680,11 +1602,7 @@ export default function ReportsPage() {
             {canSeeProjects && (
               <div>
                 <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>المشروع</label>
-                <select
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}
-                >
+                <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
                   <option value="all">الكل</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -1692,49 +1610,358 @@ export default function ReportsPage() {
                     </option>
                   ))}
                 </select>
-                {currentEmployee?.role === 'sales_manager' && (
-                  <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>
-                    نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
-                  </div>
-                )}
               </div>
             )}
 
             {/* Date start */}
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>من تاريخ *</label>
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }}
-              />
+              <input type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
             </div>
 
             {/* Date end */}
             <div>
               <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>إلى تاريخ *</label>
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }}
-              />
+              <input type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
             </div>
 
             {/* Generate */}
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%' }}>
-                <Button onClick={generate} disabled={generating || !canGenerate}>
+                <Button onClick={generate} disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}>
                   {generating ? 'جاري التوليد...' : 'توليد التقرير'}
                 </Button>
               </div>
             </div>
           </div>
 
-          {/* Sub-filters per tab */}
+          {/* Sub filters */}
           {tab === 'employee_activity' && (
             <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
               <div style={{ minWidth: 220 }}>
                 <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>نوع النشاط</label>
-                <
+                <select value={activityTypeFilter} onChange={(e) => setActivityTypeFilter(e.target.value as any)} style={{ width: '100%', padding: 9, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
+                  <option value="all">الكل</option>
+                  <option value="client_followup">متابعات</option>
+                  <option value="reservation">حجوزات</option>
+                  <option value="reservation_followup">متابعات الحجوزات</option>
+                  <option value="reservation_note">ملاحظات الحجوزات</option>
+                  <option value="sale">مبيعات</option>
+                  <option value="visit">زيارات</option>
+                </select>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>بحث</label>
+                <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e: any) => setActivitySearch(e.target.value)} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
+                  {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'clients' && (
+            <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
+              <div style={{ flex: 1, minWidth: 260 }}>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>بحث في العملاء</label>
+                <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
+              </div>
+
+              <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
+                {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
+              </Button>
+            </div>
+          )}
+        </Card>
+
+        {/* Generating */}
+        {generating && (
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, marginBottom: 16, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري توليد التقرير...</div>
+            <div style={{ color: '#666' }}>قد تستغرق العملية بضع لحظات</div>
+          </div>
+        )}
+
+        {/* TAB: Employee Activity */}
+        {!generating && tab === 'employee_activity' && activitySummary && (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', backgroundColor: 'white', borderRadius: 12, marginTop: 14, marginBottom: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.06)', flexWrap: 'wrap', gap: 10, border: '1px solid #e9ecef' }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 900 }}>{employees.find((e) => e.id === selectedEmployeeIdActivity)?.name || '—'}</div>
+                <div style={{ fontSize: 13, color: '#666' }}>
+                  الفترة: {dateRange.start} → {dateRange.end} • إجمالي: {activitySummary.totalActivities}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={badgeStyle(activitySummary.efficiencyScore >= 80 ? 'success' : activitySummary.efficiencyScore >= 60 ? 'warning' : 'danger')}>
+                  الكفاءة: {activitySummary.efficiencyScore}%
+                </span>
+                <span style={badgeStyle('info')}>التحويل: {activitySummary.conversionRate}%</span>
+                <span style={badgeStyle('neutral')}>Peak: {activitySummary.peakHour}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 14 }}>
+              <Stat title="إجمالي الأنشطة" value={activitySummary.totalActivities} />
+              <Stat title="متابعات" value={activitySummary.followUps} />
+              <Stat title="حجوزات" value={activitySummary.reservations} />
+              <Stat title="متابعات حجوزات" value={activitySummary.reservationFollowUps} />
+              <Stat title="ملاحظات حجوزات" value={activitySummary.reservationNotes} />
+              <Stat title="مبيعات" value={activitySummary.sales} />
+              <Stat title="زيارات" value={activitySummary.visits} />
+              <Stat title="عملاء تم التعامل معهم" value={activitySummary.uniqueClientsTouched} />
+              <Stat title="إجمالي الوقت" value={`${activitySummary.totalDuration} د`} />
+              <Stat title="متوسط النشاط" value={`${activitySummary.avgActivityDuration} د`} />
+            </div>
+
+            <Card title="تفاصيل الأنشطة">
+              {filteredActivities.length ? (
+                <div style={{ overflowX: 'auto', padding: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                        <th style={{ padding: 12, textAlign: 'right' }}>النوع</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>النشاط</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>التفاصيل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الوحدة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الوقت</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>المدة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredActivities.map((a, idx) => (
+                        <tr
+                          key={`${a.type}-${a.id}`}
+                          onClick={() => alert(`التفاصيل:\n${a.details}\n\nملاحظات:\n${a.notes || 'لا توجد'}`)}
+                          style={{ borderBottom: '1px solid #e9ecef', cursor: 'pointer', backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb' }}
+                        >
+                          <td style={{ padding: 12 }}>{a.type}</td>
+                          <td style={{ padding: 12, fontWeight: 900 }}>{a.action}</td>
+                          <td style={{ padding: 12, maxWidth: 420, wordWrap: 'break-word' }}>{a.details}</td>
+                          <td style={{ padding: 12 }}>{a.client_name || '-'}</td>
+                          <td style={{ padding: 12 }}>{a.unit_code || '-'}</td>
+                          <td style={{ padding: 12 }}>{new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td style={{ padding: 12 }}>{a.duration || 0} د</td>
+                          <td style={{ padding: 12 }}>{a.status || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 26, color: '#666' }}>لا توجد بيانات حسب الفلاتر الحالية</div>
+              )}
+            </Card>
+
+            {showDetails && detailedActivity && (
+              <div style={{ marginTop: 14 }}>
+                <Card title="Raw Data (للتدقيق)">
+                  <div style={{ padding: 14, display: 'grid', gap: 14 }}>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>FollowUps ({detailedActivity.followUps.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.followUps, null, 2)}
+                      </pre>
+                    </details>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservations ({detailedActivity.reservations.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.reservations, null, 2)}
+                      </pre>
+                    </details>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Reservation Notes ({detailedActivity.reservationNotes.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.reservationNotes, null, 2)}
+                      </pre>
+                    </details>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Sales ({detailedActivity.sales.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.sales, null, 2)}
+                      </pre>
+                    </details>
+                    <details>
+                      <summary style={{ cursor: 'pointer', fontWeight: 900 }}>Visits ({detailedActivity.visits.length})</summary>
+                      <pre style={{ whiteSpace: 'pre-wrap', background: '#f8f9fa', padding: 12, borderRadius: 10, overflowX: 'auto' }}>
+                        {JSON.stringify(detailedActivity.visits, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                </Card>
+              </div>
+            )}
+
+            <div style={{ marginTop: 14 }}>
+              <Card title="التحليل الزمني (حسب الساعة)">
+                <div style={{ padding: 14 }}>
+                  {timeSlots.length ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {timeSlots.map((slot) => (
+                        <div key={slot.hour} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 150, fontSize: 13, color: '#444' }}>{slot.hour}</div>
+                          <div style={{ flex: 1, height: 18, backgroundColor: '#e9ecef', borderRadius: 999, overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                backgroundColor: '#1a73e8',
+                                width: `${Math.min((slot.count / Math.max(...timeSlots.map((s) => s.count))) * 100, 100)}%`,
+                              }}
+                            />
+                          </div>
+                          <div style={{ width: 40, textAlign: 'right', fontWeight: 900 }}>{slot.count}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: 20, color: '#666' }}>لا توجد بيانات كافية</div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {/* TAB: Clients */}
+        {!generating && tab === 'clients' && clientMetrics && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginTop: 14, marginBottom: 14 }}>
+              <Stat title="إجمالي العملاء" value={clientMetrics.totalClients} />
+              <Stat title="موزعين" value={clientMetrics.assignedClients} />
+              <Stat title="غير موزعين" value={clientMetrics.unassignedClients} />
+              <Stat title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} />
+              <Stat title="عملاء تم العمل عليهم" value={clientMetrics.workedClients} />
+              <Stat title="عملاء تم تعديل بياناتهم" value={clientMetrics.editedClients} />
+            </div>
+
+            <Card title="تفصيل (تم العمل عليهم داخل الفترة)">
+              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                <Stat title="متابعات" value={clientMetrics.workedByFollowups} />
+                <Stat title="حجوزات" value={clientMetrics.workedByReservations} />
+                <Stat title="ملاحظات حجوزات" value={clientMetrics.workedByReservationNotes} />
+                <Stat title="مبيعات" value={clientMetrics.workedBySales} />
+                <Stat title="زيارات" value={clientMetrics.workedByVisits} />
+              </div>
+              <p style={{ padding: '0 14px 14px', color: '#666', fontSize: 13 }}>
+                “تم العمل عليهم” = عميل ظهر له أي نشاط من (متابعة/حجز/ملاحظة/بيع/زيارة) داخل نفس الفترة.
+              </p>
+            </Card>
+
+            <Card title="توزيع حالات العملاء">
+              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                {Object.entries(clientMetrics.statusCounts).length === 0 ? (
+                  <div style={{ color: '#666' }}>لا توجد بيانات</div>
+                ) : (
+                  Object.entries(clientMetrics.statusCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => (
+                      <div key={k} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
+                        <div style={{ color: '#666', fontSize: 12, fontWeight: 900 }}>{translateStatus(k)}</div>
+                        <div style={{ fontSize: 20, fontWeight: 900 }}>{v}</div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </Card>
+
+            <Card title="قائمة العملاء">
+              {!showClients ? (
+                <div style={{ padding: 18, color: '#666' }}>تم إخفاء القائمة.</div>
+              ) : (
+                <div style={{ overflowX: 'auto', padding: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
+                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الجوال</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>مستحق</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تاريخ الإضافة</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تم العمل عليه؟</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>تم تعديله؟</th>
+                        <th style={{ padding: 12, textAlign: 'right' }}>فتح</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredClients.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                            لا توجد نتائج
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredClients.slice(0, 500).map((c, idx) => {
+                          const worked = workedSets?.union.has(c.id);
+                          const { startISO, endISOExclusive } = buildIsoRange(dateRange.start, dateRange.end);
+                          const edited =
+                            !!c.updated_at &&
+                            new Date(c.updated_at).getTime() >= new Date(startISO).getTime() &&
+                            new Date(c.updated_at).getTime() < new Date(endISOExclusive).getTime() &&
+                            new Date(c.updated_at).getTime() > new Date(c.created_at).getTime();
+
+                          return (
+                            <tr key={c.id} style={{ borderBottom: '1px solid #e9ecef', backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb' }}>
+                              <td style={{ padding: 12, fontWeight: 900 }}>{c.name}</td>
+                              <td style={{ padding: 12 }}>{c.mobile || '-'}</td>
+                              <td style={{ padding: 12 }}>{translateStatus(c.status)}</td>
+                              <td style={{ padding: 12 }}>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                              <td style={{ padding: 12 }}>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                              <td style={{ padding: 12 }}>{worked ? 'نعم' : 'لا'}</td>
+                              <td style={{ padding: 12 }}>{edited ? 'نعم' : 'لا'}</td>
+                              <td style={{ padding: 12 }}>
+                                <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+
+                  {filteredClients.length > 500 && <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>تم عرض أول 500 عميل فقط لتقليل الضغط.</div>}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Empty States */}
+        {!generating && tab === 'employee_activity' && !activitySummary && (
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الموظف والفترة ثم اضغط “توليد التقرير”</div>
+            <div style={{ color: '#666' }}>سيتم عرض ملخص + تفاصيل الأنشطة + تحليل زمني</div>
+          </div>
+        )}
+
+        {!generating && tab === 'clients' && !clientMetrics && (
+          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
+            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
+            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الفلاتر ثم اضغط “توليد التقرير”</div>
+            <div style={{ color: '#666' }}>سيتم عرض إحصائيات العملاء + النشاط + التعديل + توزيع الحالات</div>
+          </div>
+        )}
+      </div>
+    </RequireAuth>
+  );
+}
+
+/* =====================
+   Small Stat component
+===================== */
+function Stat({ title, value }: { title: string; value: string | number }) {
+  return (
+    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #eee' }}>
+      <div style={{ color: '#666', fontSize: 12, marginBottom: 6, fontWeight: 900 }}>{title}</div>
+      <div style={{ fontSize: 20, fontWeight: 900 }}>{value}</div>
+    </div>
+  );
+}

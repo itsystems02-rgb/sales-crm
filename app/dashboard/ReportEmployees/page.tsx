@@ -308,7 +308,13 @@ function formatMoneyEGP(v?: number) {
    Premium UI Components (No libs)
 ===================== */
 
-function Badge({ tone = 'neutral', children }: { tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger'; children: React.ReactNode }) {
+function Badge({
+  tone = 'neutral',
+  children,
+}: {
+  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  children: React.ReactNode;
+}) {
   return <span className={`r-badge r-badge--${tone}`}>{children}</span>;
 }
 
@@ -316,13 +322,7 @@ function IconDot({ tone = 'neutral' }: { tone?: 'neutral' | 'info' | 'success' |
   return <span className={`r-dot r-dot--${tone}`} aria-hidden />;
 }
 
-function SegTabs({
-  value,
-  onChange,
-}: {
-  value: TabKey;
-  onChange: (v: TabKey) => void;
-}) {
+function SegTabs({ value, onChange }: { value: TabKey; onChange: (v: TabKey) => void }) {
   return (
     <div className="r-tabs" role="tablist" aria-label="Reports tabs">
       <button
@@ -333,12 +333,7 @@ function SegTabs({
       >
         <span className="r-tab__icon">📌</span> تقرير الأنشطة
       </button>
-      <button
-        className={`r-tab ${value === 'clients' ? 'is-active' : ''}`}
-        onClick={() => onChange('clients')}
-        role="tab"
-        aria-selected={value === 'clients'}
-      >
+      <button className={`r-tab ${value === 'clients' ? 'is-active' : ''}`} onClick={() => onChange('clients')} role="tab" aria-selected={value === 'clients'}>
         <span className="r-tab__icon">👥</span> تقرير العملاء
       </button>
     </div>
@@ -584,7 +579,6 @@ export default function ReportsPage() {
       return;
     }
 
-    // sales_manager
     if (allowedProjectIds.length === 0) {
       setEmployees([]);
       return;
@@ -1134,7 +1128,7 @@ export default function ReportsPage() {
   }
 
   /* =====================
-     Clients Report (FIXED)
+     Clients Report (FIXED + OPTIMIZED NOTES ✅)
   ===================== */
 
   async function fetchClientsInRange(startISO: string, endISOExclusive: string): Promise<ClientRow[]> {
@@ -1222,41 +1216,49 @@ export default function ReportsPage() {
     return out;
   }
 
+  /**
+   * ✅ OPTIMIZED:
+   * بدل ما نجيب reservations لكل العملاء (ممكن تكون قديمة وكبيرة)،
+   * بنجيب reservation_notes داخل الفترة فقط + join على reservations عشان نطلع client_id،
+   * وبعدين نفلتر بـ clientIds في الذاكرة.
+   */
   async function distinctClientsFromReservationNotesInRange(clientIds: string[], startISO: string, endISOExclusive: string) {
-    const resIdToClientId = new Map<string, string>();
-    const reservationIds: string[] = [];
-
-    const clientChunks = chunkArray(clientIds, 500);
-    for (const ch of clientChunks) {
-      const { data, error } = await supabase.from('reservations').select('id, client_id').in('client_id', ch);
-      if (error) throw error;
-
-      (data || []).forEach((r: any) => {
-        if (!r?.id || !r?.client_id) return;
-        reservationIds.push(r.id);
-        resIdToClientId.set(r.id, r.client_id);
-      });
-    }
-
-    if (reservationIds.length === 0) return new Set<string>();
-
+    const clientSet = new Set(clientIds);
     const out = new Set<string>();
-    const resChunks = chunkArray(reservationIds, 500);
 
-    for (const rch of resChunks) {
+    const pageSize = 1000;
+    let from = 0;
+
+    while (true) {
       const { data, error } = await supabase
         .from('reservation_notes')
-        .select('reservation_id, created_at')
-        .in('reservation_id', rch)
+        .select(
+          `
+          id,
+          created_at,
+          reservation_id,
+          reservations:reservation_id (
+            client_id
+          )
+        `
+        )
         .gte('created_at', startISO)
-        .lt('created_at', endISOExclusive);
+        .lt('created_at', endISOExclusive)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1);
 
       if (error) throw error;
 
-      (data || []).forEach((n: any) => {
-        const cid = resIdToClientId.get(n.reservation_id);
-        if (cid) out.add(cid);
-      });
+      const rows = (data || []) as any[];
+      for (const n of rows) {
+        const res = relOne<any>(n.reservations);
+        const cid = res?.client_id as string | undefined;
+        if (cid && clientSet.has(cid)) out.add(cid);
+      }
+
+      if (rows.length < pageSize) break;
+      from += pageSize;
+      await new Promise((r) => setTimeout(r, 60));
     }
 
     return out;
@@ -1271,8 +1273,9 @@ export default function ReportsPage() {
 
     const reservations = await distinctClientIdsFromTableInRange('reservations', clientIds, startISO, endISOExclusive, 'client_id');
 
-    setDebugInfo((p) => p + '\n🔄 فحص ملاحظات الحجوزات...');
+    setDebugInfo((p) => p + '\n🔄 فحص ملاحظات الحجوزات (Notes)...');
     const reservationNotes = await distinctClientsFromReservationNotesInRange(clientIds, startISO, endISOExclusive);
+    setDebugInfo((p) => p + `\n✅ Notes done: ${reservationNotes.size}`);
 
     const union = new Set<string>();
     [followups, sales, visits, reservations, reservationNotes].forEach((s) => s.forEach((id) => union.add(id)));
@@ -1564,19 +1567,10 @@ export default function ReportsPage() {
     let list = clients;
     const t = clientSearch.trim().toLowerCase();
     if (t) {
-      list = list.filter(
-        (c) =>
-          (c.name || '').toLowerCase().includes(t) ||
-          (c.mobile || '').toLowerCase().includes(t) ||
-          (c.status || '').toLowerCase().includes(t)
-      );
+      list = list.filter((c) => (c.name || '').toLowerCase().includes(t) || (c.mobile || '').toLowerCase().includes(t) || (c.status || '').toLowerCase().includes(t));
     }
     return list;
   }, [clients, clientSearch]);
-
-  /* =====================
-     Derived (Nice UI insights)
-  ===================== */
 
   const activityBreakdown = useMemo(() => {
     if (!activitySummary) return [];
@@ -1594,11 +1588,10 @@ export default function ReportsPage() {
 
   const clientsStatusTop = useMemo(() => {
     if (!clientMetrics) return [];
-    const entries = Object.entries(clientMetrics.statusCounts || {})
+    return Object.entries(clientMetrics.statusCounts || {})
       .map(([k, v]) => ({ label: translateStatus(k), value: v }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
-    return entries;
   }, [clientMetrics]);
 
   /* =====================
@@ -1666,7 +1659,6 @@ export default function ReportsPage() {
   return (
     <RequireAuth>
       <div className="r-page">
-        {/* Premium global CSS */}
         <style jsx global>{globalCss}</style>
 
         {/* HERO HEADER */}
@@ -1685,26 +1677,20 @@ export default function ReportsPage() {
 
                 <div className="r-hero__badges">
                   <Badge tone="info">🔐 {currentEmployee?.role}</Badge>
-                  <Badge tone="neutral">📅 {dateRange.start} → {dateRange.end}</Badge>
+                  <Badge tone="neutral">
+                    📅 {dateRange.start} → {dateRange.end}
+                  </Badge>
                   <Badge tone={heroTone as any}>{heroRightBadge}</Badge>
                 </div>
               </div>
 
               <div className="r-hero__right">
                 <div className="r-actions">
-                  <Button
-                    onClick={exportJSON}
-                    disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)}
-                    variant="secondary"
-                  >
+                  <Button onClick={exportJSON} disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)} variant="secondary">
                     {exporting ? 'جاري التصدير...' : '⬇️ JSON'}
                   </Button>
 
-                  <Button
-                    onClick={exportCSV}
-                    disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}
-                    variant="secondary"
-                  >
+                  <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
                     ⬇️ CSV
                   </Button>
 
@@ -1806,17 +1792,13 @@ export default function ReportsPage() {
                     <div className="r-cardLite__hint">اختار الموظف والفترة، ثم ولّد التقرير</div>
                   </div>
                   <div className="r-cardLite__right">
-                    <Button
-                      onClick={generate}
-                      disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}
-                    >
+                    <Button onClick={generate} disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}>
                       {generating ? 'جاري التوليد...' : '⚡ توليد'}
                     </Button>
                   </div>
                 </div>
 
                 <div className="r-formGrid">
-                  {/* Employee */}
                   <div className="r-field">
                     <label className="r-label">{tab === 'employee_activity' ? 'الموظف (إلزامي)' : 'الموظف'}</label>
                     <select
@@ -1838,7 +1820,6 @@ export default function ReportsPage() {
                     <div className="r-help">{employees.length} موظف</div>
                   </div>
 
-                  {/* Project (clients only) */}
                   {canSeeProjects && (
                     <div className="r-field">
                       <label className="r-label">المشروع</label>
@@ -1851,46 +1832,28 @@ export default function ReportsPage() {
                         ))}
                       </select>
                       {currentEmployee?.role === 'sales_manager' ? (
-                        <div className="r-help">
-                          نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
-                        </div>
+                        <div className="r-help">نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}</div>
                       ) : (
                         <div className="r-help">فلترة اختيارية</div>
                       )}
                     </div>
                   )}
 
-                  {/* Dates */}
                   <div className="r-field">
                     <label className="r-label">من تاريخ *</label>
-                    <input
-                      className="r-input"
-                      type="date"
-                      value={dateRange.start}
-                      onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                    />
+                    <input className="r-input" type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} />
                   </div>
 
                   <div className="r-field">
                     <label className="r-label">إلى تاريخ *</label>
-                    <input
-                      className="r-input"
-                      type="date"
-                      value={dateRange.end}
-                      onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                    />
+                    <input className="r-input" type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} />
                   </div>
 
-                  {/* Sub filters */}
                   {tab === 'employee_activity' ? (
                     <>
                       <div className="r-field">
                         <label className="r-label">نوع النشاط</label>
-                        <select
-                          className="r-select"
-                          value={activityTypeFilter}
-                          onChange={(e) => setActivityTypeFilter(e.target.value as any)}
-                        >
+                        <select className="r-select" value={activityTypeFilter} onChange={(e) => setActivityTypeFilter(e.target.value as any)}>
                           <option value="all">الكل</option>
                           <option value="client_followup">متابعات</option>
                           <option value="reservation">حجوزات</option>
@@ -1903,11 +1866,7 @@ export default function ReportsPage() {
 
                       <div className="r-field r-field--span2">
                         <label className="r-label">بحث</label>
-                        <Input
-                          placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..."
-                          value={activitySearch}
-                          onChange={(e: any) => setActivitySearch(e.target.value)}
-                        />
+                        <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e: any) => setActivitySearch(e.target.value)} />
                       </div>
 
                       <div className="r-field r-field--span2 r-field--row">
@@ -1921,11 +1880,7 @@ export default function ReportsPage() {
                     <>
                       <div className="r-field r-field--span2">
                         <label className="r-label">بحث في العملاء</label>
-                        <Input
-                          placeholder="بحث بالاسم/الجوال/الحالة..."
-                          value={clientSearch}
-                          onChange={(e: any) => setClientSearch(e.target.value)}
-                        />
+                        <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
                       </div>
 
                       <div className="r-field r-field--span2 r-field--row">
@@ -1947,9 +1902,7 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="r-log">
-                  {debugInfo ? <pre className="r-debug">{debugInfo}</pre> : <div className="r-emptyTiny">لا يوجد سجل بعد.</div>}
-                </div>
+                <div className="r-log">{debugInfo ? <pre className="r-debug">{debugInfo}</pre> : <div className="r-emptyTiny">لا يوجد سجل بعد.</div>}</div>
               </div>
             </div>
           </div>
@@ -1967,19 +1920,11 @@ export default function ReportsPage() {
               </div>
 
               <div className="r-grid2">
-                <Panel
-                  title="تفصيل الأنشطة"
-                  hint="أكثر الأنشطة تنفيذًا داخل الفترة"
-                  right={<Badge tone="neutral">Top mix</Badge>}
-                >
+                <Panel title="تفصيل الأنشطة" hint="أكثر الأنشطة تنفيذًا داخل الفترة" right={<Badge tone="neutral">Top mix</Badge>}>
                   <MiniBars items={activityBreakdown as any} />
                 </Panel>
 
-                <Panel
-                  title="Insights"
-                  hint="ملخص سريع للمخرجات"
-                  right={<Badge tone={heroTone as any}>{selectedEmpNameActivity}</Badge>}
-                >
+                <Panel title="Insights" hint="ملخص سريع للمخرجات" right={<Badge tone={heroTone as any}>{selectedEmpNameActivity}</Badge>}>
                   <div className="r-ins">
                     <div className="r-ins__item">
                       <div className="r-ins__k">🔥 الأكثر تنفيذًا</div>
@@ -1995,21 +1940,13 @@ export default function ReportsPage() {
                     </div>
                     <div className="r-ins__item">
                       <div className="r-ins__k">💰 إجمالي قيمة مبيعات</div>
-                      <div className="r-ins__v">
-                        {formatMoneyEGP(
-                          activities.filter((x) => x.type === 'sale').reduce((s, x) => s + Number(x.amount || 0), 0)
-                        )}
-                      </div>
+                      <div className="r-ins__v">{formatMoneyEGP(activities.filter((x) => x.type === 'sale').reduce((s, x) => s + Number(x.amount || 0), 0))}</div>
                     </div>
                   </div>
                 </Panel>
               </div>
 
-              <Panel
-                title="سجل الأنشطة"
-                hint={`${filteredActivities.length} نشاط بعد الفلاتر • اضغط على أي صف لعرض التفاصيل`}
-                right={<Badge tone="info">DataGrid</Badge>}
-              >
+              <Panel title="سجل الأنشطة" hint={`${filteredActivities.length} نشاط بعد الفلاتر • اضغط على أي صف لعرض التفاصيل`} right={<Badge tone="info">DataGrid</Badge>}>
                 <div className="r-tableWrap">
                   <table className="r-table">
                     <thead>
@@ -2051,10 +1988,20 @@ export default function ReportsPage() {
                                   <div className="r-box">
                                     <div className="r-box__k">معلومات</div>
                                     <div className="r-box__v">
-                                      <div>النوع: <b>{a.type}</b></div>
-                                      <div>الوقت: <b>{new Date(a.timestamp).toLocaleString('ar-SA')}</b></div>
-                                      <div>المدة: <b>{a.duration || 0} د</b></div>
-                                      {a.amount ? <div>المبلغ: <b>{formatMoneyEGP(a.amount)}</b></div> : null}
+                                      <div>
+                                        النوع: <b>{a.type}</b>
+                                      </div>
+                                      <div>
+                                        الوقت: <b>{new Date(a.timestamp).toLocaleString('ar-SA')}</b>
+                                      </div>
+                                      <div>
+                                        المدة: <b>{a.duration || 0} د</b>
+                                      </div>
+                                      {a.amount ? (
+                                        <div>
+                                          المبلغ: <b>{formatMoneyEGP(a.amount)}</b>
+                                        </div>
+                                      ) : null}
                                     </div>
                                   </div>
                                 </div>
@@ -2062,7 +2009,9 @@ export default function ReportsPage() {
                               setModalOpen(true);
                             }}
                           >
-                            <td><Badge tone="neutral">{a.type}</Badge></td>
+                            <td>
+                              <Badge tone="neutral">{a.type}</Badge>
+                            </td>
                             <td className="r-strong">{a.action}</td>
                             <td className="r-wrap">{a.details}</td>
                             <td>{a.client_name || '-'}</td>
@@ -2078,11 +2027,7 @@ export default function ReportsPage() {
                 </div>
               </Panel>
 
-              <Panel
-                title="تحليل زمني"
-                hint="توزيع الأنشطة حسب الساعة (أعلى نشاط يظهر بطول أعلى)"
-                right={<Badge tone="neutral">Timeline</Badge>}
-              >
+              <Panel title="تحليل زمني" hint="توزيع الأنشطة حسب الساعة (أعلى نشاط يظهر بطول أعلى)" right={<Badge tone="neutral">Timeline</Badge>}>
                 {timeSlots.length ? (
                   <MiniBars
                     items={timeSlots
@@ -2229,7 +2174,9 @@ export default function ReportsPage() {
                               <tr key={c.id} className="r-tr">
                                 <td className="r-strong">{c.name}</td>
                                 <td>{c.mobile || '-'}</td>
-                                <td><Badge tone="neutral">{translateStatus(c.status)}</Badge></td>
+                                <td>
+                                  <Badge tone="neutral">{translateStatus(c.status)}</Badge>
+                                </td>
                                 <td>{c.eligible ? <Badge tone="success">مستحق</Badge> : <Badge tone="danger">غير مستحق</Badge>}</td>
                                 <td>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
                                 <td>{worked ? <Badge tone="success">نعم</Badge> : <Badge tone="neutral">لا</Badge>}</td>
@@ -2244,9 +2191,7 @@ export default function ReportsPage() {
                       </tbody>
                     </table>
 
-                    {filteredClients.length > 500 ? (
-                      <div className="r-footNote">تم عرض أول 500 عميل فقط لتقليل الضغط.</div>
-                    ) : null}
+                    {filteredClients.length > 500 ? <div className="r-footNote">تم عرض أول 500 عميل فقط لتقليل الضغط.</div> : null}
                   </div>
                 )}
               </Panel>
@@ -2286,31 +2231,15 @@ export default function ReportsPage() {
 
 const globalCss = `
   :root{
-    --bg: #0b1220;
-    --card: rgba(255,255,255,0.92);
     --card2: rgba(255,255,255,0.86);
     --line: rgba(226,232,240,0.9);
-    --text: #0f172a;
-    --muted: #64748b;
-    --muted2: #94a3b8;
-    --shadow: 0 18px 60px rgba(2,6,23,.18);
     --shadow2: 0 8px 22px rgba(2,6,23,.10);
     --radius: 16px;
   }
 
-  /* page */
-  .r-page{
-    background: #f6f7fb;
-    min-height: 100vh;
-  }
+  .r-page{ background: #f6f7fb; min-height: 100vh; }
+  .r-content{ max-width: 1280px; margin: 0 auto; padding: 14px 14px 44px; }
 
-  .r-content{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 14px 14px 44px;
-  }
-
-  /* HERO */
   .r-hero{
     position: relative;
     overflow: hidden;
@@ -2319,179 +2248,72 @@ const globalCss = `
                 radial-gradient(900px 500px at 10% 0%, rgba(14,165,233,.14), transparent 60%),
                 linear-gradient(180deg, #0b1220 0%, #0b1220 60%, rgba(246,247,251,0) 100%);
   }
-
-  .r-hero__inner{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 14px 8px;
-    color: #fff;
-  }
-
+  .r-hero__inner{ max-width: 1280px; margin: 0 auto; padding: 0 14px 8px; color: #fff; }
   .r-hero__glow{
-    position:absolute;
-    inset: -40% -20% auto -20%;
-    height: 380px;
-    filter: blur(28px);
+    position:absolute; inset: -40% -20% auto -20%;
+    height: 380px; filter: blur(28px);
     background: radial-gradient(closest-side, rgba(99,102,241,.35), rgba(14,165,233,.18), transparent 70%);
     pointer-events:none;
   }
-
-  .r-crumbs{
-    display:flex;
-    align-items:center;
-    gap:10px;
-    color: rgba(226,232,240,.85);
-    font-size: 12px;
-    margin-bottom: 10px;
-  }
+  .r-crumbs{ display:flex; align-items:center; gap:10px; color: rgba(226,232,240,.85); font-size: 12px; margin-bottom: 10px; }
   .r-crumb--active{ color: #fff; font-weight: 900; }
   .r-crumb-sep{ opacity: .7; }
 
-  .r-hero__row{
-    display:flex;
-    justify-content: space-between;
-    gap: 18px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
+  .r-hero__row{ display:flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
   .r-hero__left{ min-width: 320px; }
-  .r-hero__title{
-    margin: 0;
-    font-size: 24px;
-    font-weight: 900;
-    letter-spacing: -0.3px;
-  }
-  .r-hero__sub{
-    margin: 8px 0 0;
-    color: rgba(226,232,240,.82);
-    max-width: 720px;
-    line-height: 1.6;
-    font-size: 13px;
-  }
-  .r-hero__badges{
-    margin-top: 12px;
-    display:flex;
-    gap:8px;
-    flex-wrap: wrap;
-  }
+  .r-hero__title{ margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.3px; }
+  .r-hero__sub{ margin: 8px 0 0; color: rgba(226,232,240,.82); max-width: 720px; line-height: 1.6; font-size: 13px; }
+  .r-hero__badges{ margin-top: 12px; display:flex; gap:8px; flex-wrap: wrap; }
 
-  .r-hero__right{
-    display:flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: flex-end;
-    min-width: 320px;
-  }
-  .r-actions{
-    display:flex;
-    gap:10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
+  .r-hero__right{ display:flex; flex-direction: column; gap: 10px; align-items: flex-end; min-width: 320px; }
+  .r-actions{ display:flex; gap:10px; flex-wrap: wrap; justify-content: flex-end; }
   .r-tabsWrap{ display:flex; justify-content: flex-end; width: 100%; }
 
-  /* tabs */
   .r-tabs{
-    display:inline-flex;
-    gap:4px;
-    padding: 4px;
-    border-radius: 14px;
+    display:inline-flex; gap:4px; padding: 4px; border-radius: 14px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(148,163,184,.25);
     backdrop-filter: blur(8px);
   }
   .r-tab{
-    border: none;
-    cursor: pointer;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: transparent;
-    color: rgba(226,232,240,.92);
-    font-weight: 900;
-    font-size: 13px;
-    display:inline-flex;
-    gap:8px;
-    align-items:center;
-    min-width: 170px;
-    justify-content: center;
+    border: none; cursor: pointer; padding: 10px 12px; border-radius: 12px;
+    background: transparent; color: rgba(226,232,240,.92);
+    font-weight: 900; font-size: 13px;
+    display:inline-flex; gap:8px; align-items:center; min-width: 170px; justify-content: center;
     transition: all .15s ease;
   }
   .r-tab:hover{ background: rgba(255,255,255,.08); }
-  .r-tab.is-active{
-    background: rgba(255,255,255,.92);
-    color: #0b1220;
-    box-shadow: 0 8px 22px rgba(2,6,23,.18);
-  }
-  .r-tab__icon{ filter: saturate(1.2); }
+  .r-tab.is-active{ background: rgba(255,255,255,.92); color: #0b1220; box-shadow: 0 8px 22px rgba(2,6,23,.18); }
 
-  /* sticky bar */
   .r-sticky{
-    position: sticky;
-    top: 0;
-    z-index: 30;
+    position: sticky; top: 0; z-index: 30;
     background: rgba(246,247,251,0.86);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(226,232,240,.8);
   }
   .r-sticky__inner{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 10px 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    align-items: center;
+    max-width: 1280px; margin: 0 auto; padding: 10px 14px;
+    display:flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center;
   }
   .r-sticky__left{ display:flex; gap: 12px; align-items:center; flex-wrap: wrap; }
   .r-sticky__right{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; justify-content: flex-end; }
 
-  .r-linkBtn{
-    border:none;
-    background: transparent;
-    cursor:pointer;
-    font-weight: 900;
-    color: #0f172a;
-    font-size: 13px;
-  }
+  .r-linkBtn{ border:none; background: transparent; cursor:pointer; font-weight: 900; color: #0f172a; font-size: 13px; }
   .r-mini{
-    font-size: 12px;
-    color: #334155;
-    display:flex;
-    align-items:center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 999px;
+    font-size: 12px; color: #334155; display:flex; align-items:center; gap: 8px;
+    padding: 6px 10px; border-radius: 999px;
     background: rgba(255,255,255,.9);
     border: 1px solid rgba(226,232,240,.9);
   }
   .r-quick{
-    border: 1px solid rgba(226,232,240,.9);
-    background: rgba(255,255,255,.9);
-    padding: 6px 10px;
-    border-radius: 999px;
-    cursor:pointer;
-    font-weight: 900;
-    font-size: 12px;
-    color: #0f172a;
+    border: 1px solid rgba(226,232,240,.9); background: rgba(255,255,255,.9);
+    padding: 6px 10px; border-radius: 999px; cursor:pointer; font-weight: 900; font-size: 12px; color: #0f172a;
     transition: all .12s ease;
   }
-  .r-quick:hover{
-    transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(2,6,23,.08);
-  }
+  .r-quick:hover{ transform: translateY(-1px); box-shadow: 0 10px 24px rgba(2,6,23,.08); }
 
-  /* layout */
-  .r-grid2{
-    display:grid;
-    grid-template-columns: 1.4fr 1fr;
-    gap: 12px;
-  }
-  @media (max-width: 980px){
-    .r-grid2{ grid-template-columns: 1fr; }
-    .r-hero__right{ align-items: flex-start; }
-    .r-tabsWrap{ justify-content: flex-start; }
-  }
+  .r-grid2{ display:grid; grid-template-columns: 1.4fr 1fr; gap: 12px; }
+  @media (max-width: 980px){ .r-grid2{ grid-template-columns: 1fr; } .r-hero__right{ align-items: flex-start; } .r-tabsWrap{ justify-content: flex-start; } }
 
   .r-cardLite{
     background: rgba(255,255,255,.94);
@@ -2502,34 +2324,15 @@ const globalCss = `
   }
   .r-cardLite__head{
     padding: 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: flex-start;
+    display:flex; justify-content: space-between; gap: 10px; align-items: flex-start;
     border-bottom: 1px solid rgba(226,232,240,.8);
     background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
   }
-  .r-cardLite__title{
-    font-weight: 900;
-    color: #0f172a;
-    font-size: 14px;
-  }
-  .r-cardLite__hint{
-    margin-top: 4px;
-    color: #64748b;
-    font-size: 12px;
-    line-height: 1.5;
-  }
+  .r-cardLite__title{ font-weight: 900; color: #0f172a; font-size: 14px; }
+  .r-cardLite__hint{ margin-top: 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
 
-  .r-formGrid{
-    padding: 14px;
-    display:grid;
-    grid-template-columns: repeat(2, minmax(220px,1fr));
-    gap: 12px;
-  }
-  @media (max-width: 860px){
-    .r-formGrid{ grid-template-columns: 1fr; }
-  }
+  .r-formGrid{ padding: 14px; display:grid; grid-template-columns: repeat(2, minmax(220px,1fr)); gap: 12px; }
+  @media (max-width: 860px){ .r-formGrid{ grid-template-columns: 1fr; } }
 
   .r-field{ display:flex; flex-direction: column; gap: 6px; }
   .r-field--span2{ grid-column: span 2; }
@@ -2538,43 +2341,26 @@ const globalCss = `
 
   .r-label{ font-size: 12px; font-weight: 900; color: #334155; }
   .r-select, .r-input{
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 14px;
+    width: 100%; padding: 10px 12px; border-radius: 14px;
     border: 1px solid rgba(226,232,240,.95);
     background: rgba(255,255,255,.95);
-    font-weight: 800;
-    color: #0f172a;
-    outline: none;
+    font-weight: 800; color: #0f172a; outline: none;
   }
-  .r-select:focus, .r-input:focus{
-    border-color: rgba(99,102,241,.45);
-    box-shadow: 0 0 0 4px rgba(99,102,241,.12);
-  }
+  .r-select:focus, .r-input:focus{ border-color: rgba(99,102,241,.45); box-shadow: 0 0 0 4px rgba(99,102,241,.12); }
   .r-help{ font-size: 12px; color: #64748b; }
 
   .r-log{ padding: 14px; }
   .r-debug{
-    margin: 0;
-    padding: 12px;
-    background: #0b1220;
-    color: rgba(226,232,240,.95);
-    border-radius: 14px;
-    border: 1px solid rgba(148,163,184,.2);
-    font-size: 12px;
-    white-space: pre-line;
-    max-height: 320px;
-    overflow: auto;
+    margin: 0; padding: 12px;
+    background: #0b1220; color: rgba(226,232,240,.95);
+    border-radius: 14px; border: 1px solid rgba(148,163,184,.2);
+    font-size: 12px; white-space: pre-line; max-height: 320px; overflow: auto;
   }
   .r-emptyTiny{ padding: 12px; color:#64748b; font-size: 12px; }
 
-  /* KPIs */
   .r-kpis{
-    display:grid;
-    grid-template-columns: repeat(4, minmax(220px,1fr));
-    gap: 12px;
-    margin-top: 14px;
-    margin-bottom: 12px;
+    display:grid; grid-template-columns: repeat(4, minmax(220px,1fr));
+    gap: 12px; margin-top: 14px; margin-bottom: 12px;
   }
   @media (max-width: 1100px){ .r-kpis{ grid-template-columns: repeat(2, minmax(220px,1fr)); } }
   @media (max-width: 620px){ .r-kpis{ grid-template-columns: 1fr; } }
@@ -2585,24 +2371,14 @@ const globalCss = `
     border-radius: var(--radius);
     box-shadow: var(--shadow2);
     padding: 14px;
-    display:flex;
-    gap: 12px;
-    align-items:flex-start;
+    display:flex; gap: 12px; align-items:flex-start;
     transition: transform .12s ease, box-shadow .12s ease;
   }
-  .r-kpi:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 18px 40px rgba(2,6,23,.10);
-  }
+  .r-kpi:hover{ transform: translateY(-2px); box-shadow: 0 18px 40px rgba(2,6,23,.10); }
   .r-kpi__icon{
-    width: 42px;
-    height: 42px;
-    border-radius: 14px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size: 18px;
-    border: 1px solid rgba(226,232,240,.95);
+    width: 42px; height: 42px; border-radius: 14px;
+    display:flex; align-items:center; justify-content:center;
+    font-size: 18px; border: 1px solid rgba(226,232,240,.95);
     background: rgba(248,250,252,.9);
   }
   .r-kpi__icon--info{ background: rgba(14,165,233,.12); border-color: rgba(14,165,233,.25); }
@@ -2614,7 +2390,6 @@ const globalCss = `
   .r-kpi__value{ margin-top: 6px; font-size: 22px; font-weight: 900; color: #0f172a; letter-spacing: -0.3px; }
   .r-kpi__sub{ margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.4; }
 
-  /* Panel */
   .r-panel{
     background: rgba(255,255,255,.95);
     border: 1px solid rgba(226,232,240,.95);
@@ -2625,39 +2400,23 @@ const globalCss = `
   }
   .r-panel__head{
     padding: 14px;
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: flex-start;
+    display:flex; justify-content: space-between; gap: 10px; align-items: flex-start;
     border-bottom: 1px solid rgba(226,232,240,.8);
     background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(255,255,255,.90));
   }
   .r-panel__title{ font-weight: 900; color: #0f172a; font-size: 14px; }
   .r-panel__hint{ margin-top: 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
   .r-panel__body{ padding: 14px; }
-  .r-rowActions{ display:flex; gap: 8px; align-items:center; }
 
-  /* Bars */
   .r-bars{ display:flex; flex-direction: column; gap: 10px; }
   .r-bars__row{ display:flex; gap: 10px; align-items: center; }
   .r-bars__label{
-    width: 190px;
-    font-size: 12px;
-    font-weight: 900;
-    color: #334155;
-    display:flex;
-    align-items:center;
-    gap: 8px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: 190px; font-size: 12px; font-weight: 900; color: #334155;
+    display:flex; align-items:center; gap: 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .r-bars__track{
-    flex: 1;
-    height: 12px;
-    border-radius: 999px;
-    background: #eef2f7;
-    overflow:hidden;
+    flex: 1; height: 12px; border-radius: 999px; background: #eef2f7; overflow:hidden;
     border: 1px solid rgba(226,232,240,.9);
   }
   .r-bars__fill{ height: 100%; border-radius: 999px; }
@@ -2668,74 +2427,31 @@ const globalCss = `
   .r-bars__fill--danger{ background: linear-gradient(90deg, #ef4444, #f43f5e); }
   .r-bars__val{ width: 44px; text-align: left; font-weight: 900; color: #0f172a; font-size: 12px; }
 
-  /* table */
-  .r-tableWrap{
-    border: 1px solid rgba(226,232,240,.95);
-    border-radius: var(--radius);
-    overflow: auto;
-  }
-  .r-table{
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    min-width: 980px;
-    background: #fff;
-  }
+  .r-tableWrap{ border: 1px solid rgba(226,232,240,.95); border-radius: var(--radius); overflow: auto; }
+  .r-table{ width: 100%; border-collapse: separate; border-spacing: 0; min-width: 980px; background: #fff; }
   .r-table thead th{
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: #f8fafc;
-    border-bottom: 1px solid rgba(226,232,240,.95);
-    font-size: 12px;
-    font-weight: 900;
-    color: #334155;
-    text-align: right;
-    padding: 12px;
+    position: sticky; top: 0; z-index: 1;
+    background: #f8fafc; border-bottom: 1px solid rgba(226,232,240,.95);
+    font-size: 12px; font-weight: 900; color: #334155; text-align: right; padding: 12px;
   }
   .r-table tbody td{
     border-bottom: 1px solid rgba(241,245,249,.95);
-    font-size: 13px;
-    color: #0f172a;
-    padding: 12px;
-    vertical-align: top;
+    font-size: 13px; color: #0f172a; padding: 12px; vertical-align: top;
   }
-  .r-tr{
-    cursor: pointer;
-    transition: background .12s ease;
-  }
-  .r-tr:hover{
-    background: #f8fafc;
-  }
+  .r-tr{ cursor: pointer; transition: background .12s ease; }
+  .r-tr:hover{ background: #f8fafc; }
   .r-strong{ font-weight: 900; }
   .r-wrap{ max-width: 460px; word-break: break-word; }
-  .r-tdEmpty{
-    padding: 24px !important;
-    text-align: center;
-    color: #64748b !important;
-    font-weight: 800;
-  }
-  .r-footNote{
-    padding: 12px;
-    font-size: 12px;
-    color: #64748b;
-    background: #f8fafc;
-    border-top: 1px solid rgba(226,232,240,.85);
-  }
+  .r-tdEmpty{ padding: 24px !important; text-align: center; color: #64748b !important; font-weight: 800; }
+  .r-footNote{ padding: 12px; font-size: 12px; color: #64748b; background: #f8fafc; border-top: 1px solid rgba(226,232,240,.85); }
 
-  /* badges & dots */
   .r-badge{
-    display:inline-flex;
-    align-items:center;
-    gap: 6px;
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 900;
+    display:inline-flex; align-items:center; gap: 6px;
+    padding: 6px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 900;
     border: 1px solid rgba(226,232,240,.85);
     background: rgba(255,255,255,.9);
-    color: #0f172a;
-    white-space: nowrap;
+    color: #0f172a; white-space: nowrap;
   }
   .r-badge--neutral{ background: rgba(255,255,255,.92); }
   .r-badge--info{ background: rgba(14,165,233,.12); border-color: rgba(14,165,233,.25); color: #075985; }
@@ -2743,47 +2459,21 @@ const globalCss = `
   .r-badge--warning{ background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.28); color: #7c2d12; }
   .r-badge--danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.25); color: #7f1d1d; }
 
-  .r-dot{
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: #111827;
-    display:inline-block;
-    box-shadow: 0 0 0 3px rgba(17,24,39,.10);
-  }
+  .r-dot{ width: 8px; height: 8px; border-radius: 999px; background: #111827; display:inline-block; box-shadow: 0 0 0 3px rgba(17,24,39,.10); }
   .r-dot--info{ background:#0ea5e9; box-shadow: 0 0 0 3px rgba(14,165,233,.12); }
   .r-dot--success{ background:#22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.12); }
   .r-dot--warning{ background:#f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.12); }
   .r-dot--danger{ background:#ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
 
-  /* insights */
-  .r-ins{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  @media (max-width: 820px){
-    .r-ins{ grid-template-columns: 1fr; }
-  }
-  .r-ins__item{
-    border: 1px solid rgba(226,232,240,.95);
-    border-radius: 14px;
-    padding: 12px;
-    background: rgba(248,250,252,.75);
-  }
+  .r-ins{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 820px){ .r-ins{ grid-template-columns: 1fr; } }
+  .r-ins__item{ border: 1px solid rgba(226,232,240,.95); border-radius: 14px; padding: 12px; background: rgba(248,250,252,.75); }
   .r-ins__k{ font-size: 12px; color: #64748b; font-weight: 900; }
   .r-ins__v{ margin-top: 6px; font-weight: 900; color: #0f172a; }
 
-  /* modal */
   .r-modal__backdrop{
-    position: fixed;
-    inset: 0;
-    background: rgba(2,6,23,.55);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    padding: 14px;
-    z-index: 9999;
+    position: fixed; inset: 0; background: rgba(2,6,23,.55);
+    display:flex; justify-content:center; align-items:center; padding: 14px; z-index: 9999;
   }
   .r-modal{
     width: min(880px, 100%);
@@ -2794,63 +2484,34 @@ const globalCss = `
     overflow:hidden;
   }
   .r-modal__head{
-    padding: 14px;
-    border-bottom: 1px solid rgba(226,232,240,.85);
-    display:flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items:center;
-    background: #fff;
+    padding: 14px; border-bottom: 1px solid rgba(226,232,240,.85);
+    display:flex; justify-content: space-between; gap: 10px; align-items:center; background: #fff;
   }
   .r-modal__title{ font-weight: 900; color: #0f172a; }
   .r-modal__close{
-    border: none;
-    background: #f1f5f9;
-    border-radius: 12px;
-    padding: 10px 12px;
-    cursor:pointer;
-    font-weight: 900;
-    color: #0f172a;
+    border: none; background: #f1f5f9; border-radius: 12px; padding: 10px 12px;
+    cursor:pointer; font-weight: 900; color: #0f172a;
   }
   .r-modal__body{ padding: 14px; }
-  .r-modalGrid{
-    display:grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
+
+  .r-modalGrid{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 860px){ .r-modalGrid{ grid-template-columns: 1fr; } }
-  .r-box{
-    border: 1px solid rgba(226,232,240,.95);
-    border-radius: 14px;
-    padding: 12px;
-    background: rgba(248,250,252,.7);
-  }
+  .r-box{ border: 1px solid rgba(226,232,240,.95); border-radius: 14px; padding: 12px; background: rgba(248,250,252,.7); }
   .r-box__k{ font-size: 12px; color: #64748b; font-weight: 900; }
   .r-box__v{ margin-top: 6px; color: #0f172a; font-weight: 800; line-height: 1.6; }
 
-  /* empty */
   .r-empty{
-    margin-top: 14px;
-    background: rgba(255,255,255,.95);
+    margin-top: 14px; background: rgba(255,255,255,.95);
     border: 1px dashed rgba(148,163,184,.6);
     border-radius: var(--radius);
-    padding: 28px;
-    text-align:center;
+    padding: 28px; text-align:center;
     box-shadow: var(--shadow2);
   }
   .r-empty__icon{ font-size: 30px; margin-bottom: 10px; }
   .r-empty__title{ font-weight: 900; color: #0f172a; font-size: 16px; }
   .r-empty__sub{ margin-top: 6px; color: #64748b; font-size: 12px; }
 
-  /* loading center */
-  .r-center{
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    min-height: 80vh;
-    background: #f6f7fb;
-    padding: 14px;
-  }
+  .r-center{ display:flex; justify-content:center; align-items:center; min-height: 80vh; background: #f6f7fb; padding: 14px; }
   .r-skeleton{
     width: min(980px, 100%);
     background: rgba(255,255,255,.95);
@@ -2864,8 +2525,5 @@ const globalCss = `
   .r-skeleton__grid{ display:grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 14px; }
   @media (max-width: 860px){ .r-skeleton__grid{ grid-template-columns: 1fr; } }
   .r-skeleton__card{ height: 88px; border-radius: 14px; background: linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9); animation: sk 1.2s infinite linear; }
-  @keyframes sk{
-    0%{ background-position: 0% 0; }
-    100%{ background-position: 200% 0; }
-  }
+  @keyframes sk{ 0%{ background-position: 0% 0; } 100%{ background-position: 200% 0; } }
 ` as const;

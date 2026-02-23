@@ -242,7 +242,6 @@ function safeText(v: any) {
   return (v ?? '').toString();
 }
 
-// بعض علاقات supabase بتطلع Array بدل Object
 function relOne<T>(rel: any): T | undefined {
   if (!rel) return undefined;
   return Array.isArray(rel) ? rel[0] : rel;
@@ -254,9 +253,6 @@ function chunkArray<T>(arr: T[], size: number) {
   return out;
 }
 
-/**
- * ✅ Pagination helper
- */
 async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any): Promise<T[]> {
   const pageSize = 1000;
   let from = 0;
@@ -298,27 +294,184 @@ function translateStatus(status: string) {
   }
 }
 
-function badgeStyle(kind: 'neutral' | 'success' | 'warning' | 'danger' | 'info') {
-  const m: Record<string, { bg: string; fg: string; bd: string }> = {
-    neutral: { bg: '#f5f5f5', fg: '#444', bd: '#e5e5e5' },
-    success: { bg: '#e6f4ea', fg: '#0d8a3e', bd: '#cdebd8' },
-    warning: { bg: '#fff8e1', fg: '#b7791f', bd: '#f7e3a1' },
-    danger: { bg: '#ffebee', fg: '#c62828', bd: '#ffcdd2' },
-    info: { bg: '#e8f0fe', fg: '#1a73e8', bd: '#c7dbff' },
-  };
-  return {
+/* =====================
+   Professional UI Kit
+===================== */
+
+const ui = {
+  page: {
+    maxWidth: 1280,
+    margin: '0 auto',
+    padding: '18px 14px 40px',
+  },
+  headerWrap: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 14,
+    flexWrap: 'wrap' as const,
+    marginBottom: 14,
+  },
+  h1: { margin: 0, fontSize: 22, fontWeight: 900 as const, letterSpacing: '-0.2px' },
+  sub: { margin: '6px 0 0', color: '#6b7280', fontSize: 13, lineHeight: 1.5 },
+  toolbar: { display: 'flex', gap: 10, flexWrap: 'wrap' as const, alignItems: 'center' as const },
+  chip: (bg: string, fg: string, bd: string) => ({
     display: 'inline-flex',
     alignItems: 'center',
     gap: 6,
-    padding: '5px 10px',
+    padding: '6px 10px',
     borderRadius: 999,
     fontSize: 12,
     fontWeight: 800 as const,
-    backgroundColor: m[kind].bg,
-    color: m[kind].fg,
-    border: `1px solid ${m[kind].bd}`,
+    background: bg,
+    color: fg,
+    border: `1px solid ${bd}`,
     whiteSpace: 'nowrap' as const,
-  };
+  }),
+  grid: (min = 220) => ({
+    display: 'grid',
+    gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`,
+    gap: 12,
+  }),
+  panel: {
+    background: '#fff',
+    border: '1px solid #e5e7eb',
+    borderRadius: 14,
+    boxShadow: '0 1px 10px rgba(0,0,0,0.04)',
+  },
+  hint: { fontSize: 12, color: '#6b7280' },
+  tableWrap: { overflowX: 'auto' as const, borderRadius: 14, border: '1px solid #eef2f7' },
+  table: { width: '100%', borderCollapse: 'separate' as const, borderSpacing: 0, minWidth: 980 },
+  th: {
+    position: 'sticky' as const,
+    top: 0,
+    background: '#f9fafb',
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: 900 as const,
+    textAlign: 'right' as const,
+    padding: 12,
+    borderBottom: '1px solid #e5e7eb',
+    zIndex: 1,
+  },
+  td: { padding: 12, borderBottom: '1px solid #f1f5f9', fontSize: 13, color: '#111827', verticalAlign: 'top' as const },
+  row: { cursor: 'pointer' as const },
+};
+
+function SegTabs({
+  value,
+  onChange,
+  items,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  items: { key: string; label: string; icon?: string }[];
+}) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        background: '#fff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 14,
+        padding: 4,
+        boxShadow: '0 1px 10px rgba(0,0,0,0.04)',
+        gap: 4,
+      }}
+    >
+      {items.map((it) => {
+        const active = value === it.key;
+        return (
+          <button
+            key={it.key}
+            onClick={() => onChange(it.key)}
+            style={{
+              border: 'none',
+              cursor: 'pointer',
+              padding: '10px 12px',
+              borderRadius: 12,
+              background: active ? '#111827' : 'transparent',
+              color: active ? '#fff' : '#111827',
+              fontWeight: 900,
+              fontSize: 13,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              minWidth: 150,
+              justifyContent: 'center',
+            }}
+          >
+            <span aria-hidden>{it.icon || ''}</span>
+            {it.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function KpiCard({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
+  return (
+    <div style={{ ...ui.panel, padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 800 }}>{title}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginTop: 6, letterSpacing: '-0.3px' }}>{value}</div>
+          {sub && <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>{sub}</div>}
+        </div>
+        <div style={{ width: 38, height: 38, borderRadius: 12, background: '#f3f4f6' }} />
+      </div>
+    </div>
+  );
+}
+
+function Modal({
+  open,
+  title,
+  children,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(17,24,39,0.55)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 14,
+        zIndex: 9999,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(820px, 100%)',
+          background: '#fff',
+          borderRadius: 16,
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: 14, borderBottom: '1px solid #eef2f7', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+          <div style={{ fontWeight: 900 }}>{title}</div>
+          <button onClick={onClose} style={{ border: 'none', background: '#f3f4f6', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', fontWeight: 900 }}>
+            إغلاق ✕
+          </button>
+        </div>
+        <div style={{ padding: 14 }}>{children}</div>
+      </div>
+    </div>
+  );
 }
 
 /* =====================
@@ -367,6 +520,11 @@ export default function ReportsPage() {
   const [workedSets, setWorkedSets] = useState<WorkedSets | null>(null);
   const [showClients, setShowClients] = useState(true);
   const [clientSearch, setClientSearch] = useState('');
+
+  // modal for activity rows
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalBody, setModalBody] = useState<React.ReactNode>(null);
 
   /* =====================
      INIT
@@ -451,7 +609,6 @@ export default function ReportsPage() {
       })) as Employee[];
 
       setEmployees(emps);
-
       if (emps.length > 0) setSelectedEmployeeIdActivity((prev) => prev || emps[0].id);
       return;
     }
@@ -869,7 +1026,6 @@ export default function ReportsPage() {
 
     const all: EmployeeActivity[] = [];
 
-    // FollowUps
     for (const f of followUps) {
       all.push({
         id: f.id,
@@ -886,7 +1042,6 @@ export default function ReportsPage() {
       });
     }
 
-    // Reservations + Reservation followup
     for (const r of reservations) {
       all.push({
         id: r.id,
@@ -926,7 +1081,6 @@ export default function ReportsPage() {
       }
     }
 
-    // Sales
     for (const s of sales) {
       all.push({
         id: s.id,
@@ -947,7 +1101,6 @@ export default function ReportsPage() {
       });
     }
 
-    // Visits
     for (const v of visits) {
       const extra = [
         v.visit_location ? `المكان: ${v.visit_location}` : '',
@@ -974,7 +1127,6 @@ export default function ReportsPage() {
       });
     }
 
-    // Reservation Notes
     for (const n of reservationNotes) {
       all.push({
         id: n.id,
@@ -1041,10 +1193,6 @@ export default function ReportsPage() {
     }));
   }
 
-  /**
-   * ✅ بديل خفيف لـ assignmentMap
-   * - all: نجيب Set للعملاء اللي عندهم أي assignment
-   */
   async function fetchAssignedClientIds(clientIds: string[]) {
     const out = new Set<string>();
     const chunks = chunkArray(clientIds, 500);
@@ -1057,9 +1205,6 @@ export default function ReportsPage() {
     return out;
   }
 
-  /**
-   * ✅ لما نختار موظف: نجيب Set للعملاء المعيّنين لهذا الموظف فقط
-   */
   async function fetchClientIdsAssignedToEmployee(clientIds: string[], employeeId: string) {
     const out = new Set<string>();
     const chunks = chunkArray(clientIds, 500);
@@ -1101,10 +1246,6 @@ export default function ReportsPage() {
     return out;
   }
 
-  /**
-   * ✅ reservation_notes لا يحتوي client_id
-   * reservation_notes.reservation_id -> reservations.id -> reservations.client_id
-   */
   async function distinctClientsFromReservationNotesInRange(clientIds: string[], startISO: string, endISOExclusive: string) {
     const resIdToClientId = new Map<string, string>();
     const reservationIds: string[] = [];
@@ -1202,7 +1343,6 @@ export default function ReportsPage() {
 
     const allClientIds = allClients.map((c) => c.id);
 
-    // ✅ فلترة العملاء حسب الموظف المختار (بدون Map كبير)
     let filteredClients = allClients;
     if (selectedEmployeeIdClients !== 'all') {
       setDebugInfo((p) => p + '\n🔄 فلترة العملاء حسب تعيين الموظف...');
@@ -1212,7 +1352,6 @@ export default function ReportsPage() {
 
     const clientIds = filteredClients.map((c) => c.id);
 
-    // ✅ حساب (موزعين / غير موزعين)
     setDebugInfo((p) => p + '\n🔄 حساب (موزعين/غير موزعين)...');
     let assignedClients = 0;
     let unassignedClients = 0;
@@ -1228,12 +1367,10 @@ export default function ReportsPage() {
 
     const distributionRate = filteredClients.length ? Math.round((assignedClients / filteredClients.length) * 1000) / 10 : 0;
 
-    // ✅ worked sets
     setDebugInfo((p) => p + '\n🔄 حساب (تم العمل عليهم) من الجداول...');
     const worked = await fetchWorkedSets(clientIds, startISO, endISOExclusive);
     setWorkedSets(worked);
 
-    // ✅ edited clients
     setDebugInfo((p) => p + '\n🔄 حساب (تم تعديل بياناتهم)...');
     const editedClients = filteredClients.filter((c) => {
       if (!c.updated_at) return false;
@@ -1243,7 +1380,6 @@ export default function ReportsPage() {
       return inRange && u > cr;
     }).length;
 
-    // ✅ status distribution
     const statusCounts: Record<string, number> = {};
     for (const c of filteredClients) statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
 
@@ -1263,12 +1399,7 @@ export default function ReportsPage() {
     });
 
     setClients(filteredClients);
-
-    setDebugInfo(
-      (p) =>
-        p +
-        `\n✅ Clients: ${filteredClients.length} | Assigned: ${assignedClients} | Unassigned: ${unassignedClients} | Worked: ${worked.union.size} | Edited: ${editedClients}`
-    );
+    setDebugInfo((p) => p + `\n✅ Clients: ${filteredClients.length} | Worked: ${worked.union.size} | Edited: ${editedClients}`);
   }
 
   /* =====================
@@ -1381,7 +1512,6 @@ export default function ReportsPage() {
       return;
     }
 
-    // clients csv
     if (!clients.length || !clientMetrics) {
       alert('لا توجد بيانات للتصدير');
       return;
@@ -1500,265 +1630,288 @@ export default function ReportsPage() {
 
   return (
     <RequireAuth>
-      <div className="page">
+      <div className="page" style={ui.page}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={ui.headerWrap}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h1 style={{ margin: 0 }}>{headerTitle}</h1>
-              <span style={badgeStyle(currentEmployee?.role === 'admin' ? 'success' : 'info')}>{currentEmployee?.role}</span>
-              <span style={badgeStyle('neutral')}>
-                {dateRange.start} → {dateRange.end}
+            <h1 style={ui.h1}>{headerTitle}</h1>
+            <p style={ui.sub}>{headerSubtitle}</p>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <span style={ui.chip('#e8f0fe', '#1a73e8', '#c7dbff')}>👤 {currentEmployee?.role}</span>
+              <span style={ui.chip('#f5f5f5', '#374151', '#e5e7eb')}>
+                📅 {dateRange.start} → {dateRange.end}
               </span>
+              {tab === 'clients' && (
+                <span style={ui.chip('#e6f4ea', '#0d8a3e', '#cdebd8')}>
+                  🏗️ {projectId === 'all' ? 'كل المشاريع' : 'مشروع محدد'}
+                </span>
+              )}
             </div>
-            <p style={{ color: '#666', marginTop: 6 }}>{headerSubtitle}</p>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={ui.toolbar}>
             <Button onClick={exportJSON} disabled={exporting || (tab === 'employee_activity' ? !activitySummary : !clientMetrics)} variant="secondary">
-              {exporting ? 'جاري التصدير...' : 'تصدير JSON'}
+              {exporting ? 'جاري التصدير...' : '⬇️ JSON'}
             </Button>
             <Button onClick={exportCSV} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics} variant="secondary">
-              تصدير CSV
+              ⬇️ CSV
             </Button>
             <Button onClick={printReport} disabled={tab === 'employee_activity' ? !activities.length : !clientMetrics}>
-              طباعة
+              🖨️ طباعة
             </Button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setTab('employee_activity')}
-            style={{
-              padding: '10px 14px',
-              borderRadius: 10,
-              border: tab === 'employee_activity' ? '1px solid #1a73e8' : '1px solid #e5e5e5',
-              background: tab === 'employee_activity' ? '#e8f0fe' : '#fff',
-              color: '#222',
-              fontWeight: 900,
-              cursor: 'pointer',
-            }}
-          >
-            تقرير الأنشطة
-          </button>
-
-          <button
-            onClick={() => setTab('clients')}
-            style={{
-              padding: '10px 14px',
-              borderRadius: 10,
-              border: tab === 'clients' ? '1px solid #1a73e8' : '1px solid #e5e5e5',
-              background: tab === 'clients' ? '#e8f0fe' : '#fff',
-              color: '#222',
-              fontWeight: 900,
-              cursor: 'pointer',
-            }}
-          >
-            تقرير العملاء
-          </button>
+        <div style={{ marginBottom: 14 }}>
+          <SegTabs
+            value={tab}
+            onChange={(v) => setTab(v as TabKey)}
+            items={[
+              { key: 'employee_activity', label: 'تقرير الأنشطة', icon: '📌' },
+              { key: 'clients', label: 'تقرير العملاء', icon: '👥' },
+            ]}
+          />
         </div>
 
         {/* Debug */}
         {debugInfo && (
-          <div style={{ marginBottom: 14, padding: 14, backgroundColor: '#f8f9fa', borderRadius: 12, border: '1px solid #e9ecef', fontSize: 12, color: '#666', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ fontWeight: 'bold' }}>سجل النظام</div>
-              <button onClick={() => setDebugInfo('')} style={{ fontSize: 11, padding: '2px 8px', backgroundColor: '#e9ecef', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
-                مسح
+          <div style={{ ...ui.panel, padding: 14, marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontWeight: 900 }}>سجل النظام</div>
+              <button onClick={() => setDebugInfo('')} style={{ border: 'none', background: '#f3f4f6', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', fontWeight: 900 }}>
+                مسح ✕
               </button>
             </div>
-            {debugInfo}
+            <div style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'pre-line', maxHeight: 220, overflowY: 'auto' }}>{debugInfo}</div>
           </div>
         )}
 
         {/* Filters */}
         <Card title="فلترة التقرير">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, padding: 14 }}>
-            {/* Employee */}
-            <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>
-                {tab === 'employee_activity' ? 'اختر الموظف (إلزامي)' : 'الموظف'}
-              </label>
-
-              <select
-                value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
-                onChange={(e) => (tab === 'employee_activity' ? setSelectedEmployeeIdActivity(e.target.value) : setSelectedEmployeeIdClients(e.target.value))}
-                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}
-              >
-                {canChooseEmployeeModeAll && <option value="all">الكل</option>}
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
-                  </option>
-                ))}
-              </select>
-
-              <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>{employees.length} موظف</div>
-            </div>
-
-            {/* Project (clients only) */}
-            {canSeeProjects && (
+          <div style={{ padding: 14 }}>
+            <div style={ui.grid(230)}>
               <div>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>المشروع</label>
-                <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
-                  <option value="all">الكل</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.code ? `${p.name} (${p.code})` : p.name}
+                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>
+                  {tab === 'employee_activity' ? 'الموظف (إلزامي)' : 'الموظف'}
+                </div>
+                <select
+                  value={tab === 'employee_activity' ? selectedEmployeeIdActivity : selectedEmployeeIdClients}
+                  onChange={(e) => (tab === 'employee_activity' ? setSelectedEmployeeIdActivity(e.target.value) : setSelectedEmployeeIdClients(e.target.value))}
+                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
+                >
+                  {canChooseEmployeeModeAll && <option value="all">الكل</option>}
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} {emp.role === 'sales_manager' ? '(مشرف)' : emp.role === 'sales' ? '(مبيعات)' : emp.role === 'admin' ? '(Admin)' : ''}
                     </option>
                   ))}
                 </select>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>{employees.length} موظف</div>
               </div>
-            )}
 
-            {/* Date start */}
-            <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>من تاريخ *</label>
-              <input type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
+              {canSeeProjects && (
+                <div>
+                  <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>المشروع</div>
+                  <select
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                    style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
+                  >
+                    <option value="all">الكل</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code ? `${p.name} (${p.code})` : p.name}
+                      </option>
+                    ))}
+                  </select>
+                  {currentEmployee?.role === 'sales_manager' && (
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>
+                      نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>من تاريخ *</div>
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
+                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb' }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>إلى تاريخ *</div>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
+                  style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <div style={{ width: '100%' }}>
+                  <Button
+                    onClick={generate}
+                    disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}
+                  >
+                    {generating ? 'جاري التوليد...' : '⚡ توليد التقرير'}
+                  </Button>
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#6b7280' }}>يفضل تحديد فترة صغيرة للسرعة.</div>
+                </div>
+              </div>
             </div>
 
-            {/* Date end */}
-            <div>
-              <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: '#333', fontWeight: 800 }}>إلى تاريخ *</label>
-              <input type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #ddd' }} />
-            </div>
+            {/* Sub filters */}
+            <div style={{ marginTop: 12, ...ui.panel, padding: 12 }}>
+              {tab === 'employee_activity' ? (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ minWidth: 220 }}>
+                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>نوع النشاط</div>
+                    <select
+                      value={activityTypeFilter}
+                      onChange={(e) => setActivityTypeFilter(e.target.value as any)}
+                      style={{ width: '100%', padding: 10, borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', fontWeight: 800 }}
+                    >
+                      <option value="all">الكل</option>
+                      <option value="client_followup">متابعات</option>
+                      <option value="reservation">حجوزات</option>
+                      <option value="reservation_followup">متابعات الحجوزات</option>
+                      <option value="reservation_note">ملاحظات الحجوزات</option>
+                      <option value="sale">مبيعات</option>
+                      <option value="visit">زيارات</option>
+                    </select>
+                  </div>
 
-            {/* Generate */}
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%' }}>
-                <Button onClick={generate} disabled={generating || !dateRange.start || !dateRange.end || (tab === 'employee_activity' && !selectedEmployeeIdActivity)}>
-                  {generating ? 'جاري التوليد...' : 'توليد التقرير'}
-                </Button>
-              </div>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>بحث</div>
+                    <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e: any) => setActivitySearch(e.target.value)} />
+                  </div>
+
+                  <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
+                    {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
+                  </Button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900, marginBottom: 6 }}>بحث في العملاء</div>
+                    <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
+                  </div>
+
+                  <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
+                    {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Sub filters */}
-          {tab === 'employee_activity' && (
-            <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
-              <div style={{ minWidth: 220 }}>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>نوع النشاط</label>
-                <select value={activityTypeFilter} onChange={(e) => setActivityTypeFilter(e.target.value as any)} style={{ width: '100%', padding: 9, borderRadius: 10, border: '1px solid #ddd', background: '#fff' }}>
-                  <option value="all">الكل</option>
-                  <option value="client_followup">متابعات</option>
-                  <option value="reservation">حجوزات</option>
-                  <option value="reservation_followup">متابعات الحجوزات</option>
-                  <option value="reservation_note">ملاحظات الحجوزات</option>
-                  <option value="sale">مبيعات</option>
-                  <option value="visit">زيارات</option>
-                </select>
-              </div>
-
-              <div style={{ flex: 1, minWidth: 260 }}>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>بحث</label>
-                <Input placeholder="ابحث في النشاط/العميل/الوحدة/المشروع..." value={activitySearch} onChange={(e: any) => setActivitySearch(e.target.value)} />
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-                <Button onClick={() => setShowDetails((p) => !p)} variant={showDetails ? 'primary' : 'secondary'} disabled={!detailedActivity}>
-                  {showDetails ? 'إخفاء Raw' : 'عرض Raw'}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {tab === 'clients' && (
-            <div style={{ display: 'flex', gap: 10, padding: '12px 14px', borderTop: '1px solid #eee', flexWrap: 'wrap', alignItems: 'center', background: '#fafafa' }}>
-              <div style={{ flex: 1, minWidth: 260 }}>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: '#666', fontWeight: 800 }}>بحث في العملاء</label>
-                <Input placeholder="بحث بالاسم/الجوال/الحالة..." value={clientSearch} onChange={(e: any) => setClientSearch(e.target.value)} />
-              </div>
-
-              <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'} disabled={!clientMetrics}>
-                {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
-              </Button>
-            </div>
-          )}
         </Card>
 
         {/* Generating */}
         {generating && (
-          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, marginBottom: 16, border: '1px solid #e9ecef', marginTop: 14 }}>
-            <div style={{ fontSize: 18, marginBottom: 10 }}>جاري توليد التقرير...</div>
-            <div style={{ color: '#666' }}>قد تستغرق العملية بضع لحظات</div>
+          <div style={{ ...ui.panel, padding: 18, marginTop: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>جاري توليد التقرير...</div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>قد تستغرق العملية بضع لحظات حسب حجم البيانات</div>
           </div>
         )}
 
         {/* TAB: Employee Activity */}
         {!generating && tab === 'employee_activity' && activitySummary && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', backgroundColor: 'white', borderRadius: 12, marginTop: 14, marginBottom: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.06)', flexWrap: 'wrap', gap: 10, border: '1px solid #e9ecef' }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 900 }}>{employees.find((e) => e.id === selectedEmployeeIdActivity)?.name || '—'}</div>
-                <div style={{ fontSize: 13, color: '#666' }}>
-                  الفترة: {dateRange.start} → {dateRange.end} • إجمالي: {activitySummary.totalActivities}
+            <div style={{ marginTop: 14, ...ui.grid(220) }}>
+              <KpiCard title="إجمالي الأنشطة" value={activitySummary.totalActivities} />
+              <KpiCard title="متابعات" value={activitySummary.followUps} />
+              <KpiCard title="حجوزات" value={activitySummary.reservations} />
+              <KpiCard title="ملاحظات حجوزات" value={activitySummary.reservationNotes} />
+              <KpiCard title="مبيعات" value={activitySummary.sales} />
+              <KpiCard title="معدل التحويل" value={`${activitySummary.conversionRate}%`} />
+              <KpiCard title="عملاء تم التعامل معهم" value={activitySummary.uniqueClientsTouched} />
+              <KpiCard title="إجمالي الوقت" value={`${activitySummary.totalDuration} د`} sub={`${Math.round(activitySummary.totalDuration / 60)} ساعة`} />
+            </div>
+
+            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span style={ui.chip('#e6f4ea', '#0d8a3e', '#cdebd8')}>✅ الكفاءة: {activitySummary.efficiencyScore}%</span>
+                <span style={ui.chip('#f5f5f5', '#374151', '#e5e7eb')}>⏱️ متوسط النشاط: {activitySummary.avgActivityDuration} د</span>
+                <span style={ui.chip('#e8f0fe', '#1a73e8', '#c7dbff')}>📍 Peak: {activitySummary.peakHour}</span>
+                <span style={ui.chip('#fff8e1', '#b7791f', '#f7e3a1')}>🔥 الأكثر: {activitySummary.busiestActivity}</span>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14, ...ui.panel, padding: 0 }}>
+              <div style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>تفاصيل الأنشطة</div>
+                  <div style={ui.hint}>{filteredActivities.length} نشاط بعد الفلاتر</div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={badgeStyle(activitySummary.efficiencyScore >= 80 ? 'success' : activitySummary.efficiencyScore >= 60 ? 'warning' : 'danger')}>
-                  الكفاءة: {activitySummary.efficiencyScore}%
-                </span>
-                <span style={badgeStyle('info')}>التحويل: {activitySummary.conversionRate}%</span>
-                <span style={badgeStyle('neutral')}>Peak: {activitySummary.peakHour}</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 14 }}>
-              <Stat title="إجمالي الأنشطة" value={activitySummary.totalActivities} />
-              <Stat title="متابعات" value={activitySummary.followUps} />
-              <Stat title="حجوزات" value={activitySummary.reservations} />
-              <Stat title="متابعات حجوزات" value={activitySummary.reservationFollowUps} />
-              <Stat title="ملاحظات حجوزات" value={activitySummary.reservationNotes} />
-              <Stat title="مبيعات" value={activitySummary.sales} />
-              <Stat title="زيارات" value={activitySummary.visits} />
-              <Stat title="عملاء تم التعامل معهم" value={activitySummary.uniqueClientsTouched} />
-              <Stat title="إجمالي الوقت" value={`${activitySummary.totalDuration} د`} />
-              <Stat title="متوسط النشاط" value={`${activitySummary.avgActivityDuration} د`} />
-            </div>
-
-            <Card title="تفاصيل الأنشطة">
-              {filteredActivities.length ? (
-                <div style={{ overflowX: 'auto', padding: 14 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
-                        <th style={{ padding: 12, textAlign: 'right' }}>النوع</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>النشاط</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>التفاصيل</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>الوحدة</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>الوقت</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>المدة</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
+              <div style={ui.tableWrap}>
+                <table style={ui.table}>
+                  <thead>
+                    <tr>
+                      <th style={ui.th}>النوع</th>
+                      <th style={ui.th}>النشاط</th>
+                      <th style={ui.th}>التفاصيل</th>
+                      <th style={ui.th}>العميل</th>
+                      <th style={ui.th}>الوحدة</th>
+                      <th style={ui.th}>الوقت</th>
+                      <th style={ui.th}>المدة</th>
+                      <th style={ui.th}>الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredActivities.length === 0 ? (
+                      <tr>
+                        <td style={{ ...ui.td, textAlign: 'center' }} colSpan={8}>
+                          لا توجد بيانات حسب الفلاتر الحالية
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {filteredActivities.map((a, idx) => (
+                    ) : (
+                      filteredActivities.map((a, idx) => (
                         <tr
                           key={`${a.type}-${a.id}`}
-                          onClick={() => alert(`التفاصيل:\n${a.details}\n\nملاحظات:\n${a.notes || 'لا توجد'}`)}
-                          style={{ borderBottom: '1px solid #e9ecef', cursor: 'pointer', backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb' }}
+                          style={ui.row}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                          onClick={() => {
+                            setModalTitle(`${a.action} • ${a.client_name || ''}`);
+                            setModalBody(
+                              <div style={{ display: 'grid', gap: 10 }}>
+                                <div style={{ ...ui.panel, padding: 12 }}>
+                                  <div style={ui.hint}>التفاصيل</div>
+                                  <div style={{ fontWeight: 800, marginTop: 6 }}>{a.details}</div>
+                                </div>
+                                <div style={{ ...ui.panel, padding: 12 }}>
+                                  <div style={ui.hint}>الملاحظات</div>
+                                  <div style={{ fontWeight: 800, marginTop: 6 }}>{a.notes || 'لا توجد'}</div>
+                                </div>
+                              </div>
+                            );
+                            setModalOpen(true);
+                          }}
                         >
-                          <td style={{ padding: 12 }}>{a.type}</td>
-                          <td style={{ padding: 12, fontWeight: 900 }}>{a.action}</td>
-                          <td style={{ padding: 12, maxWidth: 420, wordWrap: 'break-word' }}>{a.details}</td>
-                          <td style={{ padding: 12 }}>{a.client_name || '-'}</td>
-                          <td style={{ padding: 12 }}>{a.unit_code || '-'}</td>
-                          <td style={{ padding: 12 }}>{new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                          <td style={{ padding: 12 }}>{a.duration || 0} د</td>
-                          <td style={{ padding: 12 }}>{a.status || '—'}</td>
+                          <td style={ui.td}>{a.type}</td>
+                          <td style={{ ...ui.td, fontWeight: 900 }}>{a.action}</td>
+                          <td style={{ ...ui.td, maxWidth: 420, wordBreak: 'break-word' }}>{a.details}</td>
+                          <td style={ui.td}>{a.client_name || '-'}</td>
+                          <td style={ui.td}>{a.unit_code || '-'}</td>
+                          <td style={ui.td}>{new Date(a.timestamp).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td style={ui.td}>{a.duration || 0} د</td>
+                          <td style={ui.td}>{a.status || '—'}</td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: 26, color: '#666' }}>لا توجد بيانات حسب الفلاتر الحالية</div>
-              )}
-            </Card>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {showDetails && detailedActivity && (
               <div style={{ marginTop: 14 }}>
@@ -1803,15 +1956,15 @@ export default function ReportsPage() {
               <Card title="التحليل الزمني (حسب الساعة)">
                 <div style={{ padding: 14 }}>
                   {timeSlots.length ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {timeSlots.map((slot) => (
                         <div key={slot.hour} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 150, fontSize: 13, color: '#444' }}>{slot.hour}</div>
-                          <div style={{ flex: 1, height: 18, backgroundColor: '#e9ecef', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ width: 160, fontSize: 12, fontWeight: 900, color: '#374151' }}>{slot.hour}</div>
+                          <div style={{ flex: 1, height: 18, backgroundColor: '#eef2f7', borderRadius: 999, overflow: 'hidden' }}>
                             <div
                               style={{
                                 height: '100%',
-                                backgroundColor: '#1a73e8',
+                                backgroundColor: '#111827',
                                 width: `${Math.min((slot.count / Math.max(...timeSlots.map((s) => s.count))) * 100, 100)}%`,
                               }}
                             />
@@ -1821,7 +1974,7 @@ export default function ReportsPage() {
                       ))}
                     </div>
                   ) : (
-                    <div style={{ textAlign: 'center', padding: 20, color: '#666' }}>لا توجد بيانات كافية</div>
+                    <div style={{ textAlign: 'center', padding: 20, color: '#6b7280' }}>لا توجد بيانات كافية</div>
                   )}
                 </div>
               </Card>
@@ -1832,68 +1985,81 @@ export default function ReportsPage() {
         {/* TAB: Clients */}
         {!generating && tab === 'clients' && clientMetrics && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12, marginTop: 14, marginBottom: 14 }}>
-              <Stat title="إجمالي العملاء" value={clientMetrics.totalClients} />
-              <Stat title="موزعين" value={clientMetrics.assignedClients} />
-              <Stat title="غير موزعين" value={clientMetrics.unassignedClients} />
-              <Stat title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} />
-              <Stat title="عملاء تم العمل عليهم" value={clientMetrics.workedClients} />
-              <Stat title="عملاء تم تعديل بياناتهم" value={clientMetrics.editedClients} />
+            <div style={{ marginTop: 14, ...ui.grid(220) }}>
+              <KpiCard title="إجمالي العملاء" value={clientMetrics.totalClients} />
+              <KpiCard title="موزعين" value={clientMetrics.assignedClients} />
+              <KpiCard title="غير موزعين" value={clientMetrics.unassignedClients} />
+              <KpiCard title="نسبة التوزيع" value={`${clientMetrics.distributionRate}%`} />
+              <KpiCard title="تم العمل عليهم" value={clientMetrics.workedClients} />
+              <KpiCard title="تم تعديل بياناتهم" value={clientMetrics.editedClients} />
             </div>
 
-            <Card title="تفصيل (تم العمل عليهم داخل الفترة)">
-              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                <Stat title="متابعات" value={clientMetrics.workedByFollowups} />
-                <Stat title="حجوزات" value={clientMetrics.workedByReservations} />
-                <Stat title="ملاحظات حجوزات" value={clientMetrics.workedByReservationNotes} />
-                <Stat title="مبيعات" value={clientMetrics.workedBySales} />
-                <Stat title="زيارات" value={clientMetrics.workedByVisits} />
+            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>تفصيل (تم العمل عليهم داخل الفترة)</div>
+              <div style={ui.grid(220)}>
+                <KpiCard title="متابعات" value={clientMetrics.workedByFollowups} />
+                <KpiCard title="حجوزات" value={clientMetrics.workedByReservations} />
+                <KpiCard title="ملاحظات حجوزات" value={clientMetrics.workedByReservationNotes} />
+                <KpiCard title="مبيعات" value={clientMetrics.workedBySales} />
+                <KpiCard title="زيارات" value={clientMetrics.workedByVisits} />
               </div>
-              <p style={{ padding: '0 14px 14px', color: '#666', fontSize: 13 }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: '#6b7280' }}>
                 “تم العمل عليهم” = عميل ظهر له أي نشاط من (متابعة/حجز/ملاحظة/بيع/زيارة) داخل نفس الفترة.
-              </p>
-            </Card>
+              </div>
+            </div>
 
-            <Card title="توزيع حالات العملاء">
-              <div style={{ padding: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+            <div style={{ marginTop: 14, ...ui.panel, padding: 14 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>توزيع حالات العملاء</div>
+              <div style={ui.grid(180)}>
                 {Object.entries(clientMetrics.statusCounts).length === 0 ? (
-                  <div style={{ color: '#666' }}>لا توجد بيانات</div>
+                  <div style={{ color: '#6b7280' }}>لا توجد بيانات</div>
                 ) : (
                   Object.entries(clientMetrics.statusCounts)
                     .sort((a, b) => b[1] - a[1])
                     .map(([k, v]) => (
-                      <div key={k} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
-                        <div style={{ color: '#666', fontSize: 12, fontWeight: 900 }}>{translateStatus(k)}</div>
-                        <div style={{ fontSize: 20, fontWeight: 900 }}>{v}</div>
+                      <div key={k} style={{ ...ui.panel, padding: 12 }}>
+                        <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 900 }}>{translateStatus(k)}</div>
+                        <div style={{ fontSize: 20, fontWeight: 900, marginTop: 6 }}>{v}</div>
                       </div>
                     ))
                 )}
               </div>
-            </Card>
+            </div>
 
-            <Card title="قائمة العملاء">
+            <div style={{ marginTop: 14, ...ui.panel, padding: 0 }}>
+              <div style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>قائمة العملاء</div>
+                  <div style={ui.hint}>
+                    {filteredClients.length} عميل بعد البحث • {showClients ? 'معروضة' : 'مخفية'}
+                  </div>
+                </div>
+                <Button onClick={() => setShowClients((p) => !p)} variant={showClients ? 'secondary' : 'primary'}>
+                  {showClients ? 'إخفاء القائمة' : 'عرض القائمة'}
+                </Button>
+              </div>
+
               {!showClients ? (
-                <div style={{ padding: 18, color: '#666' }}>تم إخفاء القائمة.</div>
+                <div style={{ padding: 18, color: '#6b7280' }}>تم إخفاء القائمة.</div>
               ) : (
-                <div style={{ overflowX: 'auto', padding: 14 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
+                <div style={ui.tableWrap}>
+                  <table style={ui.table}>
                     <thead>
-                      <tr style={{ backgroundColor: '#f8f9fa', borderBottom: '2px solid #e9ecef' }}>
-                        <th style={{ padding: 12, textAlign: 'right' }}>العميل</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>الجوال</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>الحالة</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>مستحق</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>تاريخ الإضافة</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>تم العمل عليه؟</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>تم تعديله؟</th>
-                        <th style={{ padding: 12, textAlign: 'right' }}>فتح</th>
+                      <tr>
+                        <th style={ui.th}>العميل</th>
+                        <th style={ui.th}>الجوال</th>
+                        <th style={ui.th}>الحالة</th>
+                        <th style={ui.th}>مستحق</th>
+                        <th style={ui.th}>تاريخ الإضافة</th>
+                        <th style={ui.th}>تم العمل عليه؟</th>
+                        <th style={ui.th}>تم تعديله؟</th>
+                        <th style={ui.th}>فتح</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {filteredClients.length === 0 ? (
                         <tr>
-                          <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+                          <td colSpan={8} style={{ ...ui.td, textAlign: 'center' }}>
                             لا توجد نتائج
                           </td>
                         </tr>
@@ -1908,15 +2074,15 @@ export default function ReportsPage() {
                             new Date(c.updated_at).getTime() > new Date(c.created_at).getTime();
 
                           return (
-                            <tr key={c.id} style={{ borderBottom: '1px solid #e9ecef', backgroundColor: idx % 2 === 0 ? '#fff' : '#fbfbfb' }}>
-                              <td style={{ padding: 12, fontWeight: 900 }}>{c.name}</td>
-                              <td style={{ padding: 12 }}>{c.mobile || '-'}</td>
-                              <td style={{ padding: 12 }}>{translateStatus(c.status)}</td>
-                              <td style={{ padding: 12 }}>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
-                              <td style={{ padding: 12 }}>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                              <td style={{ padding: 12 }}>{worked ? 'نعم' : 'لا'}</td>
-                              <td style={{ padding: 12 }}>{edited ? 'نعم' : 'لا'}</td>
-                              <td style={{ padding: 12 }}>
+                            <tr key={c.id} style={ui.row} onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                              <td style={{ ...ui.td, fontWeight: 900 }}>{c.name}</td>
+                              <td style={ui.td}>{c.mobile || '-'}</td>
+                              <td style={ui.td}>{translateStatus(c.status)}</td>
+                              <td style={ui.td}>{c.eligible ? 'مستحق' : 'غير مستحق'}</td>
+                              <td style={ui.td}>{new Date(c.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                              <td style={ui.td}>{worked ? 'نعم' : 'لا'}</td>
+                              <td style={ui.td}>{edited ? 'نعم' : 'لا'}</td>
+                              <td style={ui.td}>
                                 <Button onClick={() => router.push(`/dashboard/clients/${c.id}`)}>فتح</Button>
                               </td>
                             </tr>
@@ -1926,42 +2092,37 @@ export default function ReportsPage() {
                     </tbody>
                   </table>
 
-                  {filteredClients.length > 500 && <div style={{ marginTop: 10, fontSize: 12, color: '#666' }}>تم عرض أول 500 عميل فقط لتقليل الضغط.</div>}
+                  {filteredClients.length > 500 && (
+                    <div style={{ padding: 12, fontSize: 12, color: '#6b7280' }}>تم عرض أول 500 عميل فقط لتقليل الضغط.</div>
+                  )}
                 </div>
               )}
-            </Card>
+            </div>
           </>
         )}
 
-        {/* Empty States */}
+        {/* Empty states */}
         {!generating && tab === 'employee_activity' && !activitySummary && (
-          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
-            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
-            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الموظف والفترة ثم اضغط “توليد التقرير”</div>
-            <div style={{ color: '#666' }}>سيتم عرض ملخص + تفاصيل الأنشطة + تحليل زمني</div>
+          <div style={{ ...ui.panel, padding: 26, marginTop: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 26, color: '#9ca3af', marginBottom: 12 }}>📊</div>
+            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>اختر الموظف والفترة ثم اضغط “توليد التقرير”</div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>سيتم عرض ملخص + تفاصيل الأنشطة + تحليل زمني</div>
           </div>
         )}
 
         {!generating && tab === 'clients' && !clientMetrics && (
-          <div style={{ textAlign: 'center', padding: 40, backgroundColor: 'white', borderRadius: 12, border: '1px solid #e9ecef', marginTop: 14 }}>
-            <div style={{ fontSize: 26, color: '#999', marginBottom: 16 }}>📊</div>
-            <div style={{ fontSize: 18, marginBottom: 8, fontWeight: 900 }}>اختر الفلاتر ثم اضغط “توليد التقرير”</div>
-            <div style={{ color: '#666' }}>سيتم عرض إحصائيات العملاء + النشاط + التعديل + توزيع الحالات</div>
+          <div style={{ ...ui.panel, padding: 26, marginTop: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 26, color: '#9ca3af', marginBottom: 12 }}>📊</div>
+            <div style={{ fontSize: 16, fontWeight: 900, marginBottom: 6 }}>اختر الفلاتر ثم اضغط “توليد التقرير”</div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>سيتم عرض إحصائيات العملاء + النشاط + التعديل + توزيع الحالات</div>
           </div>
         )}
+
+        {/* Modal */}
+        <Modal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
+          {modalBody}
+        </Modal>
       </div>
     </RequireAuth>
-  );
-}
-
-/* =====================
-   Small Stat component
-===================== */
-function Stat({ title, value }: { title: string; value: string | number }) {
-  return (
-    <div style={{ backgroundColor: 'white', borderRadius: 12, padding: 14, boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #eee' }}>
-      <div style={{ color: '#666', fontSize: 12, marginBottom: 6, fontWeight: 900 }}>{title}</div>
-      <div style={{ fontSize: 20, fontWeight: 900 }}>{value}</div>
-    </div>
   );
 }

@@ -440,8 +440,17 @@ export default function ClientsPage() {
 
         // Filters على clients عبر join
         if (filters.search) {
-          q = q.or(`clients.name.ilike.%${filters.search}%,clients.mobile.ilike.%${filters.search}%`);
-        }
+  const term = filters.search.trim().replace(/[,()]/g, ' '); // حماية بسيطة للـ or parser
+  if (term) {
+    const orExpr = `name.ilike.%${term}%,mobile.ilike.%${term}%`;
+
+    // ✅ supabase-js غالبًا يستخدم foreignTable
+    q = q.or(orExpr, { foreignTable: 'clients' } as any);
+
+    // لو مشروعك على نسخة تستخدم referencedTable بدل foreignTable استخدم السطر ده بدل اللي فوق:
+    // q = q.or(orExpr, { referencedTable: 'clients' } as any);
+  }
+}
         if (filters.status.length > 0) {
           q = q.in('clients.status', filters.status);
         }

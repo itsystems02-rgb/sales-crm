@@ -1269,14 +1269,16 @@ export default function ClientsCreatedReportPage() {
                   hint="توزيع الحالات داخل الفترة"
                   right={<Badge tone="neutral">Clients</Badge>}
                 >
-                  <MiniBars
-                    items={[
-                      { label: translateStatus('lead'), value: metrics.lead, tone: 'info' },
-                      { label: translateStatus('reserved'), value: metrics.reserved, tone: 'warning' },
-                      { label: translateStatus('visited'), value: metrics.visited, tone: 'neutral' },
-                      { label: translateStatus('converted'), value: metrics.converted, tone: 'success' },
-                    ].filter((x) => x.value > 0)}
-                  />
+                 type Tone = 'danger' | 'warning' | 'neutral' | 'info' | 'success';
+
+const statusItems = [
+  { label: translateStatus('lead'), value: metrics.lead, tone: 'info' },
+  { label: translateStatus('reserved'), value: metrics.reserved, tone: 'warning' },
+  { label: translateStatus('visited'), value: metrics.visited, tone: 'neutral' },
+  { label: translateStatus('converted'), value: metrics.converted, tone: 'success' },
+] satisfies { label: string; value: number; tone?: Tone }[];
+
+<MiniBars items={statusItems.filter((x) => x.value > 0)} />
                 </Panel>
 
                 <Panel

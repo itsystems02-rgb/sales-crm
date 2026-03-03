@@ -107,6 +107,10 @@ type WorkedSets = {
   any: Set<string>;
 };
 
+/* ✅ FIX TYPES (for MiniBars) */
+type Tone = 'danger' | 'warning' | 'neutral' | 'info' | 'success';
+type MiniBarItem = { label: string; value: number; tone?: Tone };
+
 /* =====================
    Utils
 ===================== */
@@ -148,11 +152,16 @@ async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any)
 
 function translateStatus(status: string) {
   switch (status) {
-    case 'lead': return 'متابعة';
-    case 'reserved': return 'محجوز';
-    case 'visited': return 'تمت الزيارة';
-    case 'converted': return 'تم البيع';
-    default: return status;
+    case 'lead':
+      return 'متابعة';
+    case 'reserved':
+      return 'محجوز';
+    case 'visited':
+      return 'تمت الزيارة';
+    case 'converted':
+      return 'تم البيع';
+    default:
+      return status;
   }
 }
 
@@ -177,7 +186,7 @@ function Badge({
   tone = 'neutral',
   children,
 }: {
-  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  tone?: Tone;
   children: React.ReactNode;
 }) {
   return <span className={`cc-badge cc-badge--${tone}`}>{children}</span>;
@@ -187,14 +196,14 @@ function MiniBars({
   items,
   maxLabel = 220,
 }: {
-  items: { label: string; value: number; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }[];
+  items: MiniBarItem[];
   maxLabel?: number;
 }) {
   const max = Math.max(1, ...items.map((x) => x.value));
   return (
     <div className="cc-bars">
       {items.map((x) => {
-        const pct = clamp((x.value / max) * 100, 2, 100);
+        const barPct = clamp((x.value / max) * 100, 2, 100);
         const tone = x.tone || 'neutral';
         return (
           <div key={x.label} className="cc-bars__row">
@@ -202,7 +211,7 @@ function MiniBars({
               {x.label}
             </div>
             <div className="cc-bars__track">
-              <div className={`cc-bars__fill cc-bars__fill--${tone}`} style={{ width: `${pct}%` }} />
+              <div className={`cc-bars__fill cc-bars__fill--${tone}`} style={{ width: `${barPct}%` }} />
             </div>
             <div className="cc-bars__val">{x.value}</div>
           </div>
@@ -222,7 +231,7 @@ function KpiCard({
   title: string;
   value: string | number;
   sub?: string;
-  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+  tone?: Tone;
   icon: string;
 }) {
   return (
@@ -385,17 +394,12 @@ export default function ClientsCreatedReportPage() {
       return;
     }
 
-    // sales_manager: employees under allowed projects
     if (!allowedProjectIds.length) {
       setEmployees([]);
       return;
     }
 
-    const { data: epRows, error: epErr } = await supabase
-      .from('employee_projects')
-      .select('employee_id')
-      .in('project_id', allowedProjectIds);
-
+    const { data: epRows, error: epErr } = await supabase.from('employee_projects').select('employee_id').in('project_id', allowedProjectIds);
     if (epErr) throw epErr;
 
     const employeeIds = Array.from(new Set((epRows || []).map((r: any) => r.employee_id).filter(Boolean)));
@@ -438,7 +442,6 @@ export default function ClientsCreatedReportPage() {
         .order('id', { ascending: false })
         .range(from, to);
 
-      // sales_manager scope
       if (currentEmployee?.role === 'sales_manager') {
         if (!myAllowedProjectIds.length) return supabase.from('clients').select('id').limit(0);
         q = q.in('interested_in_project_id', myAllowedProjectIds);
@@ -470,11 +473,7 @@ export default function ClientsCreatedReportPage() {
 
     const chunks = chunkArray(clientIds, 500);
     for (const ch of chunks) {
-      const { data, error } = await supabase
-        .from('client_assignments')
-        .select('client_id, employee_id, assigned_at')
-        .in('client_id', ch);
-
+      const { data, error } = await supabase.from('client_assignments').select('client_id, employee_id, assigned_at').in('client_id', ch);
       if (error) throw error;
 
       (data || []).forEach((r: any) => {
@@ -518,7 +517,6 @@ export default function ClientsCreatedReportPage() {
 
     const chunks = chunkArray(clientIds, 500);
 
-    // Followups (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('client_followups')
@@ -542,7 +540,6 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Reservations (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('reservations')
@@ -566,7 +563,6 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Visits (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('visits')
@@ -590,7 +586,6 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Sales (sales_employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('sales')
@@ -614,17 +609,11 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Reservation notes:
-    // map reservation_id -> client_id using reservations (all, not only in range, but only notes in range)
     const reservationIdToClient = new Map<string, string>();
     const allReservationIds: string[] = [];
 
     for (const ch of chunks) {
-      const { data, error } = await supabase
-        .from('reservations')
-        .select('id, client_id')
-        .in('client_id', ch);
-
+      const { data, error } = await supabase.from('reservations').select('id, client_id').in('client_id', ch);
       if (error) throw error;
 
       (data || []).forEach((r: any) => {
@@ -703,7 +692,6 @@ export default function ClientsCreatedReportPage() {
   }
 
   function computeAssignmentSLA(createdClients: ClientRow[], assignmentRows: AssignmentRow[]) {
-    // earliest assignment per client
     const firstAssignAt = new Map<string, string>();
     const assignCountByClient = new Map<string, number>();
 
@@ -712,9 +700,7 @@ export default function ClientsCreatedReportPage() {
 
       const prev = firstAssignAt.get(r.client_id);
       if (!prev) firstAssignAt.set(r.client_id, r.assigned_at);
-      else {
-        if (new Date(r.assigned_at).getTime() < new Date(prev).getTime()) firstAssignAt.set(r.client_id, r.assigned_at);
-      }
+      else if (new Date(r.assigned_at).getTime() < new Date(prev).getTime()) firstAssignAt.set(r.client_id, r.assigned_at);
     }
 
     const hours: number[] = [];
@@ -737,11 +723,12 @@ export default function ClientsCreatedReportPage() {
     const assignedClients = hours.length;
 
     const avgHours = assignedClients ? hours.reduce((s, x) => s + x, 0) / assignedClients : 0;
-    const medianHours = assignedClients
-      ? assignedClients % 2 === 1
-        ? hours[Math.floor(assignedClients / 2)]
-        : (hours[assignedClients / 2 - 1] + hours[assignedClients / 2]) / 2
-      : 0;
+    const medianHours =
+      assignedClients > 0
+        ? assignedClients % 2 === 1
+          ? hours[Math.floor(assignedClients / 2)]
+          : (hours[assignedClients / 2 - 1] + hours[assignedClients / 2]) / 2
+        : 0;
 
     const reassignedClients = Array.from(assignCountByClient.values()).filter((n) => n > 1).length;
 
@@ -803,7 +790,6 @@ export default function ClientsCreatedReportPage() {
       return;
     }
 
-    // Sheet-like CSV: Summary then Employees
     const summaryRows = [
       ['Metric', 'Value'],
       ['Total Created', metrics.totalCreated],
@@ -832,18 +818,7 @@ export default function ClientsCreatedReportPage() {
       ['SLA Reassigned Clients', assignmentSLA?.reassignedClients ?? 0],
     ];
 
-    const empHeader = [
-      'Employee',
-      'Score',
-      'AssignedClients',
-      'TouchedUniqueClients',
-      'ConversionRate(%)',
-      'Followups',
-      'Reservations',
-      'ReservationNotes',
-      'Visits',
-      'Sales',
-    ];
+    const empHeader = ['Employee', 'Score', 'AssignedClients', 'TouchedUniqueClients', 'ConversionRate(%)', 'Followups', 'Reservations', 'ReservationNotes', 'Visits', 'Sales'];
 
     const empRows = topEmployees.map((e) => [
       e.employee_name,
@@ -929,14 +904,7 @@ export default function ClientsCreatedReportPage() {
           workedByVisits: 0,
           workedBySales: 0,
         });
-        setAssignmentSLA({
-          assignedClients: 0,
-          avgHours: 0,
-          medianHours: 0,
-          within24h: 0,
-          within72h: 0,
-          reassignedClients: 0,
-        });
+        setAssignmentSLA({ assignedClients: 0, avgHours: 0, medianHours: 0, within24h: 0, within72h: 0, reassignedClients: 0 });
         setProjectBreakdown([]);
         setDebug((p) => p + '\n✅ لا يوجد عملاء تم إضافتهم في هذه الفترة');
         return;
@@ -967,8 +935,11 @@ export default function ClientsCreatedReportPage() {
       setProjectBreakdown(pbd);
 
       setDebug((p) => p + '\n🔄 حساب نشاط الموظفين على العملاء الجدد...');
-      const { followups, reservations, visits, sales, reservationNotes, touchedClients, workedSets } =
-        await fetchEmployeeActivityOnClients(clientIds, startISO, endISOExclusive);
+      const { followups, reservations, visits, sales, reservationNotes, touchedClients, workedSets } = await fetchEmployeeActivityOnClients(
+        clientIds,
+        startISO,
+        endISOExclusive
+      );
 
       const workedAny = workedSets.any.size;
 
@@ -997,11 +968,8 @@ export default function ClientsCreatedReportPage() {
         const rn = reservationNotes.get(eid) || 0;
 
         const touched = touchedClients.get(eid)?.size || 0;
-
         const conversionRate = touched > 0 ? s / touched : 0;
 
-        // Score weights (عملي وبروفشنال):
-        // sales أعلى وزن — reservations مهمة — visits — followups — notes
         const score = Math.round(f * 1 + r * 3 + v * 2 + rn * 1 + s * 6 + assignedClients * 0.25);
 
         return {
@@ -1065,7 +1033,7 @@ export default function ClientsCreatedReportPage() {
 
   const insights = useMemo(() => {
     if (!metrics) return [];
-    const out: { tone: 'info' | 'success' | 'warning' | 'danger'; text: string }[] = [];
+    const out: { tone: Tone; text: string }[] = [];
 
     const unassignedRate = metrics.totalCreated ? (metrics.unassigned / metrics.totalCreated) * 100 : 0;
     const workedRate = metrics.totalCreated ? (metrics.workedAny / metrics.totalCreated) * 100 : 0;
@@ -1089,6 +1057,18 @@ export default function ClientsCreatedReportPage() {
     return out;
   }, [metrics, assignmentSLA]);
 
+  /* ✅ FIX: statusItems خارج JSX */
+  const statusItems: MiniBarItem[] = useMemo(() => {
+    if (!metrics) return [];
+    const items: MiniBarItem[] = [
+      { label: translateStatus('lead'), value: metrics.lead, tone: 'info' },
+      { label: translateStatus('reserved'), value: metrics.reserved, tone: 'warning' },
+      { label: translateStatus('visited'), value: metrics.visited, tone: 'neutral' },
+      { label: translateStatus('converted'), value: metrics.converted, tone: 'success' },
+    ];
+    return items.filter((x) => x.value > 0);
+  }, [metrics]);
+
   /* =====================
      UI
   ===================== */
@@ -1105,19 +1085,14 @@ export default function ClientsCreatedReportPage() {
     );
   }
 
+  const selectedProject = projectId !== 'all' ? projects.find((p) => p.id === projectId) : null;
   const projectLabel =
-    projectId === 'all'
-      ? 'كل المشاريع'
-      : projects.find((p) => p.id === projectId)
-      ? (projects.find((p) => p.id === projectId)!.code
-          ? `${projects.find((p) => p.id === projectId)!.name} (${projects.find((p) => p.id === projectId)!.code})`
-          : projects.find((p) => p.id === projectId)!.name)
-      : projectId;
+    projectId === 'all' ? 'كل المشاريع' : selectedProject ? (selectedProject.code ? `${selectedProject.name} (${selectedProject.code})` : selectedProject.name) : projectId;
 
-  const topProjectBars = projectBreakdown.slice(0, 10).map((x, i) => ({
+  const topProjectBars: MiniBarItem[] = projectBreakdown.slice(0, 10).map((x, i) => ({
     label: x.label,
     value: x.count,
-    tone: i < 2 ? ('success' as const) : i < 6 ? ('info' as const) : ('neutral' as const),
+    tone: i < 2 ? 'success' : i < 6 ? 'info' : 'neutral',
   }));
 
   return (
@@ -1130,15 +1105,17 @@ export default function ClientsCreatedReportPage() {
           <div className="cc-hero__inner">
             <div className="cc-hero__row">
               <div>
-                <div className="cc-crumbs">Dashboard / Reports / <b>Clients Created</b></div>
+                <div className="cc-crumbs">
+                  Dashboard / Reports / <b>Clients Created</b>
+                </div>
                 <h1 className="cc-title">تقرير العملاء المضافين خلال فترة</h1>
-                <p className="cc-sub">
-                  Snapshot احترافي عن العملاء الجدد: توزيع، تعديل، Funnel نشاط، SLA للتوزيع، و Top Employees.
-                </p>
+                <p className="cc-sub">Snapshot احترافي عن العملاء الجدد: توزيع، تعديل، Funnel نشاط، SLA للتوزيع، و Top Employees.</p>
 
                 <div className="cc-badges">
                   <Badge tone="info">🔐 {currentEmployee?.role}</Badge>
-                  <Badge tone="neutral">📅 {dateRange.start} → {dateRange.end}</Badge>
+                  <Badge tone="neutral">
+                    📅 {dateRange.start} → {dateRange.end}
+                  </Badge>
                   <Badge tone="neutral">🏗️ {projectLabel}</Badge>
                 </div>
               </div>
@@ -1147,7 +1124,9 @@ export default function ClientsCreatedReportPage() {
                 <Button onClick={() => setShowDebug((p) => !p)} variant="secondary">
                   {showDebug ? 'إخفاء Debug' : 'عرض Debug'}
                 </Button>
-                <Button onClick={exportCSV} disabled={!metrics}>⬇️ CSV</Button>
+                <Button onClick={exportCSV} disabled={!metrics}>
+                  ⬇️ CSV
+                </Button>
                 <Button onClick={exportJSON} disabled={!metrics || exporting} variant="secondary">
                   {exporting ? 'جاري...' : '⬇️ JSON'}
                 </Button>
@@ -1162,22 +1141,12 @@ export default function ClientsCreatedReportPage() {
             <div className="cc-filters">
               <div className="cc-field">
                 <div className="cc-label">من تاريخ</div>
-                <input
-                  className="cc-input"
-                  type="date"
-                  value={dateRange.start}
-                  onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                />
+                <input className="cc-input" type="date" value={dateRange.start} onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))} />
               </div>
 
               <div className="cc-field">
                 <div className="cc-label">إلى تاريخ</div>
-                <input
-                  className="cc-input"
-                  type="date"
-                  value={dateRange.end}
-                  onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                />
+                <input className="cc-input" type="date" value={dateRange.end} onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))} />
               </div>
 
               <div className="cc-field">
@@ -1190,16 +1159,17 @@ export default function ClientsCreatedReportPage() {
                     </option>
                   ))}
                 </select>
+
                 {currentEmployee?.role === 'sales_manager' ? (
-                  <div className="cc-hint">
-                    نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
-                  </div>
+                  <div className="cc-hint">نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}</div>
                 ) : null}
               </div>
 
               <div className="cc-actions">
                 <div className="cc-quick">
-                  <button className="cc-chip" onClick={() => setDateRange({ start: todayStr, end: todayStr })}>اليوم</button>
+                  <button className="cc-chip" onClick={() => setDateRange({ start: todayStr, end: todayStr })}>
+                    اليوم
+                  </button>
                   <button
                     className="cc-chip"
                     onClick={() => {
@@ -1249,7 +1219,13 @@ export default function ClientsCreatedReportPage() {
               {/* KPIs */}
               <div className="cc-kpis">
                 <KpiCard title="إجمالي العملاء المضافين" value={fmt(metrics.totalCreated)} sub="Created in range" tone="info" icon="👥" />
-                <KpiCard title="نسبة التوزيع" value={pct(metrics.distributionRate)} sub={`${fmt(metrics.assigned)} موزع • ${fmt(metrics.unassigned)} غير موزع`} tone={metrics.distributionRate >= 80 ? 'success' : metrics.distributionRate >= 50 ? 'warning' : 'danger'} icon="🎯" />
+                <KpiCard
+                  title="نسبة التوزيع"
+                  value={pct(metrics.distributionRate)}
+                  sub={`${fmt(metrics.assigned)} موزع • ${fmt(metrics.unassigned)} غير موزع`}
+                  tone={metrics.distributionRate >= 80 ? 'success' : metrics.distributionRate >= 50 ? 'warning' : 'danger'}
+                  icon="🎯"
+                />
                 <KpiCard title="تم تعديلهم" value={fmt(metrics.editedWithinRange)} sub="updated_at within range" tone="warning" icon="✍️" />
                 <KpiCard title="تم العمل عليهم" value={fmt(metrics.workedAny)} sub="Any activity within range" tone="success" icon="🛠️" />
               </div>
@@ -1258,34 +1234,19 @@ export default function ClientsCreatedReportPage() {
               <Panel title="Executive Insights" hint="ملخص سريع يساعدك تاخد قرار بسرعة" right={<Badge tone="info">Auto</Badge>}>
                 <div className="cc-ins">
                   {insights.map((x, i) => (
-                    <div key={i} className={`cc-ins__item cc-ins__item--${x.tone}`}>{x.text}</div>
+                    <div key={i} className={`cc-ins__item cc-ins__item--${x.tone}`}>
+                      {x.text}
+                    </div>
                   ))}
                 </div>
               </Panel>
 
               <div className="cc-grid2">
-                <Panel
-                  title="Status Breakdown"
-                  hint="توزيع الحالات داخل الفترة"
-                  right={<Badge tone="neutral">Clients</Badge>}
-                >
-                 type Tone = 'danger' | 'warning' | 'neutral' | 'info' | 'success';
-
-const statusItems = [
-  { label: translateStatus('lead'), value: metrics.lead, tone: 'info' },
-  { label: translateStatus('reserved'), value: metrics.reserved, tone: 'warning' },
-  { label: translateStatus('visited'), value: metrics.visited, tone: 'neutral' },
-  { label: translateStatus('converted'), value: metrics.converted, tone: 'success' },
-] satisfies { label: string; value: number; tone?: Tone }[];
-
-<MiniBars items={statusItems.filter((x) => x.value > 0)} />
+                <Panel title="Status Breakdown" hint="توزيع الحالات داخل الفترة" right={<Badge tone="neutral">Clients</Badge>}>
+                  <MiniBars items={statusItems} />
                 </Panel>
 
-                <Panel
-                  title="Eligibility Mix"
-                  hint="مستحق/غير مستحق"
-                  right={<Badge tone="neutral">Risk</Badge>}
-                >
+                <Panel title="Eligibility Mix" hint="مستحق/غير مستحق" right={<Badge tone="neutral">Risk</Badge>}>
                   <MiniBars
                     items={[
                       { label: 'مستحق', value: metrics.eligibleTrue, tone: 'success' },
@@ -1329,11 +1290,7 @@ const statusItems = [
                   )}
                 </Panel>
 
-                <Panel
-                  title="Activity Funnel on New Clients"
-                  hint="قد إيه من العملاء الجدد اتعمل عليهم activity داخل نفس الفترة"
-                  right={<Badge tone="info">Funnel</Badge>}
-                >
+                <Panel title="Activity Funnel on New Clients" hint="قد إيه من العملاء الجدد اتعمل عليهم activity داخل نفس الفترة" right={<Badge tone="info">Funnel</Badge>}>
                   <MiniBars
                     items={[
                       { label: 'أي نشاط', value: metrics.workedAny, tone: 'success' },
@@ -1348,23 +1305,11 @@ const statusItems = [
                 </Panel>
               </div>
 
-              <Panel
-                title="Top Projects"
-                hint="أكثر المشاريع اللي دخلها عملاء جدد خلال الفترة"
-                right={<Badge tone="neutral">Top 10</Badge>}
-              >
-                {topProjectBars.length ? (
-                  <MiniBars items={topProjectBars} maxLabel={260} />
-                ) : (
-                  <div className="cc-muted">لا يوجد بيانات مشاريع (أو العملاء بدون مشروع).</div>
-                )}
+              <Panel title="Top Projects" hint="أكثر المشاريع اللي دخلها عملاء جدد خلال الفترة" right={<Badge tone="neutral">Top 10</Badge>}>
+                {topProjectBars.length ? <MiniBars items={topProjectBars} maxLabel={260} /> : <div className="cc-muted">لا يوجد بيانات مشاريع (أو العملاء بدون مشروع).</div>}
               </Panel>
 
-              <Panel
-                title="Top Employees"
-                hint="مين اشتغل أكتر على العملاء الجدد (Score + Conversion)"
-                right={<Badge tone="info">Leaderboard</Badge>}
-              >
+              <Panel title="Top Employees" hint="مين اشتغل أكتر على العملاء الجدد (Score + Conversion)" right={<Badge tone="info">Leaderboard</Badge>}>
                 {topEmployees.length === 0 ? (
                   <div className="cc-muted">لا يوجد نشاط موظفين على العملاء الجدد داخل الفترة.</div>
                 ) : (
@@ -1389,8 +1334,12 @@ const statusItems = [
                         {topEmployees.map((r, idx) => (
                           <tr key={r.employee_id}>
                             <td>{idx + 1}</td>
-                            <td><b>{r.employee_name}</b></td>
-                            <td><b>{r.score}</b></td>
+                            <td>
+                              <b>{r.employee_name}</b>
+                            </td>
+                            <td>
+                              <b>{r.score}</b>
+                            </td>
                             <td>{r.assignedClients}</td>
                             <td>{r.touchedUniqueClients}</td>
                             <td>{Math.round(r.conversionRate * 1000) / 10}%</td>
@@ -1404,9 +1353,7 @@ const statusItems = [
                       </tbody>
                     </table>
 
-                    <div className="cc-foot">
-                      Score = Followups×1 + Reservations×3 + Visits×2 + Notes×1 + Sales×6 + Assigned×0.25
-                    </div>
+                    <div className="cc-foot">Score = Followups×1 + Reservations×3 + Visits×2 + Notes×1 + Sales×6 + Assigned×0.25</div>
                   </div>
                 )}
               </Panel>

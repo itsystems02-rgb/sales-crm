@@ -517,6 +517,7 @@ export default function ClientsCreatedReportPage() {
 
     const chunks = chunkArray(clientIds, 500);
 
+    // Followups
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('client_followups')
@@ -533,13 +534,14 @@ export default function ClientsCreatedReportPage() {
         if (!eid || !cid) return;
 
         setFollowups.add(cid);
-
         followups.set(eid, (followups.get(eid) || 0) + 1);
+
         if (!touchedClients.has(eid)) touchedClients.set(eid, new Set());
         touchedClients.get(eid)!.add(cid);
       });
     }
 
+    // Reservations
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('reservations')
@@ -556,13 +558,14 @@ export default function ClientsCreatedReportPage() {
         if (!eid || !cid) return;
 
         setReservations.add(cid);
-
         reservations.set(eid, (reservations.get(eid) || 0) + 1);
+
         if (!touchedClients.has(eid)) touchedClients.set(eid, new Set());
         touchedClients.get(eid)!.add(cid);
       });
     }
 
+    // Visits
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('visits')
@@ -579,13 +582,14 @@ export default function ClientsCreatedReportPage() {
         if (!eid || !cid) return;
 
         setVisits.add(cid);
-
         visits.set(eid, (visits.get(eid) || 0) + 1);
+
         if (!touchedClients.has(eid)) touchedClients.set(eid, new Set());
         touchedClients.get(eid)!.add(cid);
       });
     }
 
+    // Sales
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('sales')
@@ -602,13 +606,14 @@ export default function ClientsCreatedReportPage() {
         if (!eid || !cid) return;
 
         setSales.add(cid);
-
         sales.set(eid, (sales.get(eid) || 0) + 1);
+
         if (!touchedClients.has(eid)) touchedClients.set(eid, new Set());
         touchedClients.get(eid)!.add(cid);
       });
     }
 
+    // Reservation Notes
     const reservationIdToClient = new Map<string, string>();
     const allReservationIds: string[] = [];
 
@@ -670,7 +675,6 @@ export default function ClientsCreatedReportPage() {
 
   function computeProjectBreakdown(createdClients: ClientRow[]) {
     const map = new Map<string, number>();
-
     for (const c of createdClients) {
       const pid = c.interested_in_project_id || 'none';
       map.set(pid, (map.get(pid) || 0) + 1);
@@ -1057,7 +1061,7 @@ export default function ClientsCreatedReportPage() {
     return out;
   }, [metrics, assignmentSLA]);
 
-  /* ✅ FIX: statusItems خارج JSX */
+  /* ✅ FIX #1: Status items خارج JSX (من غير widening) */
   const statusItems: MiniBarItem[] = useMemo(() => {
     if (!metrics) return [];
     const items: MiniBarItem[] = [
@@ -1066,6 +1070,22 @@ export default function ClientsCreatedReportPage() {
       { label: translateStatus('visited'), value: metrics.visited, tone: 'neutral' },
       { label: translateStatus('converted'), value: metrics.converted, tone: 'success' },
     ];
+    return items.filter((x) => x.value > 0);
+  }, [metrics]);
+
+  /* ✅ FIX #2: Funnel items خارج JSX (من غير widening) */
+  const funnelItems: MiniBarItem[] = useMemo(() => {
+    if (!metrics) return [];
+
+    const items: MiniBarItem[] = [
+      { label: 'أي نشاط', value: metrics.workedAny, tone: 'success' },
+      { label: 'Followups', value: metrics.workedByFollowups, tone: 'info' },
+      { label: 'Reservations', value: metrics.workedByReservations, tone: 'warning' },
+      { label: 'Reservation Notes', value: metrics.workedByReservationNotes, tone: 'neutral' },
+      { label: 'Visits', value: metrics.workedByVisits, tone: 'info' },
+      { label: 'Sales', value: metrics.workedBySales, tone: 'success' },
+    ];
+
     return items.filter((x) => x.value > 0);
   }, [metrics]);
 
@@ -1291,17 +1311,7 @@ export default function ClientsCreatedReportPage() {
                 </Panel>
 
                 <Panel title="Activity Funnel on New Clients" hint="قد إيه من العملاء الجدد اتعمل عليهم activity داخل نفس الفترة" right={<Badge tone="info">Funnel</Badge>}>
-                  <MiniBars
-                    items={[
-                      { label: 'أي نشاط', value: metrics.workedAny, tone: 'success' },
-                      { label: 'Followups', value: metrics.workedByFollowups, tone: 'info' },
-                      { label: 'Reservations', value: metrics.workedByReservations, tone: 'warning' },
-                      { label: 'Reservation Notes', value: metrics.workedByReservationNotes, tone: 'neutral' },
-                      { label: 'Visits', value: metrics.workedByVisits, tone: 'info' },
-                      { label: 'Sales', value: metrics.workedBySales, tone: 'success' },
-                    ].filter((x) => x.value > 0)}
-                    maxLabel={200}
-                  />
+                  <MiniBars items={funnelItems} maxLabel={200} />
                 </Panel>
               </div>
 

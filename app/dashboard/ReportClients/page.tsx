@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { getCurrentEmployee } from '@/lib/getCurrentEmployee';
@@ -39,7 +40,7 @@ type ClientRow = {
   updated_at: string | null;
 };
 
-type ClientCreationMetrics = {
+type Metrics = {
   totalCreated: number;
 
   assigned: number;
@@ -48,10 +49,10 @@ type ClientCreationMetrics = {
 
   editedWithinRange: number;
 
-  statusLead: number;
-  statusReserved: number;
-  statusVisited: number;
-  statusConverted: number;
+  lead: number;
+  reserved: number;
+  visited: number;
+  converted: number;
 };
 
 type EmployeeImpactRow = {
@@ -62,6 +63,7 @@ type EmployeeImpactRow = {
 
   followups: number;
   reservations: number;
+  reservationNotes: number;
   visits: number;
   sales: number;
 
@@ -94,7 +96,6 @@ async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any)
   while (true) {
     const res = await queryFactory(from, from + pageSize - 1);
     const { data, error } = res || {};
-
     if (error) throw error;
 
     const batch = (data || []) as T[];
@@ -103,7 +104,7 @@ async function fetchAllPaged<T>(queryFactory: (from: number, to: number) => any)
     if (batch.length < pageSize) break;
 
     from += pageSize;
-    await new Promise((r) => setTimeout(r, 70));
+    await new Promise((r) => setTimeout(r, 60));
   }
 
   return all;
@@ -122,11 +123,6 @@ function translateStatus(status: string) {
 function pct(n: number) {
   if (!Number.isFinite(n)) return '0%';
   return `${Math.round(n * 10) / 10}%`;
-}
-
-function safeNum(n: any) {
-  const v = Number(n || 0);
-  return Number.isFinite(v) ? v : 0;
 }
 
 /* =====================
@@ -151,7 +147,7 @@ export default function ClientsCreatedReportPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
 
-  const [metrics, setMetrics] = useState<ClientCreationMetrics | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [topEmployees, setTopEmployees] = useState<EmployeeImpactRow[]>([]);
   const [debug, setDebug] = useState<string>('');
 
@@ -285,7 +281,7 @@ export default function ClientsCreatedReportPage() {
   }
 
   /* =====================
-     Fetch + Generate
+     Report Fetchers
   ===================== */
 
   async function fetchClientsCreatedInRange(startISO: string, endISOExclusive: string): Promise<ClientRow[]> {
@@ -305,7 +301,6 @@ export default function ClientsCreatedReportPage() {
         q = q.in('interested_in_project_id', myAllowedProjectIds);
       }
 
-      // project filter
       if (projectId !== 'all') q = q.eq('interested_in_project_id', projectId);
 
       return q;
@@ -325,7 +320,7 @@ export default function ClientsCreatedReportPage() {
 
   async function fetchAssignmentsForClients(clientIds: string[]) {
     const assignedClientSet = new Set<string>();
-    const byEmployee = new Map<string, number>();
+    const assignedByEmployee = new Map<string, number>();
 
     const chunks = chunkArray(clientIds, 500);
     for (const ch of chunks) {
@@ -339,31 +334,37 @@ export default function ClientsCreatedReportPage() {
       (data || []).forEach((r: any) => {
         if (!r?.client_id) return;
         assignedClientSet.add(r.client_id);
-
-        if (r.employee_id) byEmployee.set(r.employee_id, (byEmployee.get(r.employee_id) || 0) + 1);
+        if (r.employee_id) assignedByEmployee.set(r.employee_id, (assignedByEmployee.get(r.employee_id) || 0) + 1);
       });
     }
 
-    return { assignedClientSet, assignedByEmployee: byEmployee };
+    return { assignedClientSet, assignedByEmployee };
   }
 
-  async function fetchEmployeeActivityCountsOnClients(
-    clientIds: string[],
-    startISO: string,
-    endISOExclusive: string
-  ) {
-    // maps employee_id -> count
+  function computeEditedCount(clients: ClientRow[], startISO: string, endISOExclusive: string) {
+    const startT = new Date(startISO).getTime();
+    const endT = new Date(endISOExclusive).getTime();
+
+    return clients.filter((c) => {
+      if (!c.updated_at) return false;
+      const u = new Date(c.updated_at).getTime();
+      const cr = new Date(c.created_at).getTime();
+      return u >= startT && u < endT && u > cr;
+    }).length;
+  }
+
+  async function fetchEmployeeActivityOnClients(clientIds: string[], startISO: string, endISOExclusive: string) {
     const followups = new Map<string, number>();
     const reservations = new Map<string, number>();
     const visits = new Map<string, number>();
     const sales = new Map<string, number>();
+    const reservationNotes = new Map<string, number>();
 
-    // for unique touched clients per employee
     const touchedClients = new Map<string, Set<string>>();
 
     const chunks = chunkArray(clientIds, 500);
 
-    // Followups
+    // Followups (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('client_followups')
@@ -385,7 +386,7 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Reservations
+    // Reservations (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('reservations')
@@ -407,7 +408,7 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Visits
+    // Visits (employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('visits')
@@ -429,8 +430,7 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    // Sales
-    // ⚠️ IMPORTANT: This assumes sales employee column is "sales_employee_id"
+    // Sales (sales_employee_id)
     for (const ch of chunks) {
       const { data, error } = await supabase
         .from('sales')
@@ -452,20 +452,62 @@ export default function ClientsCreatedReportPage() {
       });
     }
 
-    return { followups, reservations, visits, sales, touchedClients };
+    // Reservation notes:
+    // reservation_notes has reservation_id, created_by (employee), but no client_id.
+    // We map reservation_id -> client_id using reservations.
+    const reservationIdToClient = new Map<string, string>();
+    const allReservationIds: string[] = [];
+
+    for (const ch of chunks) {
+      const { data, error } = await supabase
+        .from('reservations')
+        .select('id, client_id')
+        .in('client_id', ch);
+
+      if (error) throw error;
+
+      (data || []).forEach((r: any) => {
+        if (!r?.id || !r?.client_id) return;
+        reservationIdToClient.set(r.id, r.client_id);
+        allReservationIds.push(r.id);
+      });
+    }
+
+    if (allReservationIds.length) {
+      const resChunks = chunkArray(allReservationIds, 500);
+
+      for (const rch of resChunks) {
+        const { data, error } = await supabase
+          .from('reservation_notes')
+          .select('reservation_id, created_by, created_at')
+          .in('reservation_id', rch)
+          .gte('created_at', startISO)
+          .lt('created_at', endISOExclusive);
+
+        if (error) throw error;
+
+        (data || []).forEach((n: any) => {
+          const eid = n.created_by;
+          const rid = n.reservation_id;
+          const cid = reservationIdToClient.get(rid);
+
+          if (!eid) return;
+
+          reservationNotes.set(eid, (reservationNotes.get(eid) || 0) + 1);
+          if (cid) {
+            if (!touchedClients.has(eid)) touchedClients.set(eid, new Set());
+            touchedClients.get(eid)!.add(cid);
+          }
+        });
+      }
+    }
+
+    return { followups, reservations, visits, sales, reservationNotes, touchedClients };
   }
 
-  function computeEditedCount(clients: ClientRow[], startISO: string, endISOExclusive: string) {
-    const startT = new Date(startISO).getTime();
-    const endT = new Date(endISOExclusive).getTime();
-
-    return clients.filter((c) => {
-      if (!c.updated_at) return false;
-      const u = new Date(c.updated_at).getTime();
-      const cr = new Date(c.created_at).getTime();
-      return u >= startT && u < endT && u > cr;
-    }).length;
-  }
+  /* =====================
+     Generate
+  ===================== */
 
   async function generateReport() {
     if (!dateRange.start || !dateRange.end) {
@@ -497,10 +539,10 @@ export default function ClientsCreatedReportPage() {
           unassigned: 0,
           distributionRate: 0,
           editedWithinRange: 0,
-          statusLead: 0,
-          statusReserved: 0,
-          statusVisited: 0,
-          statusConverted: 0,
+          lead: 0,
+          reserved: 0,
+          visited: 0,
+          converted: 0,
         });
         setDebug((p) => p + '\n✅ لا يوجد عملاء تم إضافتهم في هذه الفترة');
         return;
@@ -508,36 +550,28 @@ export default function ClientsCreatedReportPage() {
 
       const clientIds = createdClients.map((c) => c.id);
 
-      // status buckets
-      const statusLead = createdClients.filter((c) => c.status === 'lead').length;
-      const statusReserved = createdClients.filter((c) => c.status === 'reserved').length;
-      const statusVisited = createdClients.filter((c) => c.status === 'visited').length;
-      const statusConverted = createdClients.filter((c) => c.status === 'converted').length;
+      const lead = createdClients.filter((c) => c.status === 'lead').length;
+      const reserved = createdClients.filter((c) => c.status === 'reserved').length;
+      const visited = createdClients.filter((c) => c.status === 'visited').length;
+      const converted = createdClients.filter((c) => c.status === 'converted').length;
 
-      // edited count
       const editedWithinRange = computeEditedCount(createdClients, startISO, endISOExclusive);
 
-      // assignments
-      setDebug((p) => p + '\n🔄 حساب (متوزع/غير متوزع)...');
+      setDebug((p) => p + '\n🔄 حساب التوزيع (متوزع/غير متوزع)...');
       const { assignedClientSet, assignedByEmployee } = await fetchAssignmentsForClients(clientIds);
       const assigned = assignedClientSet.size;
       const unassigned = createdClients.length - assigned;
       const distributionRate = createdClients.length ? (assigned / createdClients.length) * 100 : 0;
 
-      // employee activity
       setDebug((p) => p + '\n🔄 حساب نشاط الموظفين على العملاء الجدد...');
-      const { followups, reservations, visits, sales, touchedClients } = await fetchEmployeeActivityCountsOnClients(
-        clientIds,
-        startISO,
-        endISOExclusive
-      );
+      const { followups, reservations, visits, sales, reservationNotes, touchedClients } =
+        await fetchEmployeeActivityOnClients(clientIds, startISO, endISOExclusive);
 
-      // build employee ranking
       const empMap = new Map<string, Employee>();
       employees.forEach((e) => empMap.set(e.id, e));
 
       const allEmployeeIds = new Set<string>();
-      [assignedByEmployee, followups, reservations, visits, sales].forEach((m) => {
+      [assignedByEmployee, followups, reservations, visits, sales, reservationNotes].forEach((m) => {
         for (const k of m.keys()) allEmployeeIds.add(k);
       });
 
@@ -549,12 +583,13 @@ export default function ClientsCreatedReportPage() {
         const r = reservations.get(eid) || 0;
         const v = visits.get(eid) || 0;
         const s = sales.get(eid) || 0;
+        const rn = reservationNotes.get(eid) || 0;
 
         const touched = touchedClients.get(eid)?.size || 0;
 
-        // ✅ “Score” عملي: البيع أعلى وزن، الحجز/زيارة متوسط، المتابعة أقل
-        // تقدر تغيّر الأوزان بسهولة
-        const score = Math.round(f * 1 + r * 2 + v * 2 + s * 5 + assignedClients * 0.5);
+        // Score weights (عملية ومحترمة):
+        // البيع أعلى وزن، بعده الحجز، الزيارة، المتابعة، ملاحظات الحجز
+        const score = Math.round(f * 1 + r * 3 + v * 2 + rn * 1 + s * 6 + assignedClients * 0.25);
 
         return {
           employee_id: eid,
@@ -564,6 +599,7 @@ export default function ClientsCreatedReportPage() {
           reservations: r,
           visits: v,
           sales: s,
+          reservationNotes: rn,
           touchedUniqueClients: touched,
           score,
         };
@@ -577,10 +613,10 @@ export default function ClientsCreatedReportPage() {
         unassigned,
         distributionRate: Math.round(distributionRate * 10) / 10,
         editedWithinRange,
-        statusLead,
-        statusReserved,
-        statusVisited,
-        statusConverted,
+        lead,
+        reserved,
+        visited,
+        converted,
       });
 
       setTopEmployees(rows.slice(0, 10));
@@ -588,7 +624,7 @@ export default function ClientsCreatedReportPage() {
       setDebug(
         (p) =>
           p +
-          `\n✅ تم: Clients=${createdClients.length} | Assigned=${assigned} | Edited=${editedWithinRange}\n✅ Top employee: ${
+          `\n✅ تم: Clients=${createdClients.length} | Assigned=${assigned} | Edited=${editedWithinRange}\n✅ Top: ${
             rows[0]?.employee_name || '—'
           } (Score=${rows[0]?.score || 0})`
       );
@@ -617,55 +653,48 @@ export default function ClientsCreatedReportPage() {
     );
   }
 
-  const canChooseProject = true;
-
   return (
     <RequireAuth>
       <div className="page">
-        <Card title="تقرير إضافة العملاء (Clients Created Report)">
+        <Card title="تقرير إضافة العملاء (حسب تاريخ الإضافة)">
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'end' }}>
             <div style={{ minWidth: 200 }}>
-              <label style={{ fontSize: 12, fontWeight: 800, display: 'block', marginBottom: 6 }}>من تاريخ</label>
+              <label style={lbl}>من تاريخ</label>
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange((p) => ({ ...p, start: e.target.value }))}
-                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #e5e7eb' }}
+                style={inp}
               />
             </div>
 
             <div style={{ minWidth: 200 }}>
-              <label style={{ fontSize: 12, fontWeight: 800, display: 'block', marginBottom: 6 }}>إلى تاريخ</label>
+              <label style={lbl}>إلى تاريخ</label>
               <input
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => setDateRange((p) => ({ ...p, end: e.target.value }))}
-                style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #e5e7eb' }}
+                style={inp}
               />
             </div>
 
-            {canChooseProject && (
-              <div style={{ minWidth: 240 }}>
-                <label style={{ fontSize: 12, fontWeight: 800, display: 'block', marginBottom: 6 }}>المشروع</label>
-                <select
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  style={{ width: '100%', padding: 10, borderRadius: 10, border: '1px solid #e5e7eb' }}
-                >
-                  <option value="all">كل المشاريع</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.code ? `${p.name} (${p.code})` : p.name}
-                    </option>
-                  ))}
-                </select>
-                {currentEmployee?.role === 'sales_manager' ? (
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-                    نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
-                  </div>
-                ) : null}
-              </div>
-            )}
+            <div style={{ minWidth: 260 }}>
+              <label style={lbl}>المشروع (اختياري)</label>
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={inp}>
+                <option value="all">كل المشاريع</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code ? `${p.name} (${p.code})` : p.name}
+                  </option>
+                ))}
+              </select>
+
+              {currentEmployee?.role === 'sales_manager' ? (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+                  نطاقك: {myAllowedProjects.length ? `${myAllowedProjects.length} مشروع` : 'لا يوجد مشاريع مفعّلة لك'}
+                </div>
+              ) : null}
+            </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
               <Button onClick={generateReport} disabled={generating}>
@@ -678,73 +707,58 @@ export default function ClientsCreatedReportPage() {
             </div>
           </div>
 
-          {debug ? (
-            <pre
-              style={{
-                marginTop: 12,
-                padding: 12,
-                background: '#0b1220',
-                color: '#e5e7eb',
-                borderRadius: 12,
-                fontSize: 12,
-                whiteSpace: 'pre-wrap',
-                overflowX: 'auto',
-              }}
-            >
-              {debug}
-            </pre>
-          ) : null}
+          {debug ? <pre style={debugBox}>{debug}</pre> : null}
         </Card>
 
         {metrics && (
           <>
-            <Card title="ملخص الفترة">
+            <Card title="ملخص الفترة (KPIs)">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
-                <div style={kpiStyle}>
+                <div style={kpi}>
                   <div style={kpiTitle}>إجمالي العملاء المضافين</div>
                   <div style={kpiValue}>{metrics.totalCreated.toLocaleString('ar-EG')}</div>
                   <div style={kpiSub}>Clients created in range</div>
                 </div>
 
-                <div style={kpiStyle}>
-                  <div style={kpiTitle}>الموزعين</div>
+                <div style={kpi}>
+                  <div style={kpiTitle}>موزعين</div>
                   <div style={kpiValue}>{metrics.assigned.toLocaleString('ar-EG')}</div>
                   <div style={kpiSub}>
                     نسبة التوزيع: <b>{pct(metrics.distributionRate)}</b>
                   </div>
                 </div>
 
-                <div style={kpiStyle}>
+                <div style={kpi}>
                   <div style={kpiTitle}>غير موزعين</div>
                   <div style={kpiValue}>{metrics.unassigned.toLocaleString('ar-EG')}</div>
                   <div style={kpiSub}>Unassigned leads</div>
                 </div>
 
-                <div style={kpiStyle}>
+                <div style={kpi}>
                   <div style={kpiTitle}>تم تعديلهم داخل الفترة</div>
                   <div style={kpiValue}>{metrics.editedWithinRange.toLocaleString('ar-EG')}</div>
-                  <div style={kpiSub}>Updated within range</div>
+                  <div style={kpiSub}>updated_at within range</div>
                 </div>
               </div>
             </Card>
 
-            <Card title="حالات العملاء داخل الفترة (Status Breakdown)">
+            <Card title="حالات العملاء (Status Breakdown)">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                <div style={miniStyle}>
-                  <div style={miniTitle}>متابعة</div>
-                  <div style={miniValue}>{metrics.statusLead.toLocaleString('ar-EG')}</div>
+                <div style={mini}>
+                  <div style={miniTitle}>{translateStatus('lead')}</div>
+                  <div style={miniValue}>{metrics.lead.toLocaleString('ar-EG')}</div>
                 </div>
-                <div style={miniStyle}>
-                  <div style={miniTitle}>حجز</div>
-                  <div style={miniValue}>{metrics.statusReserved.toLocaleString('ar-EG')}</div>
+                <div style={mini}>
+                  <div style={miniTitle}>{translateStatus('reserved')}</div>
+                  <div style={miniValue}>{metrics.reserved.toLocaleString('ar-EG')}</div>
                 </div>
-                <div style={miniStyle}>
-                  <div style={miniTitle}>زيارة</div>
-                  <div style={miniValue}>{metrics.statusVisited.toLocaleString('ar-EG')}</div>
+                <div style={mini}>
+                  <div style={miniTitle}>{translateStatus('visited')}</div>
+                  <div style={miniValue}>{metrics.visited.toLocaleString('ar-EG')}</div>
                 </div>
-                <div style={miniStyle}>
-                  <div style={miniTitle}>بيع</div>
-                  <div style={miniValue}>{metrics.statusConverted.toLocaleString('ar-EG')}</div>
+                <div style={mini}>
+                  <div style={miniTitle}>{translateStatus('converted')}</div>
+                  <div style={miniValue}>{metrics.converted.toLocaleString('ar-EG')}</div>
                 </div>
               </div>
             </Card>
@@ -754,18 +768,19 @@ export default function ClientsCreatedReportPage() {
                 <div style={{ padding: 14, color: '#6b7280' }}>لا يوجد نشاط موظفين على العملاء الجدد داخل الفترة.</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        <th style={th}>الترتيب</th>
+                        <th style={th}>#</th>
                         <th style={th}>الموظف</th>
                         <th style={th}>Score</th>
-                        <th style={th}>عملاء تم تعيينهم</th>
-                        <th style={th}>متابعات</th>
-                        <th style={th}>حجوزات</th>
-                        <th style={th}>زيارات</th>
-                        <th style={th}>مبيعات</th>
-                        <th style={th}>عملاء فريدين تم لمسهم</th>
+                        <th style={th}>Clients Assigned</th>
+                        <th style={th}>Followups</th>
+                        <th style={th}>Reservations</th>
+                        <th style={th}>Reservation Notes</th>
+                        <th style={th}>Visits</th>
+                        <th style={th}>Sales</th>
+                        <th style={th}>Unique Clients Touched</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -777,6 +792,7 @@ export default function ClientsCreatedReportPage() {
                           <td style={td}>{r.assignedClients}</td>
                           <td style={td}>{r.followups}</td>
                           <td style={td}>{r.reservations}</td>
+                          <td style={td}>{r.reservationNotes}</td>
                           <td style={td}>{r.visits}</td>
                           <td style={td}>{r.sales}</td>
                           <td style={td}>{r.touchedUniqueClients}</td>
@@ -786,7 +802,7 @@ export default function ClientsCreatedReportPage() {
                   </table>
 
                   <div style={{ padding: 10, fontSize: 12, color: '#6b7280' }}>
-                    * Score = (Followups×1) + (Reservations×2) + (Visits×2) + (Sales×5) + (Assigned×0.5)
+                    * Score = Followups×1 + Reservations×3 + Visits×2 + Notes×1 + Sales×6 + Assigned×0.25
                   </div>
                 </div>
               )}
@@ -799,10 +815,30 @@ export default function ClientsCreatedReportPage() {
 }
 
 /* =====================
-   UI styles (simple + pro)
+   Styles
 ===================== */
 
-const kpiStyle: React.CSSProperties = {
+const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 800, display: 'block', marginBottom: 6 };
+
+const inp: React.CSSProperties = {
+  width: '100%',
+  padding: 10,
+  borderRadius: 10,
+  border: '1px solid #e5e7eb',
+};
+
+const debugBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: 12,
+  background: '#0b1220',
+  color: '#e5e7eb',
+  borderRadius: 12,
+  fontSize: 12,
+  whiteSpace: 'pre-wrap',
+  overflowX: 'auto',
+};
+
+const kpi: React.CSSProperties = {
   padding: 14,
   border: '1px solid #e5e7eb',
   borderRadius: 14,
@@ -813,7 +849,7 @@ const kpiTitle: React.CSSProperties = { fontSize: 12, color: '#6b7280', fontWeig
 const kpiValue: React.CSSProperties = { fontSize: 26, fontWeight: 900, color: '#0f172a', marginTop: 6 };
 const kpiSub: React.CSSProperties = { fontSize: 12, color: '#6b7280', marginTop: 6 };
 
-const miniStyle: React.CSSProperties = {
+const mini: React.CSSProperties = {
   padding: 14,
   border: '1px solid #e5e7eb',
   borderRadius: 14,
@@ -830,6 +866,7 @@ const th: React.CSSProperties = {
   fontWeight: 900,
   color: '#334155',
   borderBottom: '1px solid #e5e7eb',
+  whiteSpace: 'nowrap',
 };
 
 const td: React.CSSProperties = {
@@ -837,4 +874,5 @@ const td: React.CSSProperties = {
   padding: 12,
   fontSize: 13,
   color: '#0f172a',
+  whiteSpace: 'nowrap',
 };

@@ -268,6 +268,12 @@ export default function ClientsPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ FIX: prevent init re-run on page change
+  const didInitRef = useRef(false);
+
+  // ✅ FIX: prevent stale requests overwriting current page results
+  const loadReqRef = useRef(0);
+
   /* =====================
      HELPER FUNCTIONS
   ===================== */
@@ -376,10 +382,25 @@ export default function ClientsPage() {
     updateFilter('status', newStatus);
   };
 
+  const hasActiveFilters = () => {
+    return (
+      filters.search ||
+      filters.status.length > 0 ||
+      filters.eligible !== null ||
+      filters.nationality !== null ||
+      filters.salary_bank_id !== null ||
+      filters.finance_bank_id !== null ||
+      filters.job_sector_id !== null ||
+      filters.interested_in_project_id !== null ||
+      filters.from_date ||
+      filters.to_date
+    );
+  };
+
   const applyFilters = () => {
     setCurrentPage(1);
     loadClients(employee, 1);
-    setIsFiltered(true);
+    setIsFiltered(!!hasActiveFilters());
   };
 
   const resetFilters = () => {
@@ -400,31 +421,19 @@ export default function ClientsPage() {
     setIsFiltered(false);
   };
 
-  const hasActiveFilters = () => {
-    return (
-      filters.search ||
-      filters.status.length > 0 ||
-      filters.eligible !== null ||
-      filters.nationality !== null ||
-      filters.salary_bank_id !== null ||
-      filters.finance_bank_id !== null ||
-      filters.job_sector_id !== null ||
-      filters.interested_in_project_id !== null ||
-      filters.from_date ||
-      filters.to_date
-    );
-  };
-
   const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') applyFilters();
   };
 
   /* =====================
-     LOAD CLIENTS (UPDATED)
+     LOAD CLIENTS (FIXED)
      - admin/sales_manager: نفس نظامك القديم (حسب المشاريع)
      - sales: يعرض فقط العملاء المعيّنين له من client_assignments
   ===================== */
   const loadClients = useCallback(async (emp: Employee | null = null, page: number = currentPage) => {
+    const reqId = ++loadReqRef.current;
+    setLoading(true);
+
     try {
       const from = (page - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
@@ -436,45 +445,25 @@ export default function ClientsPage() {
           .select('client_id, assigned_at, clients!inner(*)', { count: 'exact' })
           .eq('employee_id', emp.id)
           .order('assigned_at', { ascending: false })
+          .order('client_id', { ascending: false }) // ✅ tie-breaker
           .range(from, to);
 
         // Filters على clients عبر join
         if (filters.search) {
-  const term = filters.search.trim().replace(/[,()]/g, ' '); // حماية بسيطة للـ or parser
-  if (term) {
-    const orExpr = `name.ilike.%${term}%,mobile.ilike.%${term}%`;
-
-    // ✅ supabase-js غالبًا يستخدم foreignTable
-    q = q.or(orExpr, { foreignTable: 'clients' } as any);
-
-    // لو مشروعك على نسخة تستخدم referencedTable بدل foreignTable استخدم السطر ده بدل اللي فوق:
-    // q = q.or(orExpr, { referencedTable: 'clients' } as any);
-  }
-}
-        if (filters.status.length > 0) {
-          q = q.in('clients.status', filters.status);
+          const term = filters.search.trim().replace(/[,()]/g, ' ');
+          if (term) {
+            const orExpr = `name.ilike.%${term}%,mobile.ilike.%${term}%`;
+            q = q.or(orExpr, { foreignTable: 'clients' } as any);
+          }
         }
-        if (filters.eligible !== null) {
-          q = q.eq('clients.eligible', filters.eligible === 'true');
-        }
-        if (filters.nationality !== null) {
-          q = q.eq('clients.nationality', filters.nationality);
-        }
-        if (filters.salary_bank_id !== null) {
-          q = q.eq('clients.salary_bank_id', filters.salary_bank_id);
-        }
-        if (filters.finance_bank_id !== null) {
-          q = q.eq('clients.finance_bank_id', filters.finance_bank_id);
-        }
-        if (filters.job_sector_id !== null) {
-          q = q.eq('clients.job_sector_id', filters.job_sector_id);
-        }
-        if (filters.interested_in_project_id !== null) {
-          q = q.eq('clients.interested_in_project_id', filters.interested_in_project_id);
-        }
-        if (filters.from_date) {
-          q = q.gte('clients.created_at', filters.from_date);
-        }
+        if (filters.status.length > 0) q = q.in('clients.status', filters.status);
+        if (filters.eligible !== null) q = q.eq('clients.eligible', filters.eligible === 'true');
+        if (filters.nationality !== null) q = q.eq('clients.nationality', filters.nationality);
+        if (filters.salary_bank_id !== null) q = q.eq('clients.salary_bank_id', filters.salary_bank_id);
+        if (filters.finance_bank_id !== null) q = q.eq('clients.finance_bank_id', filters.finance_bank_id);
+        if (filters.job_sector_id !== null) q = q.eq('clients.job_sector_id', filters.job_sector_id);
+        if (filters.interested_in_project_id !== null) q = q.eq('clients.interested_in_project_id', filters.interested_in_project_id);
+        if (filters.from_date) q = q.gte('clients.created_at', filters.from_date);
         if (filters.to_date) {
           const nextDay = new Date(filters.to_date);
           nextDay.setDate(nextDay.getDate() + 1);
@@ -482,6 +471,9 @@ export default function ClientsPage() {
         }
 
         const { data, error, count } = await q;
+
+        // ✅ ignore stale response
+        if (reqId !== loadReqRef.current) return;
 
         if (error) {
           console.error('Error fetching assigned clients:', error);
@@ -508,6 +500,7 @@ export default function ClientsPage() {
         .from('clients')
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false }) // ✅ tie-breaker
         .range(from, to);
 
       // sales_manager scope بالمشاريع
@@ -527,32 +520,19 @@ export default function ClientsPage() {
 
       // Filters
       if (filters.search) {
-        query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
+        const term = filters.search.trim().replace(/[,()]/g, ' ');
+        if (term) {
+          query = query.or(`name.ilike.%${term}%,mobile.ilike.%${term}%`);
+        }
       }
-      if (filters.status.length > 0) {
-        query = query.in('status', filters.status);
-      }
-      if (filters.eligible !== null) {
-        query = query.eq('eligible', filters.eligible === 'true');
-      }
-      if (filters.nationality !== null) {
-        query = query.eq('nationality', filters.nationality);
-      }
-      if (filters.salary_bank_id !== null) {
-        query = query.eq('salary_bank_id', filters.salary_bank_id);
-      }
-      if (filters.finance_bank_id !== null) {
-        query = query.eq('finance_bank_id', filters.finance_bank_id);
-      }
-      if (filters.job_sector_id !== null) {
-        query = query.eq('job_sector_id', filters.job_sector_id);
-      }
-      if (filters.interested_in_project_id !== null) {
-        query = query.eq('interested_in_project_id', filters.interested_in_project_id);
-      }
-      if (filters.from_date) {
-        query = query.gte('created_at', filters.from_date);
-      }
+      if (filters.status.length > 0) query = query.in('status', filters.status);
+      if (filters.eligible !== null) query = query.eq('eligible', filters.eligible === 'true');
+      if (filters.nationality !== null) query = query.eq('nationality', filters.nationality);
+      if (filters.salary_bank_id !== null) query = query.eq('salary_bank_id', filters.salary_bank_id);
+      if (filters.finance_bank_id !== null) query = query.eq('finance_bank_id', filters.finance_bank_id);
+      if (filters.job_sector_id !== null) query = query.eq('job_sector_id', filters.job_sector_id);
+      if (filters.interested_in_project_id !== null) query = query.eq('interested_in_project_id', filters.interested_in_project_id);
+      if (filters.from_date) query = query.gte('created_at', filters.from_date);
       if (filters.to_date) {
         const nextDay = new Date(filters.to_date);
         nextDay.setDate(nextDay.getDate() + 1);
@@ -560,6 +540,9 @@ export default function ClientsPage() {
       }
 
       const { data, error, count } = await query;
+
+      // ✅ ignore stale response
+      if (reqId !== loadReqRef.current) return;
 
       if (error) {
         console.error('Error fetching clients:', error);
@@ -572,10 +555,14 @@ export default function ClientsPage() {
       setTotalClients(total);
       setTotalPages(Math.max(1, Math.ceil(total / itemsPerPage)));
     } catch (error) {
+      if (reqId !== loadReqRef.current) return;
       console.error('Error in loadClients:', error);
       setClients([]);
       setTotalClients(0);
       setTotalPages(1);
+    } finally {
+      // ✅ only stop loading for the latest request
+      if (reqId === loadReqRef.current) setLoading(false);
     }
   }, [currentPage, itemsPerPage, filters, fetchAllowedProjects]);
 
@@ -658,9 +645,12 @@ export default function ClientsPage() {
   }, [itemsPerPage, fetchAllowedProjects]);
 
   /* =====================
-     Init
+     Init (FIXED)
   ===================== */
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
     async function init() {
       setLoading(true);
       try {
@@ -917,8 +907,8 @@ export default function ClientsPage() {
      Excel Import/Export (كما هو)
   ===================== */
   const processImportedClients = useCallback(async (data: any[]) => {
-    const processedClients = [];
-    const errors = [];
+    const processedClients: any[] = [];
+    const errors: string[] = [];
 
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
@@ -997,8 +987,8 @@ export default function ClientsPage() {
         const salaryBankName = row['بنك الراتب'] || row['salary_bank'] || row['Salary Bank'];
         const financeBankName = row['بنك التمويل'] || row['finance_bank'] || row['Finance Bank'];
 
-        let salaryBankId = null;
-        let financeBankId = null;
+        let salaryBankId: string | null = null;
+        let financeBankId: string | null = null;
 
         if (salaryBankName && banks.length > 0) {
           const bank = banks.find(b =>
@@ -1019,7 +1009,7 @@ export default function ClientsPage() {
         }
 
         const jobSectorName = row['القطاع الوظيفي'] || row['job_sector'] || row['Job Sector'];
-        let jobSectorId = null;
+        let jobSectorId: string | null = null;
 
         if (jobSectorName && jobSectors.length > 0) {
           const jobSector = jobSectors.find(j =>
@@ -1031,7 +1021,7 @@ export default function ClientsPage() {
         }
 
         const projectName = row['مهتم بمشروع'] || row['project'] || row['Project'] || row['المشروع'] || '';
-        let interestedInProjectId = null;
+        let interestedInProjectId: string | null = null;
 
         if (projectName) {
           const projectsToSearch = employee?.role === 'admin' ? allProjects : allowedProjects;
@@ -1087,7 +1077,11 @@ export default function ClientsPage() {
 
     const fetchFilteredClients = async () => {
       try {
-        let query: any = supabase.from('clients').select('*').order('created_at', { ascending: false });
+        let query: any = supabase
+          .from('clients')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false });
 
         if (employee?.role === 'sales_manager') {
           const allowed = await fetchAllowedProjects(employee);
@@ -1101,7 +1095,10 @@ export default function ClientsPage() {
           }
         }
 
-        if (filters.search) query = query.or(`name.ilike.%${filters.search}%,mobile.ilike.%${filters.search}%`);
+        if (filters.search) {
+          const term = filters.search.trim().replace(/[,()]/g, ' ');
+          if (term) query = query.or(`name.ilike.%${term}%,mobile.ilike.%${term}%`);
+        }
         if (filters.status.length > 0) query = query.in('status', filters.status);
         if (filters.eligible !== null) query = query.eq('eligible', filters.eligible === 'true');
         if (filters.nationality !== null) query = query.eq('nationality', filters.nationality);
@@ -1598,7 +1595,10 @@ export default function ClientsPage() {
             </div>
           )}
 
-          <Table headers={['الاسم', 'الجوال', 'مستحق', 'الحالة', 'مهتم بـ', 'إجراء']}>
+          <Table
+            key={`clients-${currentPage}-${itemsPerPage}`}
+            headers={['الاسم', 'الجوال', 'مستحق', 'الحالة', 'مهتم بـ', 'إجراء']}
+          >
             {loading ? (
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>جاري تحميل العملاء...</td></tr>
             ) : clients.length === 0 ? (
